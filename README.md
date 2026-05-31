@@ -1,6 +1,6 @@
 # lorawan-sim
 
-Clean-room LoRaWAN simulator MVP with modular architecture.
+LoRaWAN simulator MVP with modular architecture.
 
 ## Features (MVP)
 
