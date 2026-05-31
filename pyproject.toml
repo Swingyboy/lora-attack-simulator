@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lorawan-sim"
+version = "0.1.0"
+description = "Clean-room LoRaWAN simulator MVP"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "cryptography>=42.0.0",
+]
+
+[project.optional-dependencies]
+dev = []
+
+[project.scripts]
+lorawan-sim = "lorawan_sim.main:main"
