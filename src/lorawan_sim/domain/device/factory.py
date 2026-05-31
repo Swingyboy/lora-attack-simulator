@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from lorawan_sim.device.model import SimulatedDevice
-from lorawan_sim.scenario.schema import DeviceConfig
+from lorawan_sim.domain.device.model import SimulatedDevice
+from lorawan_sim.domain.scenario.schema import DeviceConfig
 
 
 def create_device(config: DeviceConfig) -> SimulatedDevice:

@@ -3,9 +3,9 @@ from __future__ import annotations
 import argparse
 import logging
 
-from lorawan_sim.core.runner import ScenarioRunner
-from lorawan_sim.logging.json_logger import configure_logging
-from lorawan_sim.scenario.loader import load_scenario
+from lorawan_sim.core.runner.scenario_runner import ScenarioRunner
+from lorawan_sim.domain.scenario.loader import load_scenario
+from lorawan_sim.observability.logging.json_logger import configure_logging
 
 
 def build_parser() -> argparse.ArgumentParser:

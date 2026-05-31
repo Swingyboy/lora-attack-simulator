@@ -4,13 +4,13 @@ import time
 from logging import Logger
 from typing import Callable
 
-from lorawan_sim.device.factory import create_device
-from lorawan_sim.device.model import SimulatedDevice
-from lorawan_sim.gateway.factory import create_gateway
-from lorawan_sim.gateway.model import GatewaySimulator
-from lorawan_sim.scenario.schema import ScenarioConfig
-from lorawan_sim.scenario.schema import DeviceConfig, GatewayConfig
-from lorawan_sim.strategy.periodic_uplink import PeriodicUplinkStrategy
+from lorawan_sim.domain.device.factory import create_device
+from lorawan_sim.domain.device.model import SimulatedDevice
+from lorawan_sim.domain.gateway.factory import create_gateway
+from lorawan_sim.domain.gateway.model import GatewaySimulator
+from lorawan_sim.domain.scenario.schema import DeviceConfig, GatewayConfig
+from lorawan_sim.domain.scenario.schema import ScenarioConfig
+from lorawan_sim.domain.strategy.periodic_uplink import PeriodicUplinkStrategy
 
 
 class ScenarioRunner:

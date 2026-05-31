@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from lorawan_sim.scenario.schema import (
+from lorawan_sim.domain.scenario.schema import (
     ActivationConfig,
     DeviceConfig,
     GatewayConfig,

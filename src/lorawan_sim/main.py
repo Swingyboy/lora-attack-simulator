@@ -1,4 +1,4 @@
-from lorawan_sim.cli.app import main
+from lorawan_sim.app.cli import main
 
 
 if __name__ == "__main__":

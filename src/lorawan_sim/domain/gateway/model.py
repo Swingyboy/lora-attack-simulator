@@ -4,8 +4,9 @@ import base64
 import time
 from logging import Logger
 
-from lorawan_sim.core.contracts import TransportClient
-from lorawan_sim.gateway.semtech_codec import (
+from lorawan_sim.core.contracts.transport import TransportClient
+from lorawan_sim.domain.scenario.schema import RadioMetadata
+from lorawan_sim.protocol.semtech.codec import (
     PULL_ACK,
     PULL_RESP,
     PUSH_ACK,
@@ -14,7 +15,6 @@ from lorawan_sim.gateway.semtech_codec import (
     encode_push_data,
     encode_tx_ack,
 )
-from lorawan_sim.scenario.schema import RadioMetadata
 
 
 class GatewaySimulator:

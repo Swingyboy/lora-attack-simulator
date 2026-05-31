@@ -3,7 +3,7 @@ from __future__ import annotations
 import secrets
 from dataclasses import dataclass
 
-from lorawan_sim.lorawan.frames import (
+from lorawan_sim.protocol.lorawan.frames import (
     build_join_request,
     build_unconfirmed_data_up,
     decode_join_accept,

@@ -7,10 +7,10 @@ import unittest
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-from lorawan_sim.device.model import SimulatedDevice
-from lorawan_sim.gateway.model import GatewaySimulator
-from lorawan_sim.scenario.schema import RadioMetadata
-from lorawan_sim.transport.in_memory import InMemoryTransport
+from lorawan_sim.adapters.transport.in_memory import InMemoryTransport
+from lorawan_sim.domain.device.model import SimulatedDevice
+from lorawan_sim.domain.gateway.model import GatewaySimulator
+from lorawan_sim.domain.scenario.schema import RadioMetadata
 
 
 def _build_join_accept(app_key_hex: str, dev_addr_hex: str) -> bytes:
@@ -22,7 +22,7 @@ def _build_join_accept(app_key_hex: str, dev_addr_hex: str) -> bytes:
     rx_delay = bytes([0x01])
     plain_wo_mic = app_nonce + net_id + dev_addr_le + dl_settings + rx_delay
 
-    from lorawan_sim.lorawan.crypto_v103 import aes_cmac_4
+    from lorawan_sim.protocol.lorawan.crypto_v103 import aes_cmac_4
 
     mhdr = bytes([0x20])
     mic = aes_cmac_4(app_key, mhdr + plain_wo_mic)
