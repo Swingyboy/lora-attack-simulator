@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from lorawan_sim.scenario.loader import load_scenario
+from lorawan_sim.domain.scenario.loader import load_scenario
 
 
 class ScenarioLoaderTests(unittest.TestCase):

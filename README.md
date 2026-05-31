@@ -10,6 +10,27 @@ LoRaWAN simulator MVP with modular architecture.
 - Structured JSON logs
 - Scenario validation + execution via CLI
 
+## Package structure
+
+```text
+src/lorawan_sim/
+  app/                  # CLI entrypoints
+  core/                 # Contracts and scenario runner
+  domain/
+    device/             # Device state/model/factory
+    gateway/            # Gateway state/model/factory
+    scenario/           # Scenario schema and loader
+    strategy/           # Uplink scheduling strategies
+  protocol/
+    lorawan/            # LoRaWAN frame and crypto logic
+    semtech/            # Semtech UDP packet codec
+  adapters/
+    transport/          # UDP and in-memory transport adapters
+  observability/
+    logging/            # JSON logger configuration
+  tests/                # Unit tests
+```
+
 ## Commands
 
 ```bash
