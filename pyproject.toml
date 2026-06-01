@@ -7,9 +7,9 @@ name = "lorawan-sim"
 version = "0.1.0"
 description = "LoRaWAN simulator MVP"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
-  "cryptography>=42.0.0",
+  "cryptography==3.3.2",
 ]
 
 [project.optional-dependencies]
@@ -17,3 +17,4 @@ dev = []
 
 [project.scripts]
 lorawan-sim = "lorawan_sim.main:main"
+chirpstack-monitor = "lorawan_sim.observability.chirpstack_monitor:main"
