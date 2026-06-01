@@ -10,7 +10,9 @@ from lorawan_sim.domain.gateway.factory import create_gateway
 from lorawan_sim.domain.gateway.model import GatewaySimulator
 from lorawan_sim.domain.scenario.schema import DeviceConfig, GatewayConfig
 from lorawan_sim.domain.scenario.schema import ScenarioConfig
-from lorawan_sim.domain.strategy.periodic_uplink import PeriodicUplinkStrategy
+
+JOIN_ACCEPT_TIMEOUT_SEC = 20.0
+IDLE_SLEEP_SEC = 1.0
 
 
 class ScenarioRunner:
@@ -27,36 +29,41 @@ class ScenarioRunner:
     def run(self, config: ScenarioConfig) -> None:
         gateway = self._gateway_factory(config.gateway, self._logger)
         device = self._device_factory(config.device)
+        uplink_payload = bytes.fromhex(config.uplink.payload.value)
 
-        started = time.monotonic()
         try:
             gateway.start()
             self._logger.info("gateway_started")
+            while True:
+                if not device.runtime.joined:
+                    join_request = device.build_join_request()
+                    gateway.forward_uplink(join_request, config.gateway.radio_metadata)
+                    self._logger.info("join_request_sent")
 
-            join_request = device.build_join_request()
-            gateway.forward_uplink(join_request, config.gateway.radio_metadata)
-            self._logger.info("join_request_sent")
+                    join_accept = gateway.await_downlink(timeout_sec=JOIN_ACCEPT_TIMEOUT_SEC)
+                    if join_accept is None:
+                        self._logger.warning("join_accept_timeout")
+                        time.sleep(config.uplink.interval_sec)
+                        continue
 
-            join_accept = gateway.await_downlink(timeout_sec=10.0)
-            if join_accept is None:
-                raise RuntimeError("join accept was not received from network side")
+                    try:
+                        device.apply_join_accept(join_accept)
+                    except ValueError as exc:
+                        self._logger.warning("join_accept_invalid", extra={"error": str(exc)})
+                        time.sleep(config.uplink.interval_sec)
+                        continue
+                    self._logger.info("join_completed", extra={"dev_addr": device.runtime.dev_addr_hex})
 
-            device.apply_join_accept(join_accept)
-            self._logger.info("join_completed", extra={"dev_addr": device.runtime.dev_addr_hex})
+                if not config.uplink.enabled:
+                    time.sleep(IDLE_SLEEP_SEC)
+                    continue
 
-            if config.uplink.enabled:
-                uplink = PeriodicUplinkStrategy(
-                    interval_sec=config.uplink.interval_sec,
-                    count=config.uplink.count,
-                    payload=bytes.fromhex(config.uplink.payload.value),
+                frame = device.build_data_uplink(
+                    payload=uplink_payload,
                     f_port=config.uplink.f_port,
                     confirmed=config.uplink.confirmed,
                 )
-                for frame in uplink.generate(device):
-                    gateway.forward_uplink(frame, config.gateway.radio_metadata)
-
-            runtime = time.monotonic() - started
-            if runtime > config.scenario.duration_sec:
-                self._logger.warning("duration_limit_exceeded", extra={"runtime_sec": runtime})
+                gateway.forward_uplink(frame, config.gateway.radio_metadata)
+                time.sleep(config.uplink.interval_sec)
         finally:
             gateway.stop()

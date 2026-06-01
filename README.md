@@ -41,8 +41,8 @@ lorawan-sim run examples/debug-join-uplink.json
 ## Dev setup
 
 ```bash
-python3 -m venv .venv
+python3.12 -m venv .venv
 . .venv/bin/activate
 pip install -e .
-PYTHONPATH=src python3 -m unittest discover -s src/lorawan_sim/tests -q
+PYTHONPATH=src python3.12 -m unittest discover -s src/lorawan_sim/tests -q
 ```

@@ -13,4 +13,5 @@ def create_gateway(config: GatewayConfig, logger: Logger) -> GatewaySimulator:
         gateway_eui=config.gateway_eui,
         transport=transport,
         logger=logger,
+        pull_data_interval_sec=config.semtech_udp.pull_data_interval_sec,
     )

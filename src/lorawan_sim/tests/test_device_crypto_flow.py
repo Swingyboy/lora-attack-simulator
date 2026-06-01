@@ -4,6 +4,7 @@ import base64
 import json
 import logging
 import unittest
+from unittest.mock import patch
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
@@ -98,4 +99,30 @@ class DeviceCryptoFlowTests(unittest.TestCase):
             ),
         )
         self.assertTrue(any(packet[3] == 0x00 for packet in transport.sent_packets))
+        gateway.stop()
+
+    def test_gateway_sends_periodic_pull_data(self) -> None:
+        transport = InMemoryTransport()
+        gateway = GatewaySimulator(
+            gateway_eui="0102030405060708",
+            transport=transport,
+            logger=logging.getLogger("test"),
+            pull_data_interval_sec=1,
+        )
+        radio = RadioMetadata(
+            frequency=868100000,
+            data_rate="SF7BW125",
+            rssi=-60,
+            snr=7.5,
+        )
+        with patch(
+            "lorawan_sim.domain.gateway.model.time.monotonic",
+            side_effect=[0.0, 0.2, 1.1, 1.1],
+        ):
+            gateway.start()
+            gateway.forward_uplink(b"\x40\x00", radio)
+            gateway.forward_uplink(b"\x40\x01", radio)
+
+        pull_packets = [packet for packet in transport.sent_packets if packet[3] == 0x02]
+        self.assertEqual(len(pull_packets), 2)
         gateway.stop()
