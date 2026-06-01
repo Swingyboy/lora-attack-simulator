@@ -18,26 +18,48 @@ from lorawan_sim.protocol.semtech.codec import (
 
 
 class GatewaySimulator:
-    def __init__(self, gateway_eui: str, transport: TransportClient, logger: Logger) -> None:
+    def __init__(
+        self,
+        gateway_eui: str,
+        transport: TransportClient,
+        logger: Logger,
+        pull_data_interval_sec: int = 5,
+    ) -> None:
         self._gateway_eui = gateway_eui
         self._transport = transport
         self._logger = logger
+        self._pull_data_interval_sec = pull_data_interval_sec
+        self._next_pull_data_at = 0.0
+
+    def _send_pull_data(self) -> None:
+        self._transport.send(encode_pull_data(self._gateway_eui))
+        self._next_pull_data_at = time.monotonic() + self._pull_data_interval_sec
+
+    def _send_periodic_pull_data_if_due(self) -> None:
+        if time.monotonic() >= self._next_pull_data_at:
+            self._send_pull_data()
 
     def start(self) -> None:
         self._transport.connect()
-        self._transport.send(encode_pull_data(self._gateway_eui))
+        self._send_pull_data()
 
     def stop(self) -> None:
         self._transport.disconnect()
 
     def forward_uplink(self, phy_payload: bytes, radio: RadioMetadata) -> None:
+        self._send_periodic_pull_data_if_due()
         rxpk = {
             "rxpk": [
                 {
                     "time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                     "tmst": int(time.time() * 1_000_000) & 0xFFFFFFFF,
+                    "chan": 0,
+                    "rfch": 0,
                     "freq": radio.frequency / 1_000_000,
+                    "stat": 1,
+                    "modu": "LORA",
                     "datr": radio.data_rate,
+                    "codr": "4/5",
                     "rssi": radio.rssi,
                     "lsnr": radio.snr,
                     "size": len(phy_payload),
@@ -52,6 +74,7 @@ class GatewaySimulator:
     def await_downlink(self, timeout_sec: float) -> bytes | None:
         deadline = time.monotonic() + timeout_sec
         while time.monotonic() < deadline:
+            self._send_periodic_pull_data_if_due()
             pkt = self._transport.receive(timeout_sec=0.3)
             if pkt is None:
                 continue
