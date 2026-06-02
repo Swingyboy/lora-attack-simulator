@@ -8,3 +8,6 @@ logs/
 ARCHITECTURE.md
 Simulator.md
 *.txt
+
+# Local session artifacts
+IMPLEMENTATION_PLAN.md
