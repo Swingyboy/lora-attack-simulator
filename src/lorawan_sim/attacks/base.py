@@ -135,7 +135,7 @@ class BaseAttack(ABC):
                 f"Attack completed: {self.config.name}",
                 extra={
                     "success": result.success,
-                    "message": result.message,
+                    "attack_message": result.message,
                     "metrics": result.metrics,
                 },
             )

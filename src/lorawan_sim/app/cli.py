@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 
+from lorawan_sim.attacks.runner import AttackRunner
 from lorawan_sim.core.runner.scenario_runner import ScenarioRunner
 from lorawan_sim.domain.attack_scenario.loader import load_attack_scenario
 from lorawan_sim.domain.scenario.loader import load_scenario
@@ -45,11 +47,40 @@ def main(argv: list[str] | None = None) -> int:
             print("attack scenario is valid")
             return 0
 
-        # For now, print message that attack runner is not yet implemented
-        print(f"Attack scenario loaded: {attack_scenario.attack.name}")
-        print(f"Attack type: {attack_scenario.attack.attack_type}")
-        print("Note: Attack runner will be implemented in Phase 2-4")
-        return 0
+        # Run attack scenario
+        configure_logging(level=attack_scenario.logging.level)
+        logger = logging.getLogger("lorawan_sim.attacks")
+        runner = AttackRunner(logger=logger)
+        
+        print(f"\n=== Running Attack: {attack_scenario.attack.name} ===")
+        print(f"Type: {attack_scenario.attack.attack_type}")
+        print(f"Target: {attack_scenario.gateway.semtech_udp.host}:{attack_scenario.gateway.semtech_udp.port}")
+        print(f"Device: {attack_scenario.device.activation.dev_eui}")
+        print()
+        
+        try:
+            results = runner.run(attack_scenario)
+            
+            print(f"\n=== Attack Results ===")
+            print(f"Success: {results.get('success', False)}")
+            print(f"Message: {results.get('message', 'No message')}")
+            print(f"\nMetrics:")
+            for key, value in results.get('metrics', {}).items():
+                print(f"  {key}: {value}")
+            
+            # Save results
+            import pathlib
+            results_file = pathlib.Path(args.scenario_path).with_suffix(".results.json")
+            with open(results_file, "w") as f:
+                json.dump(results, f, indent=2)
+            print(f"\nResults saved to: {results_file}")
+            
+            return 0 if results.get('success') else 1
+            
+        except Exception as exc:
+            logger.exception("Attack execution failed")
+            print(f"\nAttack failed: {exc}")
+            return 1
 
     # Handle regular scenario commands
     try:

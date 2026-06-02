@@ -1,12 +1,25 @@
+# Python
 .venv/
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
 .pytest_cache/
+.mypy_cache/
+.coverage
+*.egg-info/
+dist/
+build/
+
+# IDEs
 .idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Project logs and artifacts
 logs/
-ARCHITECTURE.md
-Simulator.md
 *.txt
 
 # Local session artifacts
@@ -23,7 +36,7 @@ PROJECT_COMPLETION.md
 SECURITY_ANALYSIS.md
 Simulator.md
 TEST_BREAKDOWN.md
-IMPLEMENTATION_PLAN.md
 CONTEXT_CHECKPOINT.txt
 FINAL_SUMMARY.txt
 .github/copilot-instructions.md
+

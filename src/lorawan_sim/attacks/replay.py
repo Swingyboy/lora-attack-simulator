@@ -9,6 +9,7 @@ from typing import Any
 from lorawan_sim.attacks.analyzer import AttackAnalyzer
 from lorawan_sim.attacks.base import AttackConfig, BaseAttack
 from lorawan_sim.attacks.packet_capture import CapturedPacket, PacketCapture
+from lorawan_sim.core.lifecycle.join_helper import perform_otaa_join
 from lorawan_sim.domain.device.model import SimulatedDevice
 from lorawan_sim.domain.gateway.model import GatewaySimulator
 from lorawan_sim.domain.scenario.schema import RadioMetadata
@@ -118,7 +119,7 @@ class ReplayAttack(BaseAttack):
         
         Steps:
         1. Start gateway
-        2. Device performs OTAA join
+        2. Device performs OTAA join (with proper JoinAccept handling)
         3. Device sends legitimate uplink
         4. Capture the uplink for replay
         """
@@ -128,26 +129,21 @@ class ReplayAttack(BaseAttack):
         # Wait for gateway to be ready
         time.sleep(0.5)
         
-        # Perform OTAA join
+        # Perform OTAA join with proper JoinAccept handling
         self.logger.info("Replay attack setup: device joining")
-        join_request = self.device.build_join_request()
-        self.capture.capture_uplink(
-            phy_payload=join_request,
-            packet_type="join_request",
-            metadata={"phase": "setup"},
+        join_success = perform_otaa_join(
+            device=self.device,
+            gateway=self.gateway,
+            radio=self.radio,
+            capture=self.capture,
+            logger=self.logger,
+            timeout_sec=5.0,
+            metadata={"phase": "setup"}
         )
-        self.gateway.forward_uplink(join_request, self.radio)
         
-        # Wait for join accept
-        # In a real implementation, we'd poll for PULL_RESP with join accept
-        # For now, simulate a successful join
-        self.logger.info("Replay attack setup: waiting for join accept")
-        time.sleep(1.0)
-        
-        # Check if device is joined (in real scenario, we'd process join accept)
-        if not self.device.runtime.joined:
-            self.logger.warning("Device not joined - simulating join for attack demo")
-            # For attack simulation, we'll proceed anyway
+        if not join_success:
+            self.logger.error("OTAA join failed - cannot proceed with replay attack")
+            raise RuntimeError("Device failed to join network")
         
         # Send legitimate uplink
         self.logger.info("Replay attack setup: sending legitimate uplink")

@@ -2,22 +2,27 @@
 
 **Clean-room LoRaWAN Network Server offensive-security testing framework**
 
-A protocol-level attack simulator for testing LoRaWAN 1.0.3 Network Server implementations via Semtech UDP gateway communication. Implements replay attacks, join procedure abuse, and MAC command manipulation for security testing and vulnerability analysis.
+A protocol-level attack simulator for testing LoRaWAN 1.0.3 Network Server implementations via Semtech UDP gateway communication. This MVP implementation provides functional attack modules with unit-level validation and E2E testing capabilities against live Network Servers like ChirpStack.
+
+**Implementation Status:**  
+The current implementation provides a functional MVP with prototype attack modules and baseline E2E support. The OTAA join and periodic uplink flows are fully integrated for E2E debugging against ChirpStack via Semtech UDP. Attack modules implement orchestration and analyzer logic with proper join lifecycle handling (awaiting JoinAccept, validating NS responses) and require additional integration hardening for fully deterministic E2E validation.
 
 ## Key Features
 
 **Core Capabilities:**
-- ✅ OTAA join workflow (LoRaWAN 1.0.3)
+- ✅ OTAA join workflow with proper JoinAccept handling (LoRaWAN 1.0.3)
 - ✅ Periodic unconfirmed uplink generation
 - ✅ Semtech UDP gateway packet-forwarder emulation
 - ✅ Structured JSON logging
 - ✅ Scenario validation + execution via CLI
+- ✅ E2E testing against live ChirpStack Network Server
 
-**Attack Framework (Phases 1-4 Complete):**
+**Attack Framework (MVP Complete):**
 - ✅ **Replay attacks**: Immediate, delayed, and burst replay variants with FCnt analysis
-- ✅ **Join procedure abuse**: DevNonce replay and join flooding with rate limit detection
+- ✅ **Join procedure abuse**: DevNonce replay validation (tested against ChirpStack) and join flooding
 - ✅ **MAC command abuse**: Legitimate and malformed command injection with ADR tracking
 - ✅ Packet capture and post-attack analysis
+- ✅ Proper OTAA join lifecycle (waits for JoinAccept, derives session keys)
 - ✅ 49 unit tests (all passing)
 - ✅ 10 example attack scenarios
 
@@ -90,6 +95,24 @@ lorawan-sim run-attack examples/attacks/replay-immediate.json
 
 The simulator implements three categories of LoRaWAN security tests:
 
+### E2E vs Prototype Implementation Status
+
+**E2E-Supported Scenarios (fully integrated):**
+- ✅ Baseline JoinRequest → JoinAccept → periodic uplink over Semtech UDP
+- ✅ Join-replay attack with proper DevNonce validation (tested against ChirpStack)
+- ✅ Long-running debug scenario for ChirpStack integration (`debug-join-uplink.json`)
+- ✅ Real Network Server response handling (awaits JoinAccept, derives session keys)
+
+**Prototype Attack Modules (orchestration + analysis logic implemented):**
+- 🔧 Replay attack variants (immediate/delayed/burst)
+- 🔧 Join flood attack
+- 🔧 MAC command abuse scenarios
+
+**Future E2E Hardening:**
+- Real packet capture/replay validation against ChirpStack
+- Deterministic NS response validation for all attack types
+- Integration tests with live Network Server for replay and MAC abuse modules
+
 ### 1. Replay Attacks
 
 Test Network Server replay protection mechanisms by capturing and replaying uplink packets.
@@ -160,6 +183,16 @@ lorawan-sim validate-attack examples/attacks/mac-rx-param-setup.json
 lorawan-sim validate-attack examples/attacks/mac-malformed-truncated.json
 lorawan-sim validate-attack examples/attacks/mac-malformed-invalid.json
 ```
+
+**Note on MAC Command Test Semantics:**
+
+The MAC command abuse module is designed as a **controlled test harness** rather than a direct device-originated attack. Since most MAC commands in LoRaWAN are Network Server downlinks (e.g., LinkADRReq, RXParamSetupReq), this module tests how the Network Server handles edge cases in MAC command flows:
+
+- **Legitimate command injection**: Tests NS validation of well-formed MAC commands in various protocol states
+- **Malformed command injection**: Tests NS parser robustness against truncated, oversized, or corrupted MAC commands
+- **ADR manipulation tracking**: Validates how NS tracks and responds to ADR state changes
+
+This approach allows systematic testing of Network Server MAC command processing logic and parser resilience, which is critical for production NS implementations that must handle both compliant and non-compliant device behavior.
 
 ## Development
 

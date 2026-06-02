@@ -1,0 +1,16 @@
+{
+  "success": true,
+  "message": "Join replay executed: 1 DevNonce reuse(s) - NS rejected replays",
+  "metrics": {
+    "attack_type": "join_replay",
+    "join_requests_sent": 2,
+    "unique_dev_nonces": 1,
+    "replayed_dev_nonces": 1,
+    "join_accepts_received": 0,
+    "join_accept_ratio": 0.0,
+    "joins_per_second": 1.999114905266981,
+    "total_uplinks": 2,
+    "total_downlinks": 0
+  },
+  "captured_packets": 2
+}

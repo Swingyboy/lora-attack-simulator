@@ -53,10 +53,9 @@ class TestJoinAbuseAnalyzer(unittest.TestCase):
         result = self.analyzer.analyze(capture)
         
         self.assertTrue(result["success"])
-        self.assertIn("Join replay executed", result["message"])
+        # Updated assertion to match new analyzer message format
+        self.assertIn("DevNonce", result["message"])
         self.assertEqual(result["metrics"]["join_requests_sent"], 2)
-        self.assertEqual(result["metrics"]["unique_dev_nonces"], 1)
-        self.assertEqual(result["metrics"]["replayed_dev_nonces"], 1)
         self.assertEqual(result["metrics"]["attack_type"], "join_replay")
     
     def test_analyze_join_flood(self) -> None:

@@ -1,4 +1,4 @@
-"""Join procedure abuse attack implementation."""
+"""Join procedure abuse attacks."""
 
 from __future__ import annotations
 
@@ -10,6 +10,10 @@ from typing import Any
 from lorawan_sim.attacks.analyzer import AttackAnalyzer
 from lorawan_sim.attacks.base import AttackConfig, BaseAttack
 from lorawan_sim.attacks.packet_capture import CapturedPacket, PacketCapture
+from lorawan_sim.core.lifecycle.join_helper import (
+    perform_otaa_join,
+    perform_otaa_join_with_devnonce,
+)
 from lorawan_sim.domain.device.model import SimulatedDevice
 from lorawan_sim.domain.gateway.model import GatewaySimulator
 from lorawan_sim.domain.scenario.schema import RadioMetadata
@@ -23,12 +27,16 @@ class JoinAbuseAnalyzer(AttackAnalyzer):
         """
         Analyze join abuse attack results.
         
-        Checks if:
-        - Join requests were sent
-        - DevNonce reuse was attempted (replay mode)
-        - Multiple join requests were sent (flood mode)
-        - Join accepts were received (indicates NS acceptance)
-        - Rate limiting was detected
+        For join-replay mode:
+        - Check if first join succeeded (JoinAccept received)
+        - Check if second join with same DevNonce was accepted or rejected
+        - Secure behavior: NS rejects duplicate DevNonce
+        - Vulnerable behavior: NS accepts duplicate DevNonce
+        
+        For join-flood mode:
+        - Count total join requests sent
+        - Check if rate limiting detected
+        - Measure join request rate
         """
         stats = capture.get_stats()
         
@@ -43,6 +51,48 @@ class JoinAbuseAnalyzer(AttackAnalyzer):
                 "metrics": {"uplinks_captured": stats["total_uplinks"]},
             }
         
+        # Check for replay attack metadata
+        replay_packet = None
+        for packet in join_requests:
+            if packet.metadata.get("replay") is True:
+                replay_packet = packet
+                break
+        
+        if replay_packet:
+            # This is a join-replay attack
+            ns_accepted = replay_packet.metadata.get("ns_accepted", False)
+            dev_nonce = replay_packet.metadata.get("dev_nonce", "unknown")
+            
+            if ns_accepted:
+                # Vulnerability found!
+                return {
+                    "success": False,  # Attack exposed vulnerability
+                    "message": f"⚠️  VULNERABILITY: NS accepted duplicate DevNonce {dev_nonce}",
+                    "metrics": {
+                        "attack_type": "join_replay",
+                        "join_requests_sent": len(join_requests),
+                        "ns_accepted_replay": True,
+                        "security_status": "VULNERABLE",
+                        "total_uplinks": stats["total_uplinks"],
+                        "total_downlinks": stats["total_downlinks"],
+                    },
+                }
+            else:
+                # NS correctly rejected replay
+                return {
+                    "success": True,  # Attack executed successfully, NS behaved securely
+                    "message": f"✓ NS rejected duplicate DevNonce {dev_nonce} (secure behavior)",
+                    "metrics": {
+                        "attack_type": "join_replay",
+                        "join_requests_sent": len(join_requests),
+                        "ns_accepted_replay": False,
+                        "security_status": "SECURE",
+                        "total_uplinks": stats["total_uplinks"],
+                        "total_downlinks": stats["total_downlinks"],
+                    },
+                }
+        
+        # Join flood analysis (no replay metadata found)
         # Analyze DevNonce usage
         dev_nonces = []
         replayed_dev_nonces = []
@@ -54,12 +104,6 @@ class JoinAbuseAnalyzer(AttackAnalyzer):
                     replayed_dev_nonces.append(dev_nonce)
                 else:
                     dev_nonces.append(dev_nonce)
-        
-        # Check for join replay attack
-        is_replay_attack = len(replayed_dev_nonces) > 0
-        
-        # Check for join flooding attack
-        is_flood_attack = len(join_requests) > 2
         
         # Calculate rate if flooding
         if len(join_requests) >= 2:
@@ -74,36 +118,17 @@ class JoinAbuseAnalyzer(AttackAnalyzer):
         # Analyze Network Server response
         join_accept_ratio = len(join_accepts) / len(join_requests) if join_requests else 0
         
-        # Determine attack type and success
-        if is_replay_attack:
-            attack_type = "join_replay"
-            # Success if we replayed DevNonce (NS behavior analysis is secondary)
-            success = True
-            message = f"Join replay executed: {len(replayed_dev_nonces)} DevNonce reuse(s)"
-            
-            # Check if NS accepted replayed joins
-            replay_acceptance = "accepted" if join_accept_ratio > 0.5 else "rejected"
-            message += f" - NS {replay_acceptance} replays"
-            
-        elif is_flood_attack:
-            attack_type = "join_flood"
-            success = True
-            message = f"Join flood executed: {len(join_requests)} join requests at {joins_per_sec:.2f} req/s"
-            
-            # Check if NS shows rate limiting signs
-            if join_accept_ratio < 0.3:
-                message += " - possible rate limiting detected"
-            
-        else:
-            attack_type = "unknown"
-            success = True
-            message = f"Join abuse executed: {len(join_requests)} join request(s)"
+        message = f"Join flood executed: {len(join_requests)} join requests at {joins_per_sec:.2f} req/s"
+        if len(join_accepts) == 0:
+            message += " - no accepts received (possible rate limiting)"
+        elif join_accept_ratio < 0.5:
+            message += " - possible rate limiting detected"
         
         return {
-            "success": success,
+            "success": True,
             "message": message,
             "metrics": {
-                "attack_type": attack_type,
+                "attack_type": "join_flood",
                 "join_requests_sent": len(join_requests),
                 "unique_dev_nonces": len(dev_nonces),
                 "replayed_dev_nonces": len(replayed_dev_nonces),
@@ -162,8 +187,9 @@ class JoinAbuseAttack(BaseAttack):
         
         For replay mode:
         1. Start gateway
-        2. Device sends legitimate JoinRequest
-        3. Capture JoinRequest for replay
+        2. Device performs OTAA join (wait for JoinAccept)
+        3. Send test uplink to confirm session works
+        4. Capture DevNonce for replay
         
         For flood mode:
         1. Start gateway
@@ -176,29 +202,55 @@ class JoinAbuseAttack(BaseAttack):
         time.sleep(0.5)
         
         if self.mode == "replay":
-            # Send legitimate join request to capture
-            self.logger.info("Join abuse setup: sending legitimate join request")
-            join_request = self.device.build_join_request()
-            dev_nonce = self.device.runtime.dev_nonce
+            # Perform legitimate OTAA join and wait for JoinAccept
+            self.logger.info("Join abuse setup: performing OTAA join...")
             
-            self._captured_join_request = self.capture.capture_uplink(
-                phy_payload=join_request,
-                packet_type="join_request",
-                metadata={
-                    "phase": "setup",
-                    "legitimate": True,
-                    "dev_nonce": dev_nonce.hex(),
-                },
+            join_success = perform_otaa_join(
+                device=self.device,
+                gateway=self.gateway,
+                radio=self.radio,
+                timeout_sec=5.0,
+                logger=self.logger,
             )
             
-            self.gateway.forward_uplink(join_request, self.radio)
+            if not join_success:
+                self.logger.warning(
+                    "OTAA join failed - device credentials may be incorrect or NS unavailable"
+                )
+                # Store failure state
+                self._captured_join_request = None
+                return
+            
+            # Capture the DevNonce that was used
+            captured_dev_nonce = self.device.runtime.dev_nonce
+            
             self.logger.info(
-                f"Legitimate JoinRequest sent with DevNonce={dev_nonce.hex()}",
-                extra={"dev_nonce": dev_nonce.hex()},
+                f"OTAA join succeeded with DevNonce={captured_dev_nonce.hex()}",
+                extra={"dev_nonce": captured_dev_nonce.hex()},
             )
             
-            # Wait for potential join accept
-            time.sleep(1.0)
+            # Send a test uplink to prove session is active
+            self.logger.info("Sending test uplink to confirm session...")
+            try:
+                test_payload = bytes.fromhex("CAFEBABE")
+                uplink = self.device.build_data_uplink(
+                    payload=test_payload, f_port=10, confirmed=False
+                )
+                self.gateway.forward_uplink(uplink, self.radio)
+                self.logger.info("Test uplink sent successfully")
+            except Exception as e:
+                self.logger.warning(f"Could not send test uplink: {e}")
+            
+            # Store the captured DevNonce for replay
+            self._captured_join_request = CapturedPacket(
+                timestamp=time.time(),
+                phy_payload=b"",  # We'll rebuild it
+                packet_type="join_request",
+                metadata={"dev_nonce": captured_dev_nonce.hex(), "phase": "setup"},
+            )
+            
+            # Short wait for any potential downlink
+            time.sleep(0.5)
             
         elif self.mode == "flood":
             # Generate virtual devices for flooding
@@ -242,35 +294,53 @@ class JoinAbuseAttack(BaseAttack):
         self.gateway.stop()
     
     def _execute_join_replay(self) -> None:
-        """Execute join replay attack - replay captured JoinRequest."""
+        """Execute join replay attack - replay JoinRequest with same DevNonce."""
         if not self._captured_join_request:
-            raise RuntimeError("No join request captured to replay")
+            raise RuntimeError("No DevNonce captured - OTAA join may have failed")
         
         self.logger.info("Executing join replay attack")
         
-        # Extract DevNonce from metadata
+        # Extract captured DevNonce
         dev_nonce_hex = self._captured_join_request.metadata.get("dev_nonce")
+        dev_nonce = bytes.fromhex(dev_nonce_hex)
         
-        # Replay the same JoinRequest (same DevNonce)
         self.logger.info(
-            f"Replaying JoinRequest with DevNonce={dev_nonce_hex}",
+            f"Replaying JoinRequest with SAME DevNonce={dev_nonce_hex}",
             extra={"dev_nonce": dev_nonce_hex, "replay": True},
         )
         
-        # Capture the replay
+        # Attempt join with same DevNonce - NS should reject this!
+        join_accepted = perform_otaa_join_with_devnonce(
+            device=self.device,
+            gateway=self.gateway,
+            radio=self.radio,
+            dev_nonce=dev_nonce,
+            timeout_sec=5.0,
+            logger=self.logger,
+        )
+        
+        if join_accepted:
+            self.logger.warning(
+                "⚠️  VULNERABILITY: NS accepted duplicate DevNonce!",
+                extra={"security": "FAIL", "dev_nonce": dev_nonce_hex},
+            )
+        else:
+            self.logger.info(
+                "✓ NS rejected duplicate DevNonce (secure behavior)",
+                extra={"security": "PASS", "dev_nonce": dev_nonce_hex},
+            )
+        
+        # Capture the result for analysis
         self.capture.capture_uplink(
-            phy_payload=self._captured_join_request.phy_payload,
+            phy_payload=b"",
             packet_type="join_request",
             metadata={
                 "phase": "execute",
                 "replay": True,
                 "dev_nonce": dev_nonce_hex,
-                "original_timestamp": self._captured_join_request.timestamp,
+                "ns_accepted": join_accepted,
             },
         )
-        
-        # Send replay through gateway
-        self.gateway.forward_uplink(self._captured_join_request.phy_payload, self.radio)
         
         self.logger.info("Join replay attack executed: 1 replay sent")
     

@@ -9,6 +9,7 @@ from typing import Any
 from lorawan_sim.attacks.analyzer import AttackAnalyzer
 from lorawan_sim.attacks.base import AttackConfig, BaseAttack
 from lorawan_sim.attacks.packet_capture import CapturedPacket, PacketCapture
+from lorawan_sim.core.lifecycle.join_helper import perform_otaa_join
 from lorawan_sim.domain.device.model import SimulatedDevice
 from lorawan_sim.domain.gateway.model import GatewaySimulator
 from lorawan_sim.domain.scenario.schema import RadioMetadata
@@ -162,7 +163,7 @@ class MACCommandAbuse(BaseAttack):
         
         Steps:
         1. Start gateway
-        2. Device performs OTAA join
+        2. Device performs OTAA join (with proper JoinAccept handling)
         3. Device sends initial uplink(s) to establish baseline
         """
         self.logger.info("MAC command abuse setup: starting gateway")
@@ -171,18 +172,21 @@ class MACCommandAbuse(BaseAttack):
         # Wait for gateway to be ready
         time.sleep(0.5)
         
-        # Perform OTAA join
+        # Perform OTAA join with proper JoinAccept handling
         self.logger.info("MAC command abuse setup: device joining")
-        join_request = self.device.build_join_request()
-        self.capture.capture_uplink(
-            phy_payload=join_request,
-            packet_type="join_request",
-            metadata={"phase": "setup"},
+        join_success = perform_otaa_join(
+            device=self.device,
+            gateway=self.gateway,
+            radio=self.radio,
+            capture=self.capture,
+            logger=self.logger,
+            timeout_sec=5.0,
+            metadata={"phase": "setup"}
         )
-        self.gateway.forward_uplink(join_request, self.radio)
         
-        # Wait for join accept
-        time.sleep(1.0)
+        if not join_success:
+            self.logger.error("OTAA join failed - cannot proceed with MAC command abuse")
+            raise RuntimeError("Device failed to join network")
         
         # Send baseline uplinks
         self.logger.info("MAC command abuse setup: sending baseline uplinks")
