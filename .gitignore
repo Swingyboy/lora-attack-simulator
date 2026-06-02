@@ -11,3 +11,19 @@ Simulator.md
 
 # Local session artifacts
 IMPLEMENTATION_PLAN.md
+
+# Documentation files (keep local, not in git)
+ARCHITECTURE.md
+ATTACK_GUIDE.md
+ATTACK_SCENARIOS.md
+PHASE3_SUMMARY.md
+PHASE4_SUMMARY.md
+PHASE5_SUMMARY.md
+PROJECT_COMPLETION.md
+SECURITY_ANALYSIS.md
+Simulator.md
+TEST_BREAKDOWN.md
+IMPLEMENTATION_PLAN.md
+CONTEXT_CHECKPOINT.txt
+FINAL_SUMMARY.txt
+.github/copilot-instructions.md
