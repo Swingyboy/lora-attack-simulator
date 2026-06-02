@@ -1,0 +1,45 @@
+{
+  "attack": {
+    "name": "replay-delayed",
+    "description": "Delayed replay attack - replay captured uplink after 5 seconds",
+    "attack_type": "replay",
+    "timeout_sec": 30.0
+  },
+  "gateway": {
+    "gateway_eui": "0102030405060708",
+    "semtech_udp": {
+      "host": "127.0.0.1",
+      "port": 1700,
+      "pull_data_interval_sec": 5
+    },
+    "radio_metadata": {
+      "frequency": 868100000,
+      "data_rate": "SF7BW125",
+      "rssi": -60,
+      "snr": 7.5
+    }
+  },
+  "device": {
+    "name": "attack-device-2",
+    "lorawan_version": "1.0.3",
+    "region": "EU868",
+    "device_class": "A",
+    "activation": {
+      "mode": "OTAA",
+      "dev_eui": "0011223344556688",
+      "join_eui": "0011223344556677",
+      "app_key": "00112233445566770011223344556677"
+    }
+  },
+  "replay": {
+    "mode": "delayed",
+    "delay_sec": 5.0,
+    "burst_count": 1,
+    "burst_interval_sec": 0.1
+  },
+  "logging": {
+    "level": "info",
+    "log_phy_payload": true,
+    "log_semtech_udp": true
+  }
+}
