@@ -8,6 +8,109 @@ Provides:
 - Colored terminal output
 - Secret masking
 - Runtime reconfiguration
+
+# Logging Precedence
+
+The logging system enforces explicit precedence rules to prevent
+configuration confusion. When multiple sources try to set the log level,
+the highest-precedence source wins.
+
+## Precedence Order (Highest to Lowest)
+
+1. **CLI Overrides** (`cli_override`)
+   - Set via `set logging.level <LEVEL>` command
+   - Always wins over scenario/framework defaults
+   - Persists for entire session
+
+2. **Scenario Configuration** (`scenario`)
+   - Set via scenario JSON `logging.level` field
+   - Applies when scenario is loaded
+   - Can be overridden by CLI
+
+3. **Framework Defaults** (`framework_default`)
+   - Initial INFO level at shell startup
+   - Lowest precedence
+   - Overridden by scenario or CLI
+
+## Usage Patterns
+
+### Shell Initialization
+```python
+from sim_logging.json_logger import configure_logging
+
+# Framework default (precedence: 0)
+configure_logging(level=\"INFO\")  # Uses source=\"framework_default\"
+```
+
+### CLI Runtime Override
+```python
+from sim_logging.json_logger import reconfigure_level
+
+# CLI override (precedence: 2 - highest)
+reconfigure_level(\"DEBUG\", source=\"cli_override\")
+```
+
+### Scenario Loading (Future)
+```python
+# Scenario config (precedence: 1)
+configure_logging(level=\"TRACE\", source=\"scenario\")
+```
+
+## Precedence Enforcement
+
+The `LoggingConfig.set_level()` method enforces precedence:
+
+- Higher/equal precedence: Level is changed
+- Lower precedence: Change is blocked, current level retained
+
+Example:
+```python
+config.set_level(\"INFO\", \"scenario\")      # Applies (precedence: 1)
+config.set_level(\"DEBUG\", \"cli_override\") # Applies (precedence: 2, higher)
+config.set_level(\"ERROR\", \"scenario\")     # BLOCKED (precedence: 1, lower than current)
+config.set_level(\"TRACE\", \"cli_override\") # Applies (precedence: 2, equal to current)
+```
+
+## Log Levels
+
+- **ERROR**: Errors that prevent operation (join failures, crypto errors)
+- **WARNING**: Unexpected but recoverable (timeouts, retries)
+- **INFO**: High-level operations (join success, attack phases)
+- **DEBUG**: Detailed execution (packet building, state transitions)
+- **TRACE**: Protocol-level details (PHY payloads, Semtech UDP packets)
+
+## Handler Configuration
+
+### Console Handler
+- Colored output for readability
+- Format: `[HH:MM:SS] [LEVEL] logger - message`
+- Secret masking enabled by default
+
+### File Handler
+- JSONL format for structured logs
+- Location: `logs/session-<timestamp>.log`
+- Fields: timestamp, level, logger, message, session_id, scenario_id, extras
+
+## Runtime Reconfiguration
+
+Log level can be changed at runtime without recreating handlers:
+
+```python
+reconfigure_level(\"DEBUG\")  # Changes level, respects precedence
+```
+
+Handler clearing on reconfiguration prevents duplication:
+- `logger.handlers.clear()` removes old handlers
+- New handlers added (console + file)
+- No handler leaks
+
+## Secret Masking
+
+Automatically masks hex keys in logs:
+- 32+ hex character strings → masked
+- Example: `00112233...` → `0011****`
+- Disabled via `mask_secrets=False` (logs warning)
+
 """
 from __future__ import annotations
 
