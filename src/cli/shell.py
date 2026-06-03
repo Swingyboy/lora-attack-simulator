@@ -254,10 +254,14 @@ class LoRaWANShell(cmd.Cmd):
         try:
             metadata = self.scenario_metadata[scenario_name]
             with open(metadata.path, 'r') as f:
-                self.session.scenario_data = json.load(f)
+                scenario_data = json.load(f)
             
-            self.session.scenario_name = scenario_name
-            self.session.scenario_path = metadata.path
+            # Use session API to load scenario
+            self.session.load_scenario(
+                name=scenario_name,
+                path=metadata.path,
+                data=scenario_data
+            )
             
             # Update prompt to show active scenario
             self.prompt = f"lorawan-sim({scenario_name}) > "
@@ -367,7 +371,10 @@ class LoRaWANShell(cmd.Cmd):
             return
         
         try:
-            # Navigate to the nested parameter and set value
+            # Record override in session
+            self.session.set_parameter(param_path, value_str)
+            
+            # Also update in-memory for backward compatibility
             self._set_nested_value(self.session.scenario_data, param_path, value_str)
             print(f"✓ Set {param_path} = {value_str}")
         except KeyError as e:
@@ -495,7 +502,14 @@ class LoRaWANShell(cmd.Cmd):
             # Reset all parameters by reloading from file
             try:
                 with open(self.session.scenario_path, 'r') as f:
-                    self.session.scenario_data = json.load(f)
+                    scenario_data = json.load(f)
+                
+                # Reload using session API
+                self.session.load_scenario(
+                    name=self.session.scenario_name or "",
+                    path=self.session.scenario_path,
+                    data=scenario_data
+                )
                 print("✓ Reset all parameters to defaults")
             except Exception as e:
                 print(f"Error reloading scenario: {e}")

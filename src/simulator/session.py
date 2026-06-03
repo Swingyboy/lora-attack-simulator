@@ -93,15 +93,73 @@ class Session:
     def get_effective_scenario(self) -> dict[str, Any] | None:
         """Get scenario data with runtime overrides applied.
         
+        Applies runtime parameter overrides to the base scenario using
+        deep merge logic. Nested dict keys are supported (e.g., 'target.host').
+        
         Returns:
             Scenario dict with overrides, or None if no scenario loaded
         """
         if not self.scenario_data:
             return None
         
-        # For now, return original data
-        # TODO: Deep merge runtime_overrides into scenario_data
-        return self.scenario_data
+        # If no overrides, return original
+        if not self.runtime_overrides:
+            return self.scenario_data
+        
+        # Deep copy base scenario to avoid mutation
+        import copy
+        effective = copy.deepcopy(self.scenario_data)
+        
+        # Apply each override
+        for key_path, value in self.runtime_overrides.items():
+            self._set_nested_value(effective, key_path, value)
+        
+        return effective
+    
+    def _set_nested_value(self, data: dict[str, Any], key_path: str, value: Any) -> None:
+        """Set a value in nested dict using dot-notation path.
+        
+        Args:
+            data: Dictionary to modify
+            key_path: Dot-notation path (e.g., 'target.host')
+            value: Value to set
+        
+        Example:
+            _set_nested_value(data, 'target.host', '10.0.0.1')
+            # Sets data['target']['host'] = '10.0.0.1'
+        """
+        keys = key_path.split('.')
+        current = data
+        
+        # Navigate to parent of target key
+        for key in keys[:-1]:
+            # Handle array indices like 'devices[0]'
+            if '[' in key:
+                key, index_str = key.split('[')
+                index = int(index_str.rstrip(']'))
+                if key not in current:
+                    current[key] = []
+                # Extend list if needed
+                while len(current[key]) <= index:
+                    current[key].append({})
+                current = current[key][index]
+            else:
+                if key not in current:
+                    current[key] = {}
+                current = current[key]
+        
+        # Set the final value
+        final_key = keys[-1]
+        if '[' in final_key:
+            key, index_str = final_key.split('[')
+            index = int(index_str.rstrip(']'))
+            if key not in current:
+                current[key] = []
+            while len(current[key]) <= index:
+                current[key].append(None)
+            current[key][index] = value
+        else:
+            current[final_key] = value
     
     def __repr__(self) -> str:
         """String representation of session state."""
