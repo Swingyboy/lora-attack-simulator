@@ -192,6 +192,7 @@ class AttackRunner:
                 flood_interval_sec=join_config.delay_sec,
                 virtual_devices=1,
                 expected=scenario.expected,
+                timing=join_config.timing,  # Pass timing configuration
             )
         
         elif attack_type == "join_flood":

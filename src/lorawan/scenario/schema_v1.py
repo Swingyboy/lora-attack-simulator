@@ -79,6 +79,23 @@ class ExpectedBehavior:
 # --- Typed Attack Configuration Classes (Phase 2) ---
 
 @dataclass(frozen=True)
+class AttackTiming:
+    """Timing configuration for attacks following LoRaWAN specification.
+    
+    Default values follow LoRaWAN 1.0.3 timing specification:
+    - RX1 window opens 1s after uplink transmission ends
+    - RX2 window opens 2s after uplink transmission ends
+    - Allow time for NS internal processing and response
+    """
+    
+    join_accept_timeout_sec: float = 5.0  # Max wait for JoinAccept response
+    rx1_delay_sec: float = 1.0  # LoRaWAN RX1 window delay
+    rx2_delay_sec: float = 2.0  # LoRaWAN RX2 window delay (total from uplink)
+    stabilization_delay_sec: float = 0.5  # Extra wait after RX windows
+    drain_timeout_sec: float = 1.0  # Time to drain pending downlinks
+
+
+@dataclass(frozen=True)
 class ReplayPhaseConfig:
     """Replay phase configuration for uplink replay attacks."""
     
@@ -121,6 +138,7 @@ class JoinReplayConfigV1:
     delay_sec: float  # Delay before replay
     dev_nonce_strategy: str  # "reuse_original", "increment", "random"
     mic_strategy: str  # "valid" (recalculate) or "reuse_original"
+    timing: AttackTiming | None = None  # Optional timing configuration
 
 
 @dataclass(frozen=True)
@@ -241,12 +259,25 @@ def parse_replay_config(config: dict[str, Any]) -> ReplayConfigV1:
 
 def parse_join_replay_config(config: dict[str, Any]) -> JoinReplayConfigV1:
     """Parse join replay config from dict."""
+    # Parse timing if present
+    timing = None
+    if "timing" in config:
+        timing_data = config["timing"]
+        timing = AttackTiming(
+            join_accept_timeout_sec=timing_data.get("join_accept_timeout_sec", 5.0),
+            rx1_delay_sec=timing_data.get("rx1_delay_sec", 1.0),
+            rx2_delay_sec=timing_data.get("rx2_delay_sec", 2.0),
+            stabilization_delay_sec=timing_data.get("stabilization_delay_sec", 0.5),
+            drain_timeout_sec=timing_data.get("drain_timeout_sec", 1.0),
+        )
+    
     return JoinReplayConfigV1(
         mode=config.get("mode", "replay"),
         replay_count=config.get("replay_count", 1),
         delay_sec=config.get("delay_sec", 0.5),
         dev_nonce_strategy=config.get("dev_nonce_strategy", "reuse_original"),
         mic_strategy=config.get("mic_strategy", "valid"),
+        timing=timing,
     )
 
 

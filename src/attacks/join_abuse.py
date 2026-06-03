@@ -14,6 +14,7 @@ from attacks.validation import validate_criteria
 from simulator.lifecycle.join_helper import (
     perform_otaa_join,
     perform_otaa_join_with_devnonce,
+    wait_for_rx_windows,
 )
 from lorawan.device.model import SimulatedDevice
 from lorawan.gateway.model import GatewaySimulator
@@ -21,7 +22,7 @@ from lorawan.scenario.schema import RadioMetadata
 from lorawan.protocol.frames import build_join_request
 
 if TYPE_CHECKING:
-    from lorawan.scenario.schema_v1 import ExpectedBehavior
+    from lorawan.scenario.schema_v1 import ExpectedBehavior, AttackTiming
 
 
 class JoinAbuseAnalyzer(AttackAnalyzer):
@@ -228,6 +229,7 @@ class JoinAbuseAttack(BaseAttack):
         flood_interval_sec: float = 0.1,
         virtual_devices: int = 1,
         expected: ExpectedBehavior | None = None,
+        timing: AttackTiming | None = None,
     ) -> None:
         super().__init__(config, device, gateway, logger, expected)
         self.radio = radio
@@ -237,6 +239,20 @@ class JoinAbuseAttack(BaseAttack):
         self.virtual_devices = virtual_devices
         self._captured_join_request: CapturedPacket | None = None
         self._virtual_device_list: list[VirtualDevice] = []
+        
+        # Import AttackTiming for defaults
+        from lorawan.scenario.schema_v1 import AttackTiming as TimingDefaults
+        
+        # Use provided timing or defaults
+        self.timing = timing if timing else TimingDefaults()
+        
+        if logger:
+            logger.debug(
+                f"Attack timing: join_timeout={self.timing.join_accept_timeout_sec}s, "
+                f"rx1={self.timing.rx1_delay_sec}s, rx2={self.timing.rx2_delay_sec}s, "
+                f"stabilize={self.timing.stabilization_delay_sec}s, "
+                f"drain={self.timing.drain_timeout_sec}s"
+            )
     
     def _create_analyzer(self) -> AttackAnalyzer:
         """Create join abuse analyzer."""
@@ -302,15 +318,30 @@ class JoinAbuseAttack(BaseAttack):
             except Exception as e:
                 self.logger.warning(f"Could not send test uplink: {e}")
             
-            # Wait for NS to process the test uplink and respond
-            # This prevents downlink responses from mixing with replay responses
-            self.logger.debug("Waiting for test uplink response to complete...")
-            time.sleep(2.0)
+            # Wait for RX1 and RX2 windows according to LoRaWAN spec
+            # This collects any downlink responses to the test uplink
+            self.logger.debug(
+                "Waiting for RX windows to collect test uplink responses..."
+            )
+            downlinks = wait_for_rx_windows(
+                gateway=self.gateway,
+                rx1_delay_sec=self.timing.rx1_delay_sec,
+                rx2_delay_sec=self.timing.rx2_delay_sec,
+                stabilization_delay_sec=self.timing.stabilization_delay_sec,
+                logger=self.logger,
+            )
             
-            # Drain any pending downlinks (responses to test uplink)
-            # This ensures we only capture the response to the replayed JoinRequest
-            self.logger.debug("Draining pending downlinks before replay...")
-            self.gateway.drain_downlinks(drain_time_sec=1.0)
+            if downlinks:
+                self.logger.info(
+                    f"Received {len(downlinks)} downlink(s) during RX windows"
+                )
+            
+            # Drain any remaining downlinks just to be safe
+            # This ensures clean slate before sending replay
+            self.logger.debug("Draining remaining downlinks...")
+            drained = self.gateway.drain_downlinks(
+                drain_time_sec=self.timing.drain_timeout_sec
+            )
             
             # Store the captured DevNonce for replay
             self._captured_join_request = CapturedPacket(
@@ -383,7 +414,7 @@ class JoinAbuseAttack(BaseAttack):
             gateway=self.gateway,
             radio=self.radio,
             dev_nonce=dev_nonce,
-            timeout_sec=5.0,
+            timeout_sec=self.timing.join_accept_timeout_sec,  # Use configured timeout
             logger=self.logger,
         )
         
