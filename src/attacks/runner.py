@@ -26,8 +26,22 @@ from lorawan.scenario.schema import RadioMetadata
 class AttackRunner:
     """Runner for executing attack scenarios."""
     
-    def __init__(self, logger: logging.Logger | None = None) -> None:
+    def __init__(self, logger: logging.Logger | None = None, session_id: str | None = None) -> None:
+        """
+        Initialize attack runner.
+        
+        Args:
+            logger: Logger instance (created if None)
+            session_id: Session ID for result file organization (generated if None)
+        """
         self.logger = logger or logging.getLogger("lorawan_sim.attacks")
+        self.session_id = session_id or self._generate_session_id()
+    
+    @staticmethod
+    def _generate_session_id() -> str:
+        """Generate a session ID for result organization."""
+        import uuid
+        return str(uuid.uuid4())[:8]
     
     def run(self, scenario: AttackScenarioConfig | AttackScenarioV1) -> dict[str, Any]:
         """
@@ -340,8 +354,13 @@ class AttackRunner:
         scenario = load_attack_scenario(scenario_path)
         results = self.run(scenario)
         
-        # Save results to file
-        results_path = Path(scenario_path).with_suffix(".results.json")
+        # Save results with session-based organization
+        # Format: results/<session-id>/<scenario-name>.results.json
+        scenario_name = Path(scenario_path).stem
+        results_dir = Path("results") / self.session_id
+        results_dir.mkdir(parents=True, exist_ok=True)
+        
+        results_path = results_dir / f"{scenario_name}.results.json"
         with open(results_path, "w") as f:
             json.dump(results, f, indent=2)
         
