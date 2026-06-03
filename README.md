@@ -87,9 +87,12 @@ lorawan-sim                        # Same as shell (default)
 # > show scenarios replay          # Filter by category
 # > info join-replay-v1            # Show detailed scenario info
 # > use join-replay-v1             # Load a scenario
-# > show options                   # View parameters (Phase 3)
-# > set target.host 192.168.1.10   # Modify parameters (Phase 3)
-# > validate                       # Validate configuration (Phase 3)
+# > show options                   # View all parameters with current values
+# > set target.host 192.168.1.10   # Modify parameters (nested paths supported)
+# > set gateway.radio.rssi -70     # Type inference (int, float, string, bool)
+# > reset target.host              # Reset specific parameter to default
+# > reset                          # Reset all parameters to defaults
+# > validate                       # Validate scenario configuration
 # > run                            # Execute attack (Phase 4)
 # > clear                          # Clear active scenario
 # > exit                           # Exit shell
@@ -106,11 +109,17 @@ lorawan-sim run-attack examples/attacks/join-replay-v1.json
 
 ### Interactive Shell Features
 
-**Scenario Discovery (Phase 2 Complete):**
+**Scenario Discovery (Phase 2):**
 - Automatic metadata extraction from v1.0 scenario files
 - Category-based filtering (replay, join_abuse, mac_abuse)
 - Rich scenario listing with title, category, description
 - Detailed scenario information with `info` command
+
+**Parameter Management (Phase 3 Complete):**
+- Hierarchical parameter display with nested paths
+- Runtime parameter modification with type inference
+- Individual and bulk parameter reset
+- Scenario validation before execution
 
 **Example Session:**
 ```bash
@@ -118,14 +127,35 @@ $ lorawan-sim
 lorawan-sim > show scenarios
 # Shows all scenarios with metadata
 
-lorawan-sim > show scenarios join_abuse
-# Filter by category
-
-lorawan-sim > info join-replay-v1
-# Show detailed scenario information
-
 lorawan-sim > use join-replay-v1
 # Load scenario (prompt changes to show active scenario)
+
+lorawan-sim(join-replay-v1) > show options
+# Display all parameters in nested format
+# Parameter Path                  Current Value
+# target.host                     127.0.0.1
+# target.port                     1700
+# gateway.radio.rssi              -60
+# ...
+
+lorawan-sim(join-replay-v1) > set target.host 192.168.1.10
+# Modify target host
+
+lorawan-sim(join-replay-v1) > set target.port 1701
+# Modify target port (type inferred as int)
+
+lorawan-sim(join-replay-v1) > set gateway.radio.rssi -75
+# Modify radio parameter (type inferred as int)
+
+lorawan-sim(join-replay-v1) > validate
+# Validate configuration
+# ✓ Scenario configuration is valid
+
+lorawan-sim(join-replay-v1) > reset target.host
+# Reset specific parameter to default
+
+lorawan-sim(join-replay-v1) > reset
+# Reset all parameters to defaults
 
 lorawan-sim(join-replay-v1) > clear
 # Clear active scenario

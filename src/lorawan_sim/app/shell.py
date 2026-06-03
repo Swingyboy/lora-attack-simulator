@@ -153,8 +153,42 @@ class LoRaWANShell(cmd.Cmd):
             print("No scenario loaded. Use 'use <scenario>' first.")
             return
         
-        print(f"\nCurrent scenario: {self.current_scenario_name}")
-        print("Options display not yet implemented (Phase 3)")
+        metadata = self.scenario_metadata[self.current_scenario_name]
+        
+        print(f"\nScenario: {self.current_scenario_name}")
+        print(f"Title: {metadata.title}")
+        print(f"Category: {metadata.category}")
+        print("=" * 70)
+        print(f"{'Parameter Path':<40} {'Current Value':<30}")
+        print("-" * 70)
+        
+        # Display parameters with nested paths
+        self._print_nested_dict(self.current_scenario, prefix="")
+        
+        print("\nUse 'set <param_path> <value>' to modify parameters")
+        print("Use 'reset' to restore all defaults")
+    
+    def _print_nested_dict(self, data: dict[str, Any], prefix: str = "") -> None:
+        """Recursively print nested dictionary with dot notation paths."""
+        for key, value in data.items():
+            path = f"{prefix}.{key}" if prefix else key
+            
+            if isinstance(value, dict):
+                # Recursively print nested dicts
+                self._print_nested_dict(value, path)
+            elif isinstance(value, list):
+                # Show list length and type
+                if value:
+                    list_repr = f"[{len(value)} items]"
+                else:
+                    list_repr = "[]"
+                print(f"{path:<40} {list_repr:<30}")
+            else:
+                # Show primitive values
+                value_str = str(value)
+                if len(value_str) > 27:
+                    value_str = value_str[:27] + "..."
+                print(f"{path:<40} {value_str:<30}")
     
     def do_use(self, args: str) -> None:
         """Load a scenario into the current session.
@@ -236,9 +270,10 @@ class LoRaWANShell(cmd.Cmd):
         Usage:
             set <parameter> <value>
         
-        Example:
+        Examples:
             set target.host 192.168.1.10
             set attack.config.replay_count 5
+            set gateway.radio.rssi -70
         """
         if not self.current_scenario:
             print("No scenario loaded. Use 'use <scenario>' first.")
@@ -246,22 +281,166 @@ class LoRaWANShell(cmd.Cmd):
         
         if not args:
             print("Usage: set <parameter> <value>")
+            print("Example: set target.host 192.168.1.10")
             return
         
-        print("Parameter modification not yet implemented (Phase 3)")
+        parts = args.split(maxsplit=1)
+        if len(parts) < 2:
+            print("Error: Both parameter and value required")
+            print("Usage: set <parameter> <value>")
+            return
+        
+        param_path = parts[0]
+        value_str = parts[1]
+        
+        try:
+            # Navigate to the nested parameter and set value
+            self._set_nested_value(self.current_scenario, param_path, value_str)
+            print(f"✓ Set {param_path} = {value_str}")
+        except KeyError as e:
+            print(f"Error: Parameter not found: {e}")
+        except ValueError as e:
+            print(f"Error: Invalid value: {e}")
+    
+    def _set_nested_value(self, data: dict[str, Any], path: str, value_str: str) -> None:
+        """Set a value in a nested dictionary using dot notation.
+        
+        Args:
+            data: The dictionary to modify
+            path: Dot-separated path (e.g., "target.host")
+            value_str: String value to set (auto-converts to appropriate type)
+        """
+        keys = path.split('.')
+        current = data
+        
+        # Navigate to the parent of the target key
+        for key in keys[:-1]:
+            if key not in current:
+                raise KeyError(f"'{key}' in path '{path}'")
+            current = current[key]
+            if not isinstance(current, dict):
+                raise KeyError(f"'{key}' is not a dict in path '{path}'")
+        
+        # Get the final key
+        final_key = keys[-1]
+        if final_key not in current:
+            raise KeyError(f"'{final_key}' in path '{path}'")
+        
+        # Get the original value to infer type
+        original_value = current[final_key]
+        
+        # Convert value_str to appropriate type
+        converted_value = self._convert_value(value_str, original_value)
+        
+        # Set the value
+        current[final_key] = converted_value
+    
+    def _convert_value(self, value_str: str, original_value: Any) -> Any:
+        """Convert string value to appropriate type based on original value.
+        
+        Args:
+            value_str: String value to convert
+            original_value: Original value to infer type from
+        
+        Returns:
+            Converted value
+        """
+        # Handle None
+        if value_str.lower() == 'none' or value_str.lower() == 'null':
+            return None
+        
+        # Infer type from original value
+        if isinstance(original_value, bool):
+            if value_str.lower() in ('true', 'yes', '1'):
+                return True
+            elif value_str.lower() in ('false', 'no', '0'):
+                return False
+            else:
+                raise ValueError(f"Cannot convert '{value_str}' to bool")
+        
+        elif isinstance(original_value, int):
+            try:
+                return int(value_str)
+            except ValueError:
+                raise ValueError(f"Cannot convert '{value_str}' to int")
+        
+        elif isinstance(original_value, float):
+            try:
+                return float(value_str)
+            except ValueError:
+                raise ValueError(f"Cannot convert '{value_str}' to float")
+        
+        else:
+            # Default to string
+            return value_str
     
     def do_reset(self, args: str) -> None:
         """Reset parameters to default values.
         
         Usage:
-            reset              - Reset all parameters
-            reset <parameter>  - Reset specific parameter
+            reset              - Reset all parameters to defaults
+            reset <parameter>  - Reset specific parameter to default
+        
+        Examples:
+            reset
+            reset target.host
         """
         if not self.current_scenario:
             print("No scenario loaded. Use 'use <scenario>' first.")
             return
         
-        print("Parameter reset not yet implemented (Phase 3)")
+        if not args:
+            # Reset all parameters by reloading from file
+            try:
+                with open(self.current_scenario_path, 'r') as f:
+                    self.current_scenario = json.load(f)
+                print("✓ Reset all parameters to defaults")
+            except Exception as e:
+                print(f"Error reloading scenario: {e}")
+        else:
+            # Reset specific parameter
+            param_path = args.strip()
+            try:
+                # Load original value from file
+                with open(self.current_scenario_path, 'r') as f:
+                    original_scenario = json.load(f)
+                
+                # Get original value
+                original_value = self._get_nested_value(original_scenario, param_path)
+                
+                # Set it back
+                self._set_nested_value_direct(self.current_scenario, param_path, original_value)
+                
+                print(f"✓ Reset {param_path} to default: {original_value}")
+            except KeyError as e:
+                print(f"Error: Parameter not found: {e}")
+            except Exception as e:
+                print(f"Error: {e}")
+    
+    def _get_nested_value(self, data: dict[str, Any], path: str) -> Any:
+        """Get a value from a nested dictionary using dot notation."""
+        keys = path.split('.')
+        current = data
+        
+        for key in keys:
+            if key not in current:
+                raise KeyError(f"'{key}' in path '{path}'")
+            current = current[key]
+        
+        return current
+    
+    def _set_nested_value_direct(self, data: dict[str, Any], path: str, value: Any) -> None:
+        """Set a value directly (without type conversion)."""
+        keys = path.split('.')
+        current = data
+        
+        for key in keys[:-1]:
+            if key not in current:
+                raise KeyError(f"'{key}' in path '{path}'")
+            current = current[key]
+        
+        final_key = keys[-1]
+        current[final_key] = value
     
     def do_validate(self, args: str) -> None:
         """Validate the current scenario configuration.
@@ -273,7 +452,45 @@ class LoRaWANShell(cmd.Cmd):
             print("No scenario loaded. Use 'use <scenario>' first.")
             return
         
-        print("Scenario validation not yet implemented (Phase 3)")
+        print("Validating scenario configuration...")
+        
+        # Import validation lazily to avoid loading dependencies
+        try:
+            from lorawan_sim.domain.attack_scenario.loader import load_attack_scenario
+            import tempfile
+            import json as json_module
+            
+            # Write current scenario to temp file
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+                json_module.dump(self.current_scenario, f, indent=2)
+                temp_path = f.name
+            
+            try:
+                # Try to load and validate
+                attack_scenario = load_attack_scenario(temp_path)
+                print("✓ Scenario configuration is valid")
+                
+                # Show summary
+                print(f"\nValidation Summary:")
+                print(f"  Schema: {self.current_scenario.get('schema_version', 'unknown')}")
+                print(f"  Category: {self.current_scenario['scenario']['category']}")
+                print(f"  Attack Type: {self.current_scenario['attack']['type']}")
+                print(f"  Target: {self.current_scenario['target']['host']}:{self.current_scenario['target']['port']}")
+                
+            finally:
+                # Clean up temp file
+                import os
+                os.unlink(temp_path)
+                
+        except ImportError as e:
+            print(f"✗ Validation failed: Missing dependencies ({e})")
+            print("  Run 'pip install -e .' to install required packages")
+        except ValueError as e:
+            print(f"✗ Validation failed: {e}")
+        except KeyError as e:
+            print(f"✗ Validation error: Missing required field {e}")
+        except Exception as e:
+            print(f"✗ Validation error: {e}")
     
     def do_run(self, args: str) -> None:
         """Execute the current scenario.
