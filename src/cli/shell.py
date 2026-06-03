@@ -110,7 +110,7 @@ class LoRaWANShell(cmd.Cmd):
         """
         if not args:
             # Default behavior when loaded
-            if self.session.scenario_data:
+            if self.session.is_scenario_loaded():
                 self._show_options()
             else:
                 print("Usage: show [scenarios|options|logging|<scenario_name>]")
@@ -172,7 +172,7 @@ class LoRaWANShell(cmd.Cmd):
     
     def _show_options(self) -> None:
         """Display current scenario options."""
-        if not self.session.scenario_data:
+        if not self.session.is_scenario_loaded():
             print("No scenario loaded. Use 'use <scenario>' first.")
             return
         
@@ -366,7 +366,7 @@ class LoRaWANShell(cmd.Cmd):
             return
         
         # Handle scenario parameters
-        if not self.session.scenario_data:
+        if not self.session.is_scenario_loaded():
             print("No scenario loaded. Use 'use <scenario>' first.")
             return
         
@@ -494,7 +494,7 @@ class LoRaWANShell(cmd.Cmd):
             reset
             reset target.host
         """
-        if not self.session.scenario_data:
+        if not self.session.is_scenario_loaded():
             print("No scenario loaded. Use 'use <scenario>' first.")
             return
         
@@ -564,7 +564,7 @@ class LoRaWANShell(cmd.Cmd):
         Usage:
             validate
         """
-        if not self.session.scenario_data:
+        if not self.session.is_scenario_loaded():
             print("No scenario loaded. Use 'use <scenario>' first.")
             return
         
@@ -614,7 +614,7 @@ class LoRaWANShell(cmd.Cmd):
         Usage:
             run
         """
-        if not self.session.scenario_data:
+        if not self.session.is_scenario_loaded():
             print("No scenario loaded. Use 'use <scenario>' first.")
             return
         
@@ -763,7 +763,7 @@ class LoRaWANShell(cmd.Cmd):
         Usage:
             clear
         """
-        if self.session.scenario_data:
+        if self.session.is_scenario_loaded():
             print(f"Cleared scenario: {self.session.scenario_name}")
             self.session.clear_scenario()
         
