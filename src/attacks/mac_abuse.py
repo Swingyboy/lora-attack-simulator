@@ -174,8 +174,9 @@ class MACCommandAbuse(BaseAttack):
         malformed: bool = False,
         malformation_type: str = "truncated",
         parameters: dict[str, Any] | None = None,
+        expected: ExpectedBehavior | None = None,
     ) -> None:
-        super().__init__(config, device, gateway, logger)
+        super().__init__(config, device, gateway, logger, expected)
         self.radio = radio
         self.command_type = command_type
         self.malformed = malformed

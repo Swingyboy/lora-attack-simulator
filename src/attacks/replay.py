@@ -125,8 +125,9 @@ class ReplayAttack(BaseAttack):
         delay_sec: float = 0.0,
         burst_count: int = 1,
         burst_interval_sec: float = 0.1,
+        expected: ExpectedBehavior | None = None,
     ) -> None:
-        super().__init__(config, device, gateway, logger)
+        super().__init__(config, device, gateway, logger, expected)
         self.radio = radio
         self.replay_mode = replay_mode
         self.delay_sec = delay_sec

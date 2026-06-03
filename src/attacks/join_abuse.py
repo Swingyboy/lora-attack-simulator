@@ -227,8 +227,9 @@ class JoinAbuseAttack(BaseAttack):
         flood_count: int = 10,
         flood_interval_sec: float = 0.1,
         virtual_devices: int = 1,
+        expected: ExpectedBehavior | None = None,
     ) -> None:
-        super().__init__(config, device, gateway, logger)
+        super().__init__(config, device, gateway, logger, expected)
         self.radio = radio
         self.mode = mode
         self.flood_count = flood_count
