@@ -190,9 +190,11 @@ class AttackRunner:
                 mode="replay",
                 flood_count=join_config.replay_count,
                 flood_interval_sec=join_config.delay_sec,
+                replay_delay_sec=join_config.delay_sec,  # Pass delay for replay timing
                 virtual_devices=1,
                 expected=scenario.expected,
                 timing=join_config.timing,  # Pass timing configuration
+                inter_message_delay_sec=scenario.scenario.timeout_sec,  # Delay between uplinks
             )
         
         elif attack_type == "join_flood":

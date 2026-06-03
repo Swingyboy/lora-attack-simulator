@@ -227,16 +227,20 @@ class JoinAbuseAttack(BaseAttack):
         mode: str = "replay",
         flood_count: int = 10,
         flood_interval_sec: float = 0.1,
+        replay_delay_sec: float = 0.5,
         virtual_devices: int = 1,
         expected: ExpectedBehavior | None = None,
         timing: AttackTiming | None = None,
+        inter_message_delay_sec: float = 30.0,
     ) -> None:
         super().__init__(config, device, gateway, logger, expected)
         self.radio = radio
         self.mode = mode
         self.flood_count = flood_count
         self.flood_interval_sec = flood_interval_sec
+        self.replay_delay_sec = replay_delay_sec
         self.virtual_devices = virtual_devices
+        self.inter_message_delay_sec = inter_message_delay_sec  # Delay between uplink messages
         self._captured_join_request: CapturedPacket | None = None
         self._virtual_device_list: list[VirtualDevice] = []
         
@@ -250,8 +254,7 @@ class JoinAbuseAttack(BaseAttack):
             logger.debug(
                 f"Attack timing: join_timeout={self.timing.join_accept_timeout_sec}s, "
                 f"rx1={self.timing.rx1_delay_sec}s, rx2={self.timing.rx2_delay_sec}s, "
-                f"stabilize={self.timing.stabilization_delay_sec}s, "
-                f"drain={self.timing.drain_timeout_sec}s"
+                f"inter_message_delay={self.inter_message_delay_sec}s"
             )
     
     def _create_analyzer(self) -> AttackAnalyzer:
@@ -306,6 +309,12 @@ class JoinAbuseAttack(BaseAttack):
                 extra={"dev_nonce": captured_dev_nonce.hex()},
             )
             
+            # Wait inter_message_delay before sending test uplink
+            self.logger.info(
+                f"Waiting {self.inter_message_delay_sec}s before sending test uplink..."
+            )
+            time.sleep(self.inter_message_delay_sec)
+            
             # Send a test uplink to prove session is active
             self.logger.info("Sending test uplink to confirm session...")
             try:
@@ -327,7 +336,6 @@ class JoinAbuseAttack(BaseAttack):
                 gateway=self.gateway,
                 rx1_delay_sec=self.timing.rx1_delay_sec,
                 rx2_delay_sec=self.timing.rx2_delay_sec,
-                stabilization_delay_sec=self.timing.stabilization_delay_sec,
                 logger=self.logger,
             )
             
@@ -336,12 +344,11 @@ class JoinAbuseAttack(BaseAttack):
                     f"Received {len(downlinks)} downlink(s) during RX windows"
                 )
             
-            # Drain any remaining downlinks just to be safe
-            # This ensures clean slate before sending replay
-            self.logger.debug("Draining remaining downlinks...")
-            drained = self.gateway.drain_downlinks(
-                drain_time_sec=self.timing.drain_timeout_sec
+            # Wait inter_message_delay before sending replay
+            self.logger.info(
+                f"Waiting {self.inter_message_delay_sec}s before sending replay attack..."
             )
+            time.sleep(self.inter_message_delay_sec)
             
             # Store the captured DevNonce for replay
             self._captured_join_request = CapturedPacket(
@@ -414,7 +421,7 @@ class JoinAbuseAttack(BaseAttack):
             gateway=self.gateway,
             radio=self.radio,
             dev_nonce=dev_nonce,
-            timeout_sec=self.timing.join_accept_timeout_sec,  # Use configured timeout
+            timeout_sec=self.inter_message_delay_sec,  # Use inter-message delay for last pair
             logger=self.logger,
         )
         

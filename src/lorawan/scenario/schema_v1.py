@@ -85,14 +85,11 @@ class AttackTiming:
     Default values follow LoRaWAN 1.0.3 timing specification:
     - RX1 window opens 1s after uplink transmission ends
     - RX2 window opens 2s after uplink transmission ends
-    - Allow time for NS internal processing and response
     """
     
-    join_accept_timeout_sec: float = 5.0  # Max wait for JoinAccept response
+    join_accept_timeout_sec: float = 30.0  # Max wait for JoinAccept response
     rx1_delay_sec: float = 1.0  # LoRaWAN RX1 window delay
     rx2_delay_sec: float = 2.0  # LoRaWAN RX2 window delay (total from uplink)
-    stabilization_delay_sec: float = 0.5  # Extra wait after RX windows
-    drain_timeout_sec: float = 1.0  # Time to drain pending downlinks
 
 
 @dataclass(frozen=True)

@@ -282,7 +282,6 @@ def wait_for_rx_windows(
     gateway: GatewaySimulator,
     rx1_delay_sec: float,
     rx2_delay_sec: float,
-    stabilization_delay_sec: float,
     logger: Logger | None = None,
 ) -> list[bytes]:
     """
@@ -291,7 +290,6 @@ def wait_for_rx_windows(
     Follows LoRaWAN timing specification:
     - RX1 window opens rx1_delay_sec after uplink
     - RX2 window opens rx2_delay_sec after uplink (total, not additional)
-    - Additional stabilization delay after RX2
     
     This function actively collects downlinks during the RX windows
     instead of just sleeping, ensuring we capture all NS responses.
@@ -300,7 +298,6 @@ def wait_for_rx_windows(
         gateway: Gateway simulator to collect downlinks from
         rx1_delay_sec: Delay until RX1 window (typically 1.0s)
         rx2_delay_sec: Delay until RX2 window (typically 2.0s, total from uplink)
-        stabilization_delay_sec: Extra wait after RX2 (typically 0.5s)
         logger: Optional logger for diagnostics
         
     Returns:
@@ -344,23 +341,6 @@ def wait_for_rx_windows(
             downlinks.append(downlink)
             if logger:
                 logger.debug(f"Downlink received in RX2: {downlink.hex()[:32]}...")
-    
-    if logger:
-        logger.debug(f"RX2 window complete, stabilization delay ({stabilization_delay_sec}s)...")
-    
-    # Stabilization delay
-    deadline_stabilize = time.time() + stabilization_delay_sec
-    
-    while time.time() < deadline_stabilize:
-        remaining = deadline_stabilize - time.time()
-        if remaining <= 0:
-            break
-        
-        downlink = gateway.await_downlink(timeout_sec=min(remaining, 0.1))
-        if downlink:
-            downlinks.append(downlink)
-            if logger:
-                logger.debug(f"Downlink received during stabilization: {downlink.hex()[:32]}...")
     
     if logger:
         logger.info(f"RX windows complete: {len(downlinks)} downlink(s) received")
