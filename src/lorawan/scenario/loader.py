@@ -112,22 +112,21 @@ def _load_mac_command_config(data: dict[str, Any]) -> MACCommandConfig:
     )
 
 
-def load_attack_scenario(path: str) -> AttackScenarioConfig | AttackScenarioV1:
+def load_attack_scenario(path: str) -> AttackScenarioV1:
     """
-    Load attack scenario from JSON file (supports v0.9 and v1.0 formats).
-    
-    Version detection based on schema_version field:
-    - Missing or "0.9": loads legacy format (current scenarios)
-    - "1.0": loads new unified format
+    Load attack scenario from JSON file (v1.0 format only).
     
     Args:
         path: Path to attack scenario JSON file
     
     Returns:
-        AttackScenarioConfig (v0.9) or AttackScenarioV1 (v1.0) instance
+        AttackScenarioV1 instance
     
     Raises:
         ValueError: If scenario is invalid or version unsupported
+    
+    Note:
+        Legacy v0.9 format support removed. All scenarios must use schema_version: "1.0"
     """
     try:
         raw = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -136,18 +135,16 @@ def load_attack_scenario(path: str) -> AttackScenarioConfig | AttackScenarioV1:
     except json.JSONDecodeError as exc:
         raise ValueError(f"invalid JSON: {exc}") from exc
     
-    # Detect schema version
-    schema_version = raw.get("schema_version", "0.9")
+    # Check schema version
+    schema_version = raw.get("schema_version")
     
-    if schema_version == "0.9":
-        return _load_v09_format(raw)
-    elif schema_version == "1.0":
-        return _load_v1_format(raw)
-    else:
+    if schema_version != "1.0":
         raise ValueError(
-            f"Unsupported schema version: {schema_version}. "
-            f"Supported versions: 0.9 (legacy), 1.0 (current)"
+            f"Unsupported or missing schema version: {schema_version}. "
+            f"Only v1.0 is supported. Legacy v0.9 scenarios must be migrated."
         )
+    
+    return _load_v1_format(raw)
 
 
 def _load_v1_format(raw: dict[str, Any]) -> AttackScenarioV1:
@@ -266,103 +263,3 @@ def _load_v1_format(raw: dict[str, Any]) -> AttackScenarioV1:
     return scenario_v1
 
 
-def _load_v09_format(raw: dict[str, Any]) -> AttackScenarioConfig:
-    """
-    Load attack scenario in v0.9 (legacy) format.
-    
-    This is the current format with attack-specific top-level blocks.
-    Maintained for backward compatibility with existing scenarios.
-    """
-    try:
-        attack = raw["attack"]
-        gateway = raw["gateway"]
-        device = raw["device"]
-        logging = raw["logging"]
-    except KeyError as exc:
-        raise ValueError(f"v0.9 format: missing required section: {exc.args[0]}") from exc
-    
-    # Validate gateway
-    gateway_eui = _expect_str("gateway.gateway_eui", gateway["gateway_eui"]).lower()
-    _expect_hex("gateway.gateway_eui", gateway_eui, 8)
-    
-    # Validate device activation
-    activation = device["activation"]
-    if activation["mode"] != "OTAA":
-        raise ValueError("device.activation.mode must be OTAA")
-    
-    dev_eui = _expect_str("device.activation.dev_eui", activation["dev_eui"]).lower()
-    join_eui = _expect_str("device.activation.join_eui", activation["join_eui"]).lower()
-    app_key = _expect_str("device.activation.app_key", activation["app_key"]).lower()
-    _expect_hex("device.activation.dev_eui", dev_eui, 8)
-    _expect_hex("device.activation.join_eui", join_eui, 8)
-    _expect_hex("device.activation.app_key", app_key, 16)
-    
-    # Load attack type and config
-    attack_type = _expect_str("attack.attack_type", attack["attack_type"])
-    if attack_type not in ["replay", "join_abuse", "mac_abuse"]:
-        raise ValueError("attack.attack_type must be replay, join_abuse, or mac_abuse")
-    
-    # Load attack-specific configuration
-    replay_config = None
-    join_abuse_config = None
-    mac_command_config = None
-    
-    if attack_type == "replay":
-        if "replay" not in raw:
-            raise ValueError("replay attack requires replay configuration")
-        replay_config = _load_replay_config(raw["replay"])
-    elif attack_type == "join_abuse":
-        if "join_abuse" not in raw:
-            raise ValueError("join_abuse attack requires join_abuse configuration")
-        join_abuse_config = _load_join_abuse_config(raw["join_abuse"])
-    elif attack_type == "mac_abuse":
-        if "mac_command" not in raw:
-            raise ValueError("mac_abuse attack requires mac_command configuration")
-        mac_command_config = _load_mac_command_config(raw["mac_command"])
-    
-    scenario = AttackScenarioConfig(
-        attack=AttackMeta(
-            name=_expect_str("attack.name", attack["name"]),
-            description=_expect_str("attack.description", attack["description"]),
-            attack_type=attack_type,
-            timeout_sec=float(attack.get("timeout_sec", 60.0)),
-        ),
-        gateway=GatewayConfig(
-            gateway_eui=gateway_eui,
-            semtech_udp=SemtechUdpConfig(
-                host=_expect_str("gateway.semtech_udp.host", gateway["semtech_udp"]["host"]),
-                port=_expect_int("gateway.semtech_udp.port", gateway["semtech_udp"]["port"], 1),
-                pull_data_interval_sec=_expect_int(
-                    "gateway.semtech_udp.pull_data_interval_sec",
-                    gateway["semtech_udp"]["pull_data_interval_sec"],
-                    1,
-                ),
-            ),
-            radio_metadata=RadioMetadata(
-                frequency=_expect_int("gateway.radio_metadata.frequency", gateway["radio_metadata"]["frequency"], 1),
-                data_rate=_expect_str("gateway.radio_metadata.data_rate", gateway["radio_metadata"]["data_rate"]),
-                rssi=_expect_int("gateway.radio_metadata.rssi", gateway["radio_metadata"]["rssi"]),
-                snr=float(gateway["radio_metadata"]["snr"]),
-            ),
-        ),
-        device=DeviceConfig(
-            name=_expect_str("device.name", device["name"]),
-            lorawan_version=_expect_str("device.lorawan_version", device["lorawan_version"]),
-            region=_expect_str("device.region", device["region"]),
-            device_class=_expect_str("device.device_class", device["device_class"]),
-            activation=ActivationConfig(mode="OTAA", dev_eui=dev_eui, join_eui=join_eui, app_key=app_key),
-        ),
-        logging=LoggingConfig(
-            level=_expect_str("logging.level", logging["level"]).upper(),
-            log_phy_payload=_expect_bool("logging.log_phy_payload", logging.get("log_phy_payload", True)),
-            log_semtech_udp=_expect_bool("logging.log_semtech_udp", logging.get("log_semtech_udp", True)),
-        ),
-        replay=replay_config,
-        join_abuse=join_abuse_config,
-        mac_command=mac_command_config,
-    )
-    
-    # Validate the complete scenario
-    scenario.validate()
-    
-    return scenario
