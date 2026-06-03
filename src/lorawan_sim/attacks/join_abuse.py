@@ -22,7 +22,7 @@ from lorawan_sim.lorawan.scenario.schema import RadioMetadata
 from lorawan_sim.lorawan.protocol.frames import build_join_request
 
 if TYPE_CHECKING:
-    from lorawan.scenario.schema_v1 import ExpectedBehavior, AttackTiming
+    from lorawan_sim.lorawan.scenario.schema_v1 import ExpectedBehavior, AttackTiming
 
 
 class JoinAbuseAnalyzer(AttackAnalyzer):
@@ -245,7 +245,7 @@ class JoinAbuseAttack(BaseAttack):
         self._virtual_device_list: list[VirtualDevice] = []
         
         # Import AttackTiming for defaults
-        from lorawan.scenario.schema_v1 import AttackTiming as TimingDefaults
+        from lorawan_sim.lorawan.scenario.schema_v1 import AttackTiming as TimingDefaults
         
         # Use provided timing or defaults
         self.timing = timing if timing else TimingDefaults()

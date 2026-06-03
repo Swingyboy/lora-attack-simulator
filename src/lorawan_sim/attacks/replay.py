@@ -16,7 +16,7 @@ from lorawan_sim.lorawan.gateway.model import GatewaySimulator
 from lorawan_sim.lorawan.scenario.schema import RadioMetadata
 
 if TYPE_CHECKING:
-    from lorawan.scenario.schema_v1 import ExpectedBehavior
+    from lorawan_sim.lorawan.scenario.schema_v1 import ExpectedBehavior
 
 
 class ReplayAnalyzer(AttackAnalyzer):

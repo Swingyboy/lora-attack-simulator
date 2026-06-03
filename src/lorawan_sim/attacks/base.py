@@ -13,7 +13,7 @@ from lorawan_sim.lorawan.device.model import SimulatedDevice
 from lorawan_sim.lorawan.gateway.model import GatewaySimulator
 
 if TYPE_CHECKING:
-    from lorawan.scenario.schema_v1 import ExpectedBehavior
+    from lorawan_sim.lorawan.scenario.schema_v1 import ExpectedBehavior
 
 
 @dataclass

@@ -185,7 +185,7 @@ class SimulatedDevice:
             frm_payload = phy_payload[payload_start + 1:mic_start]
         
         # Verify MIC
-        from lorawan.protocol.crypto_v103 import data_mic
+        from lorawan_sim.lorawan.protocol.crypto_v103 import data_mic
         
         expected_mic = data_mic(
             nwk_s_key=self.runtime.nwk_s_key,
@@ -204,7 +204,7 @@ class SimulatedDevice:
         # If FPort == 0, FRMPayload contains MAC commands
         if f_port == 0 and frm_payload:
             # Decrypt with NwkSKey
-            from lorawan.protocol.crypto_v103 import lorawan_payload_cipher
+            from lorawan_sim.lorawan.protocol.crypto_v103 import lorawan_payload_cipher
             
             decrypted = lorawan_payload_cipher(
                 key=self.runtime.nwk_s_key,

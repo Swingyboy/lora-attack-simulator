@@ -71,7 +71,7 @@ class AttackRunner:
         gateway = create_gateway((scenario.gateway, scenario.target), self.logger)
         
         # Extract radio metadata for attack
-        from lorawan.scenario.schema import RadioMetadata
+        from lorawan_sim.lorawan.scenario.schema import RadioMetadata
         radio = RadioMetadata(
             frequency=scenario.gateway.radio.frequency_hz,
             data_rate=scenario.gateway.radio.data_rate,
@@ -117,7 +117,7 @@ class AttackRunner:
         radio: RadioMetadata,
     ) -> Any:
         """Create attack instance from v1.0 scenario configuration."""
-        from attacks.base import AttackConfig
+        from lorawan_sim.attacks.base import AttackConfig
         
         attack_type = scenario.attack.type
         
@@ -207,7 +207,7 @@ class AttackRunner:
         Returns:
             Attack results
         """
-        from lorawan.scenario.loader import load_attack_scenario
+        from lorawan_sim.lorawan.scenario.loader import load_attack_scenario
         
         scenario = load_attack_scenario(scenario_path)
         results = self.run(scenario)
