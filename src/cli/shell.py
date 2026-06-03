@@ -106,9 +106,14 @@ class LoRaWANShell(cmd.Cmd):
             show scenarios <category>  - Filter by category (replay, join_abuse, mac_abuse)
             show options              - Show current scenario parameters (requires active scenario)
             show logging              - Show current logging configuration
+            show <scenario_name>      - Inspect a scenario without loading it
         """
         if not args:
-            print("Usage: show [scenarios|options|logging]")
+            # Default behavior when loaded
+            if self.session.scenario_data:
+                self._show_options()
+            else:
+                print("Usage: show [scenarios|options|logging|<scenario_name>]")
             return
         
         parts = args.split()
@@ -121,8 +126,13 @@ class LoRaWANShell(cmd.Cmd):
         elif parts[0] == "logging":
             self._show_logging()
         else:
-            print(f"Unknown show command: {parts[0]}")
-            print("Available: show scenarios [category], show options, show logging")
+            # Try to show a specific scenario
+            scenario_name = parts[0]
+            if scenario_name in self.scenario_metadata:
+                self._inspect_scenario(scenario_name)
+            else:
+                print(f"Unknown show command: {parts[0]}")
+                print("Available: show scenarios [category], show options, show logging, show <scenario_name>")
     
     def _show_scenarios(self, category_filter: str | None = None) -> None:
         """Display available scenarios with metadata.
@@ -175,33 +185,27 @@ class LoRaWANShell(cmd.Cmd):
         print(f"{'Parameter Path':<40} {'Current Value':<30}")
         print("-" * 70)
         
-        # Display parameters with nested paths
-        self._print_nested_dict(self.session.scenario_data, prefix="")
-        
-        print("\nUse 'set <param_path> <value>' to modify parameters")
-        print("Use 'reset' to restore all defaults")
+        self._display_params(self.session.scenario_data)
+        print("\nUse 'set <parameter> <value>' to modify parameters")
+        print("Example: set target.host 192.168.1.100")
     
-    def _print_nested_dict(self, data: dict[str, Any], prefix: str = "") -> None:
-        """Recursively print nested dictionary with dot notation paths."""
-        for key, value in data.items():
-            path = f"{prefix}.{key}" if prefix else key
+    def _display_params(self, d: dict[str, Any], prefix: str = "") -> None:
+        """Recursively display parameters."""
+        for key, value in sorted(d.items()):
+            param_path = f"{prefix}.{key}" if prefix else key
+            
+            # Skip certain metadata fields
+            if key in ["name", "description", "version"]:
+                continue
             
             if isinstance(value, dict):
-                # Recursively print nested dicts
-                self._print_nested_dict(value, path)
-            elif isinstance(value, list):
-                # Show list length and type
-                if value:
-                    list_repr = f"[{len(value)} items]"
-                else:
-                    list_repr = "[]"
-                print(f"{path:<40} {list_repr:<30}")
+                self._display_params(value, param_path)
             else:
-                # Show primitive values
+                # Truncate long values
                 value_str = str(value)
                 if len(value_str) > 27:
                     value_str = value_str[:27] + "..."
-                print(f"{path:<40} {value_str:<30}")
+                print(f"{param_path:<40} {value_str:<30}")
     
     def _show_logging(self) -> None:
         """Display current logging configuration."""
@@ -281,7 +285,10 @@ class LoRaWANShell(cmd.Cmd):
             return
         
         scenario_name = args.strip()
-        
+        self._inspect_scenario(scenario_name)
+    
+    def _inspect_scenario(self, scenario_name: str) -> None:
+        """Display detailed information about a scenario without loading it."""
         if scenario_name not in self.scenario_metadata:
             print(f"Scenario not found: {scenario_name}")
             print("Type 'show scenarios' to see available scenarios")
@@ -297,6 +304,28 @@ class LoRaWANShell(cmd.Cmd):
         print(f"Path:        {metadata.path}")
         print(f"\nDescription:")
         print(f"  {metadata.description}")
+        
+        # Load scenario data to show default parameters
+        try:
+            from pathlib import Path
+            scenario_path = Path(metadata.path)
+            with open(scenario_path, 'r') as f:
+                import json
+                scenario_data = json.load(f)
+            
+            print(f"\nDefault Parameters:")
+            print("-" * 70)
+            print(f"{'Parameter Path':<40} {'Default Value':<30}")
+            print("-" * 70)
+            self._display_params(scenario_data)
+            
+            print(f"\nTo use this scenario:")
+            print(f"  use {scenario_name}")
+            print(f"  set <parameter> <value>")
+            print(f"  run")
+        except Exception as e:
+            print(f"\nCould not load default parameters: {e}")
+        
         print()
     
     def do_set(self, args: str) -> None:

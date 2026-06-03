@@ -26,13 +26,7 @@ from lorawan.scenario.schema_v1 import (
     ScenarioMeta,
     TargetConfig,
 )
-from lorawan.scenario.loader import (
-    _expect_bool,
-    _expect_hex,
-    _expect_int,
-    _expect_str,
-)
-from lorawan.scenario.schema import (
+from lorawan.scenario.base_types import (
     ActivationConfig,
     DeviceConfig,
     GatewayConfig,
