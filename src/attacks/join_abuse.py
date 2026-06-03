@@ -371,7 +371,7 @@ class JoinAbuseAttack(BaseAttack):
         )
         
         # Attempt join with same DevNonce - NS should reject this!
-        join_accepted = perform_otaa_join_with_devnonce(
+        ns_responded, join_succeeded = perform_otaa_join_with_devnonce(
             device=self.device,
             gateway=self.gateway,
             radio=self.radio,
@@ -380,9 +380,14 @@ class JoinAbuseAttack(BaseAttack):
             logger=self.logger,
         )
         
-        if join_accepted:
+        # Key distinction:
+        # - ns_responded=True means NS sent a downlink (it ACCEPTED the replay)
+        # - join_succeeded=True means device could parse the JoinAccept
+        # - ns_responded=False means NS rejected (no response = secure)
+        
+        if ns_responded:
             self.logger.warning(
-                "⚠️  VULNERABILITY: NS accepted duplicate DevNonce!",
+                "⚠️  VULNERABILITY: NS accepted duplicate DevNonce! (sent JoinAccept)",
                 extra={"security": "FAIL", "dev_nonce": dev_nonce_hex},
             )
         else:
@@ -399,7 +404,8 @@ class JoinAbuseAttack(BaseAttack):
                 "phase": "execute",
                 "replay": True,
                 "dev_nonce": dev_nonce_hex,
-                "ns_accepted": join_accepted,
+                "ns_accepted": ns_responded,  # True = vulnerability
+                "join_succeeded": join_succeeded,
             },
         )
         

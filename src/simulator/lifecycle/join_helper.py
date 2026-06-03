@@ -85,7 +85,7 @@ def perform_otaa_join_with_devnonce(
     dev_nonce: bytes,
     timeout_sec: float = 5.0,
     logger: Logger | None = None,
-) -> bool:
+) -> tuple[bool, bool]:
     """
     Perform OTAA join with a specific DevNonce (for replay attacks).
     
@@ -102,8 +102,9 @@ def perform_otaa_join_with_devnonce(
         logger: Optional logger for diagnostics
         
     Returns:
-        True if join succeeded (JoinAccept received)
-        False if join failed or NS rejected
+        Tuple of (ns_responded, join_succeeded):
+        - ns_responded: True if NS sent any downlink (even if malformed)
+        - join_succeeded: True if JoinAccept was valid and applied successfully
     """
     if logger:
         logger.info(f"Attempting OTAA join with DevNonce={dev_nonce.hex()}")
@@ -135,9 +136,14 @@ def perform_otaa_join_with_devnonce(
     if join_accept is None:
         if logger:
             logger.info("No JoinAccept received (NS rejected or timeout)")
-        return False
+        return (False, False)  # NS did not respond
     
-    # Apply JoinAccept
+    # NS responded with something - this means it accepted the request
+    # (if it rejected, it would not send anything)
+    if logger:
+        logger.info("downlink_received")
+    
+    # Try to apply JoinAccept
     try:
         device.apply_join_accept(join_accept)
         
@@ -147,12 +153,14 @@ def perform_otaa_join_with_devnonce(
                 extra={"dev_addr": device.runtime.dev_addr_hex},
             )
         
-        return True
+        return (True, True)  # NS responded and JoinAccept valid
         
     except Exception as e:
+        # NS responded but JoinAccept was malformed or invalid
+        # This still means NS ACCEPTED the replay (it tried to respond)
         if logger:
             logger.error(f"Could not apply JoinAccept: {e}")
-        return False
+        return (True, False)  # NS responded but JoinAccept invalid
 
 
 def send_periodic_uplinks(

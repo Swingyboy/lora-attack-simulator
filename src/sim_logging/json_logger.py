@@ -156,8 +156,11 @@ class ColoredConsoleFormatter(logging.Formatter):
         color = LEVEL_COLORS.get(record.levelname, COLORS["RESET"]) if self.use_colors else ""
         reset = COLORS["RESET"] if self.use_colors else ""
         
-        # Format: [LEVEL] logger - message
-        return f"{color}[{record.levelname}]{reset} {record.name} - {message}"
+        # Format timestamp (HH:MM:SS)
+        timestamp = datetime.fromtimestamp(record.created).strftime("%H:%M:%S")
+        
+        # Format: [HH:MM:SS] [LEVEL] logger - message
+        return f"[{timestamp}] {color}[{record.levelname}]{reset} {record.name} - {message}"
 
 
 class LoggingConfig:
