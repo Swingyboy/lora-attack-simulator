@@ -15,7 +15,7 @@ A protocol-level attack simulation framework for testing LoRaWAN Network Server 
 ```bash
 # Clone repository
 git clone https://github.com/Swingyboy/lora-attack-simulator.git
-cd lora-attack-simulator/src
+cd lora-attack-simulator
 
 # Create virtual environment
 python3.12 -m venv .venv
