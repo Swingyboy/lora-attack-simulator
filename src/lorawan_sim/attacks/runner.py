@@ -101,28 +101,11 @@ class AttackRunner:
         # Build device and gateway from config
         device = create_device(scenario.device)
         
-        # For v1.0, we need to convert GatewayConfigV1 to v0.9 format for create_gateway
-        # This is a temporary bridge until we refactor create_gateway
-        from lorawan_sim.domain.scenario.schema import GatewayConfig, SemtechUDPConfig, RadioMetadata
-        
-        gateway_v09 = GatewayConfig(
-            gateway_eui=scenario.gateway.gateway_eui,
-            semtech_udp=SemtechUDPConfig(
-                host=scenario.target.host,
-                port=scenario.target.port,
-                pull_data_interval_sec=scenario.gateway.pull_data_interval_sec,
-            ),
-            radio_metadata=RadioMetadata(
-                frequency=scenario.gateway.radio.frequency_hz,
-                data_rate=scenario.gateway.radio.data_rate,
-                rssi=scenario.gateway.radio.rssi,
-                snr=scenario.gateway.radio.snr,
-            ),
-        )
-        
-        gateway = create_gateway(gateway_v09, self.logger)
+        # Create gateway with v1.0 config (factory handles the conversion)
+        gateway = create_gateway((scenario.gateway, scenario.target), self.logger)
         
         # Extract radio metadata for attack
+        from lorawan_sim.domain.scenario.schema import RadioMetadata
         radio = RadioMetadata(
             frequency=scenario.gateway.radio.frequency_hz,
             data_rate=scenario.gateway.radio.data_rate,
