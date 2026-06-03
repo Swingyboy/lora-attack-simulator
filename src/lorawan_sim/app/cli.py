@@ -8,7 +8,7 @@ import sys
 
 def main() -> int:
     """Main entry point - starts interactive shell."""
-    from cli.shell import LoRaWANShell
+    from lorawan_sim.app.shell import LoRaWANShell
     
     shell = LoRaWANShell()
     

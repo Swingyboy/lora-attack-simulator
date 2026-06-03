@@ -70,7 +70,7 @@ class LoRaWANShell(cmd.Cmd):
         self.session = Session()
         
         # Initialize logging for shell session
-        from sim_logging.json_logger import configure_logging
+        from lorawan_sim.common.logging import configure_logging
         
         configure_logging(
             level="INFO",
@@ -209,7 +209,7 @@ class LoRaWANShell(cmd.Cmd):
     
     def _show_logging(self) -> None:
         """Display current logging configuration."""
-        from sim_logging.json_logger import get_logging_config
+        from lorawan_sim.common.logging import get_logging_config
         
         config = get_logging_config()
         
@@ -456,7 +456,7 @@ class LoRaWANShell(cmd.Cmd):
     
     def _set_logging_param(self, param_path: str, value_str: str) -> None:
         """Set logging configuration parameter."""
-        from sim_logging.json_logger import reconfigure_level
+        from lorawan_sim.common.logging import reconfigure_level
         
         # Extract parameter name (e.g., "logging.level" -> "level")
         param_name = param_path.split(".", 1)[1] if "." in param_path else param_path
@@ -648,7 +648,7 @@ class LoRaWANShell(cmd.Cmd):
         try:
             # Configure logging for attack execution
             import logging
-            from sim_logging.json_logger import configure_logging
+            from lorawan_sim.common.logging import configure_logging
             
             log_config = self.session.scenario_data.get('logging', {})
             log_level = log_config.get('level', 'INFO').upper()
