@@ -4,21 +4,27 @@ from __future__ import annotations
 
 import time
 from logging import Logger
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from lorawan_sim.attacks.analyzer import AttackAnalyzer
 from lorawan_sim.attacks.base import AttackConfig, BaseAttack
 from lorawan_sim.attacks.packet_capture import CapturedPacket, PacketCapture
+from lorawan_sim.attacks.validation import validate_criteria
 from lorawan_sim.core.lifecycle.join_helper import perform_otaa_join
 from lorawan_sim.domain.device.model import SimulatedDevice
 from lorawan_sim.domain.gateway.model import GatewaySimulator
 from lorawan_sim.domain.scenario.schema import RadioMetadata
 
+if TYPE_CHECKING:
+    from lorawan_sim.domain.attack_scenario.schema_v1 import ExpectedBehavior
+
 
 class ReplayAnalyzer(AttackAnalyzer):
     """Analyzer for replay attack results."""
     
-    def analyze(self, capture: PacketCapture) -> dict[str, Any]:
+    def analyze(
+        self, capture: PacketCapture, expected: ExpectedBehavior | None = None
+    ) -> dict[str, Any]:
         """
         Analyze replay attack results.
         
@@ -63,20 +69,39 @@ class ReplayAnalyzer(AttackAnalyzer):
         # - Error messages
         # - Session state changes
         
-        # For MVP, we consider the attack successful if replay was executed
-        return {
+        # Build metrics
+        metrics = {
+            "original_fcnt": original.fcnt if original else None,
+            "replays_count": len(replays),
+            "replays_sent": len(replays),  # Alias for compatibility
+            "total_uplinks": stats["total_uplinks"],
+            "total_downlinks": stats["total_downlinks"],
+            "time_between_original_and_first_replay": (
+                replays[0].timestamp - original.timestamp if replays and original else 0
+            ),
+        }
+        
+        # Base result
+        result = {
             "success": True,
             "message": f"Replay attack executed: {len(replays)} replay(s) sent",
-            "metrics": {
-                "original_fcnt": original.fcnt if original else None,
-                "replays_sent": len(replays),
-                "total_uplinks": stats["total_uplinks"],
-                "total_downlinks": stats["total_downlinks"],
-                "time_between_original_and_first_replay": (
-                    replays[0].timestamp - original.timestamp if replays and original else 0
-                ),
-            },
+            "metrics": metrics,
         }
+        
+        # Add validation results if expected behavior provided
+        if expected:
+            validation = validate_criteria(
+                attack_type="uplink_replay",
+                criteria=expected.success_criteria,
+                metrics=metrics,
+                capture_stats=stats,
+                secure_behavior=expected.secure_behavior,
+            )
+            
+            result.update(validation.to_dict())
+            result["validation_summary"] = validation.get_summary()
+        
+        return result
 
 
 class ReplayAttack(BaseAttack):

@@ -51,11 +51,10 @@
     }
   },
   "expected": {
-    "secure_behavior": "ns_validates_mac_commands_and_applies_adr_correctly",
+    "secure_behavior": "ns_validates_mac_commands_and_maintains_secure_adr_state",
     "success_criteria": [
-      "mac_command_is_processed",
-      "adr_parameters_are_applied_safely",
-      "device_responds_with_mac_answer"
+      "ns_validates_mac_command_syntax",
+      "ns_maintains_secure_adr_state"
     ]
   },
   "logging": {

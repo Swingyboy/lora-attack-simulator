@@ -5,11 +5,12 @@ from __future__ import annotations
 import secrets
 import time
 from logging import Logger
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from lorawan_sim.attacks.analyzer import AttackAnalyzer
 from lorawan_sim.attacks.base import AttackConfig, BaseAttack
 from lorawan_sim.attacks.packet_capture import CapturedPacket, PacketCapture
+from lorawan_sim.attacks.validation import validate_criteria
 from lorawan_sim.core.lifecycle.join_helper import (
     perform_otaa_join,
     perform_otaa_join_with_devnonce,
@@ -19,11 +20,16 @@ from lorawan_sim.domain.gateway.model import GatewaySimulator
 from lorawan_sim.domain.scenario.schema import RadioMetadata
 from lorawan_sim.protocol.lorawan.frames import build_join_request
 
+if TYPE_CHECKING:
+    from lorawan_sim.domain.attack_scenario.schema_v1 import ExpectedBehavior
+
 
 class JoinAbuseAnalyzer(AttackAnalyzer):
     """Analyzer for join procedure abuse attack results."""
     
-    def analyze(self, capture: PacketCapture) -> dict[str, Any]:
+    def analyze(
+        self, capture: PacketCapture, expected: ExpectedBehavior | None = None
+    ) -> dict[str, Any]:
         """
         Analyze join abuse attack results.
         
@@ -65,32 +71,70 @@ class JoinAbuseAnalyzer(AttackAnalyzer):
             
             if ns_accepted:
                 # Vulnerability found!
-                return {
+                metrics = {
+                    "attack_type": "join_replay",
+                    "join_requests_sent": len(join_requests),
+                    "join_accepts_received": len(join_accepts),
+                    "ns_accepted_replay": True,
+                    "duplicate_devnonce_accepted": True,
+                    "dev_nonce": dev_nonce,
+                    "security_status": "VULNERABLE",
+                    "total_uplinks": stats["total_uplinks"],
+                    "total_downlinks": stats["total_downlinks"],
+                }
+                
+                result = {
                     "success": False,  # Attack exposed vulnerability
                     "message": f"⚠️  VULNERABILITY: NS accepted duplicate DevNonce {dev_nonce}",
-                    "metrics": {
-                        "attack_type": "join_replay",
-                        "join_requests_sent": len(join_requests),
-                        "ns_accepted_replay": True,
-                        "security_status": "VULNERABLE",
-                        "total_uplinks": stats["total_uplinks"],
-                        "total_downlinks": stats["total_downlinks"],
-                    },
+                    "metrics": metrics,
                 }
+                
+                # Add validation if expected behavior provided
+                if expected:
+                    validation = validate_criteria(
+                        attack_type="join_replay",
+                        criteria=expected.success_criteria,
+                        metrics=metrics,
+                        capture_stats=stats,
+                        secure_behavior=expected.secure_behavior,
+                    )
+                    result.update(validation.to_dict())
+                    result["validation_summary"] = validation.get_summary()
+                
+                return result
             else:
                 # NS correctly rejected replay
-                return {
+                metrics = {
+                    "attack_type": "join_replay",
+                    "join_requests_sent": len(join_requests),
+                    "join_accepts_received": len(join_accepts),
+                    "ns_accepted_replay": False,
+                    "duplicate_devnonce_accepted": False,
+                    "dev_nonce": dev_nonce,
+                    "security_status": "SECURE",
+                    "total_uplinks": stats["total_uplinks"],
+                    "total_downlinks": stats["total_downlinks"],
+                }
+                
+                result = {
                     "success": True,  # Attack executed successfully, NS behaved securely
                     "message": f"✓ NS rejected duplicate DevNonce {dev_nonce} (secure behavior)",
-                    "metrics": {
-                        "attack_type": "join_replay",
-                        "join_requests_sent": len(join_requests),
-                        "ns_accepted_replay": False,
-                        "security_status": "SECURE",
-                        "total_uplinks": stats["total_uplinks"],
-                        "total_downlinks": stats["total_downlinks"],
-                    },
+                    "metrics": metrics,
                 }
+                
+                # Add validation if expected behavior provided
+                if expected:
+                    validation = validate_criteria(
+                        attack_type="join_replay",
+                        criteria=expected.success_criteria,
+                        metrics=metrics,
+                        capture_stats=stats,
+                        secure_behavior=expected.secure_behavior,
+                    )
+                    result.update(validation.to_dict())
+                    result["validation_summary"] = validation.get_summary()
+                
+                return result
         
         # Join flood analysis (no replay metadata found)
         # Analyze DevNonce usage
@@ -124,21 +168,37 @@ class JoinAbuseAnalyzer(AttackAnalyzer):
         elif join_accept_ratio < 0.5:
             message += " - possible rate limiting detected"
         
-        return {
+        metrics = {
+            "attack_type": "join_flood",
+            "join_requests_sent": len(join_requests),
+            "unique_dev_nonces": len(dev_nonces),
+            "replayed_dev_nonces": len(replayed_dev_nonces),
+            "join_accepts_received": len(join_accepts),
+            "join_accept_ratio": join_accept_ratio,
+            "joins_per_second": joins_per_sec,
+            "total_uplinks": stats["total_uplinks"],
+            "total_downlinks": stats["total_downlinks"],
+        }
+        
+        result = {
             "success": True,
             "message": message,
-            "metrics": {
-                "attack_type": "join_flood",
-                "join_requests_sent": len(join_requests),
-                "unique_dev_nonces": len(dev_nonces),
-                "replayed_dev_nonces": len(replayed_dev_nonces),
-                "join_accepts_received": len(join_accepts),
-                "join_accept_ratio": join_accept_ratio,
-                "joins_per_second": joins_per_sec,
-                "total_uplinks": stats["total_uplinks"],
-                "total_downlinks": stats["total_downlinks"],
-            },
+            "metrics": metrics,
         }
+        
+        # Add validation if expected behavior provided
+        if expected:
+            validation = validate_criteria(
+                attack_type="join_flood",
+                criteria=expected.success_criteria,
+                metrics=metrics,
+                capture_stats=stats,
+                secure_behavior=expected.secure_behavior,
+            )
+            result.update(validation.to_dict())
+            result["validation_summary"] = validation.get_summary()
+        
+        return result
 
 
 class JoinAbuseAttack(BaseAttack):

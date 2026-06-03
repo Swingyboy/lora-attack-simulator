@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import time
 from logging import Logger
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from lorawan_sim.attacks.analyzer import AttackAnalyzer
 from lorawan_sim.attacks.base import AttackConfig, BaseAttack
 from lorawan_sim.attacks.packet_capture import CapturedPacket, PacketCapture
+from lorawan_sim.attacks.validation import validate_criteria
 from lorawan_sim.core.lifecycle.join_helper import perform_otaa_join
 from lorawan_sim.domain.device.model import SimulatedDevice
 from lorawan_sim.domain.gateway.model import GatewaySimulator
@@ -27,11 +28,16 @@ from lorawan_sim.protocol.lorawan.mac_commands import (
     encode_mac_commands,
 )
 
+if TYPE_CHECKING:
+    from lorawan_sim.domain.attack_scenario.schema_v1 import ExpectedBehavior
+
 
 class MACCommandAnalyzer(AttackAnalyzer):
     """Analyzer for MAC command abuse attack results."""
     
-    def analyze(self, capture: PacketCapture) -> dict[str, Any]:
+    def analyze(
+        self, capture: PacketCapture, expected: ExpectedBehavior | None = None
+    ) -> dict[str, Any]:
         """
         Analyze MAC command abuse attack results.
         
@@ -97,20 +103,48 @@ class MACCommandAnalyzer(AttackAnalyzer):
         if adr_changes:
             message += f", {len(adr_changes)} ADR state change(s)"
         
-        return {
+        # Extract ADR state for validation
+        final_data_rate = None
+        final_tx_power = None
+        if adr_changes:
+            last_adr = adr_changes[-1]
+            final_data_rate = last_adr.get("data_rate")
+            final_tx_power = last_adr.get("tx_power")
+        
+        metrics = {
+            "mac_commands_injected": mac_commands_injected,
+            "uplinks_before_attack": uplinks_before_attack,
+            "uplinks_after_attack": uplinks_after_attack,
+            "device_responded": device_responded,
+            "malformed_commands": malformed_commands,  # Keep for backward compatibility
+            "malformed_commands_sent": malformed_commands,
+            "invalid_commands_sent": 0,  # Could track separately if needed
+            "adr_state_changes": len(adr_changes),
+            "final_data_rate": final_data_rate,
+            "final_tx_power": final_tx_power,
+            "total_uplinks": stats["total_uplinks"],
+            "total_downlinks": stats["total_downlinks"],
+        }
+        
+        result = {
             "success": success,
             "message": message,
-            "metrics": {
-                "mac_commands_injected": mac_commands_injected,
-                "uplinks_before_attack": uplinks_before_attack,
-                "uplinks_after_attack": uplinks_after_attack,
-                "device_responded": device_responded,
-                "malformed_commands": malformed_commands,
-                "adr_state_changes": len(adr_changes),
-                "total_uplinks": stats["total_uplinks"],
-                "total_downlinks": stats["total_downlinks"],
-            },
+            "metrics": metrics,
         }
+        
+        # Add validation if expected behavior provided
+        if expected:
+            validation = validate_criteria(
+                attack_type="mac_command_injection",
+                criteria=expected.success_criteria,
+                metrics=metrics,
+                capture_stats=stats,
+                secure_behavior=expected.secure_behavior,
+            )
+            result.update(validation.to_dict())
+            result["validation_summary"] = validation.get_summary()
+        
+        return result
 
 
 class MACCommandAbuse(BaseAttack):

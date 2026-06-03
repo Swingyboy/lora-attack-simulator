@@ -176,6 +176,7 @@ class AttackRunner:
                 delay_sec=replay_config.replay_phase.delay_sec,
                 burst_count=replay_config.replay_phase.count,
                 burst_interval_sec=0.1,  # Not in config, use default
+                expected=scenario.expected,
             )
         
         elif attack_type == "join_replay":
@@ -190,6 +191,7 @@ class AttackRunner:
                 flood_count=join_config.replay_count,
                 flood_interval_sec=join_config.delay_sec,
                 virtual_devices=1,
+                expected=scenario.expected,
             )
         
         elif attack_type == "join_flood":
@@ -204,6 +206,7 @@ class AttackRunner:
                 flood_count=flood_config.flood_count,
                 flood_interval_sec=flood_config.flood_interval_sec,
                 virtual_devices=flood_config.virtual_devices,
+                expected=scenario.expected,
             )
         
         elif attack_type in ("mac_command_injection", "mac_malformed"):
@@ -219,6 +222,7 @@ class AttackRunner:
                 malformed=mac_config.malformed,
                 malformation_type=malformation_type,
                 parameters=mac_config.parameters or {},
+                expected=scenario.expected,
             )
         
         else:

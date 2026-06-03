@@ -5,12 +5,15 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from logging import Logger
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from lorawan_sim.attacks.analyzer import AttackAnalyzer
 from lorawan_sim.attacks.packet_capture import PacketCapture
 from lorawan_sim.domain.device.model import SimulatedDevice
 from lorawan_sim.domain.gateway.model import GatewaySimulator
+
+if TYPE_CHECKING:
+    from lorawan_sim.domain.attack_scenario.schema_v1 import ExpectedBehavior
 
 
 @dataclass
@@ -32,6 +35,8 @@ class AttackResult:
     message: str
     metrics: dict[str, Any]
     captured_packets: int = 0
+    validation_summary: str | None = None
+    criteria_met: dict[str, bool] | None = None
 
 
 class BaseAttack(ABC):
@@ -50,11 +55,13 @@ class BaseAttack(ABC):
         device: SimulatedDevice,
         gateway: GatewaySimulator,
         logger: Logger,
+        expected: ExpectedBehavior | None = None,
     ) -> None:
         self.config = config
         self.device = device
         self.gateway = gateway
         self.logger = logger
+        self.expected = expected
         self.capture = PacketCapture(logger=logger)
         self.analyzer = self._create_analyzer()
     
@@ -121,7 +128,7 @@ class BaseAttack(ABC):
             
             # Analyze results
             self.logger.info("Attack phase: analysis")
-            analysis = self.analyzer.analyze(self.capture)
+            analysis = self.analyzer.analyze(self.capture, self.expected)
             
             result = AttackResult(
                 attack_name=self.config.name,
@@ -130,6 +137,11 @@ class BaseAttack(ABC):
                 metrics=analysis["metrics"],
                 captured_packets=len(self.capture.uplinks) + len(self.capture.downlinks),
             )
+            
+            # Include validation results if present
+            if "validation_summary" in analysis:
+                result.validation_summary = analysis["validation_summary"]
+                result.criteria_met = analysis.get("criteria_met", {})
             
             self.logger.info(
                 f"Attack completed: {self.config.name}",
