@@ -1,7 +1,79 @@
 """Session management for the LoRaWAN simulator CLI.
 
 This module provides a centralized session model that tracks CLI state,
-loaded scenarios, and runtime configuration.
+loaded scenarios, and runtime configuration overrides.
+
+# Session Model
+
+The `Session` class encapsulates all state for a CLI session:
+
+## Core Concepts
+
+- **Session ID**: Unique 8-character identifier for log correlation
+- **Loaded Scenario**: Tracks currently loaded scenario file and parsed data
+- **Runtime Overrides**: Parameter changes made via `set` command
+- **Effective Scenario**: Merged view of base scenario + overrides
+
+## API Methods
+
+### Scenario Management
+- `load_scenario(name, path, data)` - Load a scenario file
+- `clear_scenario()` - Unload current scenario
+- `is_scenario_loaded()` - Check if scenario is loaded
+- `get_effective_scenario()` - Get merged scenario with overrides
+
+### Parameter Overrides
+- `set_parameter(path, value)` - Override a scenario parameter
+- `reset_parameter(path)` - Reset parameter to original value
+- Supports dot-notation paths: `target.host`, `device.name`
+- Supports array indices: `devices[0].dev_eui`
+
+## Deep Merge Behavior
+
+When parameters are set via `set_parameter()`, they're stored in
+`runtime_overrides` dict. The `get_effective_scenario()` method
+performs a deep merge:
+
+1. Start with base `scenario_data` (immutable)
+2. Apply each override from `runtime_overrides`
+3. Return merged copy (original unchanged)
+
+Example:
+```python
+session.load_scenario("attack", Path("attack.json"), {...})
+session.set_parameter("target.port", "1701")  # Override
+scenario = session.get_effective_scenario()   # Has modified port
+```
+
+## Usage Pattern
+
+The Session object is typically used by the CLI shell:
+
+```python
+from simulator.session import Session
+
+session = Session()
+
+# Load scenario
+session.load_scenario("my-attack", Path("attack.json"), data)
+
+# Override parameters
+session.set_parameter("target.host", "192.168.1.100")
+session.set_parameter("gateway.radio.rssi", "-50")
+
+# Get effective scenario for execution
+effective = session.get_effective_scenario()
+
+# Execute with merged config
+runner.run(effective)
+```
+
+## Implementation Notes
+
+- Uses `copy.deepcopy()` for immutable merging
+- Path parsing supports nested keys and array indices
+- Original `scenario_data` never modified
+- Thread-safe for single CLI session (no concurrency)
 """
 
 from __future__ import annotations
