@@ -705,8 +705,13 @@ class LoRaWANShell(cmd.Cmd):
         # Captured packets summary
         captured = results.get('captured_packets', {})
         if captured:
-            uplinks = len(captured.get('uplinks', []))
-            downlinks = len(captured.get('downlinks', []))
+            if isinstance(captured, dict):
+                uplinks = len(captured.get('uplinks', []))
+                downlinks = len(captured.get('downlinks', []))
+            else:
+                # captured_packets is an integer count
+                uplinks = captured
+                downlinks = 0
             print(f"\n{'Captured Packets':-^60}")
             print(f"  Uplinks: {uplinks}")
             print(f"  Downlinks: {downlinks}")
@@ -720,10 +725,8 @@ class LoRaWANShell(cmd.Cmd):
         
         from pathlib import Path
         
-        # Get session ID from logging config
-        from sim_logging.json_logger import get_logging_config
-        log_config = get_logging_config()
-        session_id = log_config.session_id if log_config else "default"
+        # Use session ID from Session object
+        session_id = self.session.session_id or "default"
         
         # Create results directory structure: results/<session-id>/
         results_dir = Path("results") / session_id
