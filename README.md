@@ -78,10 +78,22 @@ lorawan-sim --help
 ### Basic Usage
 
 ```bash
-# Validate an attack scenario
-lorawan-sim validate-attack examples/attacks/join-replay-v1.json
+# Interactive shell mode (recommended for experimentation)
+lorawan-sim shell                   # Start interactive shell
+lorawan-sim                        # Same as shell (default)
 
-# Run an attack scenario
+# Within shell:
+# > show scenarios                 # List available scenarios
+# > use join-replay-v1             # Load a scenario
+# > show options                   # View parameters (Phase 3)
+# > set target.host 192.168.1.10   # Modify parameters (Phase 3)
+# > validate                       # Validate configuration (Phase 3)
+# > run                            # Execute attack (Phase 4)
+# > clear                          # Clear active scenario
+# > exit                           # Exit shell
+
+# Command-line mode (for automation)
+lorawan-sim validate-attack examples/attacks/join-replay-v1.json
 lorawan-sim run-attack examples/attacks/join-replay-v1.json
 
 # Available v1.0 example scenarios:

@@ -2,19 +2,17 @@ from __future__ import annotations
 
 import argparse
 import json
-import logging
 
-from lorawan_sim.attacks.runner import AttackRunner
-from lorawan_sim.core.runner.scenario_runner import ScenarioRunner
-from lorawan_sim.domain.attack_scenario.loader import load_attack_scenario
-from lorawan_sim.domain.scenario.loader import load_scenario
-from lorawan_sim.observability.logging.json_logger import configure_logging
+from lorawan_sim.app.shell import start_shell
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="lorawan-sim")
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command", required=False)
 
+    # Interactive shell command
+    shell_cmd = sub.add_parser("shell", help="Start interactive shell")
+    
     run_cmd = sub.add_parser("run", help="Run a scenario")
     run_cmd.add_argument("scenario_path")
 
@@ -35,8 +33,27 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    # If no command specified, start interactive shell
+    if args.command is None:
+        start_shell()
+        return 0
+    
+    # Handle interactive shell command
+    if args.command == "shell":
+        start_shell()
+        return 0
+
+    # Import attack-related modules only when needed (avoids loading dependencies for shell)
+    from lorawan_sim.attacks.runner import AttackRunner
+    from lorawan_sim.core.runner.scenario_runner import ScenarioRunner
+    from lorawan_sim.domain.attack_scenario.loader import load_attack_scenario
+    from lorawan_sim.domain.scenario.loader import load_scenario
+    from lorawan_sim.observability.logging.json_logger import configure_logging
+    
     # Handle attack scenario commands
     if args.command in ["run-attack", "validate-attack"]:
+        import logging
+        
         try:
             attack_scenario = load_attack_scenario(args.scenario_path)
         except ValueError as exc:
@@ -83,6 +100,8 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
     # Handle regular scenario commands
+    import logging
+    
     try:
         scenario = load_scenario(args.scenario_path)
     except ValueError as exc:
