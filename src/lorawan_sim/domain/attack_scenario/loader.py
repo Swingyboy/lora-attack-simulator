@@ -1,4 +1,8 @@
-"""Attack scenario loader."""
+"""Attack scenario loader.
+
+Supports both v0.9 (legacy) and v1.0 (current) scenario formats.
+Version detection based on schema_version field.
+"""
 
 from __future__ import annotations
 
@@ -12,6 +16,15 @@ from lorawan_sim.domain.attack_scenario.schema import (
     JoinAbuseConfig,
     MACCommandConfig,
     ReplayConfig,
+)
+from lorawan_sim.domain.attack_scenario.schema_v1 import (
+    AttackConfigV1,
+    AttackScenarioV1,
+    ExpectedBehavior,
+    GatewayConfigV1,
+    RadioConfig,
+    ScenarioMeta,
+    TargetConfig,
 )
 from lorawan_sim.domain.scenario.loader import (
     _expect_bool,
@@ -71,18 +84,22 @@ def _load_mac_command_config(data: dict[str, Any]) -> MACCommandConfig:
     )
 
 
-def load_attack_scenario(path: str) -> AttackScenarioConfig:
+def load_attack_scenario(path: str) -> AttackScenarioConfig | AttackScenarioV1:
     """
-    Load attack scenario from JSON file.
+    Load attack scenario from JSON file (supports v0.9 and v1.0 formats).
+    
+    Version detection based on schema_version field:
+    - Missing or "0.9": loads legacy format (current scenarios)
+    - "1.0": loads new unified format
     
     Args:
         path: Path to attack scenario JSON file
     
     Returns:
-        AttackScenarioConfig instance
+        AttackScenarioConfig (v0.9) or AttackScenarioV1 (v1.0) instance
     
     Raises:
-        ValueError: If scenario is invalid
+        ValueError: If scenario is invalid or version unsupported
     """
     try:
         raw = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -91,13 +108,150 @@ def load_attack_scenario(path: str) -> AttackScenarioConfig:
     except json.JSONDecodeError as exc:
         raise ValueError(f"invalid JSON: {exc}") from exc
     
+    # Detect schema version
+    schema_version = raw.get("schema_version", "0.9")
+    
+    if schema_version == "0.9":
+        return _load_v09_format(raw)
+    elif schema_version == "1.0":
+        return _load_v1_format(raw)
+    else:
+        raise ValueError(
+            f"Unsupported schema version: {schema_version}. "
+            f"Supported versions: 0.9 (legacy), 1.0 (current)"
+        )
+
+
+def _load_v1_format(raw: dict[str, Any]) -> AttackScenarioV1:
+    """
+    Load attack scenario in v1.0 format.
+    
+    v1.0 format features:
+    - Unified structure with all attack configs under attack.config
+    - Target section (NS connection separate from gateway)
+    - Expected section (security validation criteria)
+    - Consistent naming (snake_case, unit suffixes)
+    """
+    try:
+        scenario_data = raw["scenario"]
+        target_data = raw["target"]
+        gateway_data = raw["gateway"]
+        device_data = raw["device"]
+        attack_data = raw["attack"]
+        expected_data = raw["expected"]
+        logging_data = raw["logging"]
+    except KeyError as exc:
+        raise ValueError(f"v1.0 format: missing required section: {exc.args[0]}") from exc
+    
+    # Load scenario metadata
+    scenario = ScenarioMeta(
+        id=_expect_str("scenario.id", scenario_data["id"]),
+        title=_expect_str("scenario.title", scenario_data["title"]),
+        description=_expect_str("scenario.description", scenario_data["description"]),
+        category=_expect_str("scenario.category", scenario_data["category"]),
+        type=_expect_str("scenario.type", scenario_data["type"]),
+        timeout_sec=float(scenario_data.get("timeout_sec", 60.0)),
+    )
+    
+    # Load target (Network Server connection)
+    target = TargetConfig(
+        name=_expect_str("target.name", target_data["name"]),
+        transport=_expect_str("target.transport", target_data["transport"]),
+        host=_expect_str("target.host", target_data["host"]),
+        port=_expect_int("target.port", target_data["port"], 1),
+    )
+    
+    # Load gateway
+    gateway_eui = _expect_str("gateway.gateway_eui", gateway_data["gateway_eui"]).lower()
+    _expect_hex("gateway.gateway_eui", gateway_eui, 8)
+    
+    radio_data = gateway_data["radio"]
+    gateway = GatewayConfigV1(
+        gateway_eui=gateway_eui,
+        pull_data_interval_sec=_expect_int(
+            "gateway.pull_data_interval_sec",
+            gateway_data["pull_data_interval_sec"],
+            1
+        ),
+        radio=RadioConfig(
+            region=_expect_str("gateway.radio.region", radio_data["region"]),
+            frequency_hz=_expect_int("gateway.radio.frequency_hz", radio_data["frequency_hz"], 1),
+            data_rate=_expect_str("gateway.radio.data_rate", radio_data["data_rate"]),
+            rssi=_expect_int("gateway.radio.rssi", radio_data["rssi"]),
+            snr=float(radio_data["snr"]),
+        ),
+    )
+    
+    # Load device (reuse existing parser logic)
+    activation = device_data["activation"]
+    if activation["mode"] != "OTAA":
+        raise ValueError("device.activation.mode must be OTAA")
+    
+    dev_eui = _expect_str("device.activation.dev_eui", activation["dev_eui"]).lower()
+    join_eui = _expect_str("device.activation.join_eui", activation["join_eui"]).lower()
+    app_key = _expect_str("device.activation.app_key", activation["app_key"]).lower()
+    _expect_hex("device.activation.dev_eui", dev_eui, 8)
+    _expect_hex("device.activation.join_eui", join_eui, 8)
+    _expect_hex("device.activation.app_key", app_key, 16)
+    
+    device = DeviceConfig(
+        name=_expect_str("device.name", device_data["name"]),
+        lorawan_version=_expect_str("device.lorawan_version", device_data["lorawan_version"]),
+        region=_expect_str("device.region", device_data["region"]),
+        device_class=_expect_str("device.class", device_data.get("class", device_data.get("device_class", "A"))),
+        activation=ActivationConfig(mode="OTAA", dev_eui=dev_eui, join_eui=join_eui, app_key=app_key),
+    )
+    
+    # Load attack config (flexible dict, no parsing yet)
+    attack = AttackConfigV1(
+        type=_expect_str("attack.type", attack_data["type"]),
+        config=attack_data.get("config", {}),
+    )
+    
+    # Load expected behavior
+    expected = ExpectedBehavior(
+        secure_behavior=_expect_str("expected.secure_behavior", expected_data["secure_behavior"]),
+        success_criteria=expected_data.get("success_criteria", []),
+    )
+    
+    # Load logging
+    logging = LoggingConfig(
+        level=_expect_str("logging.level", logging_data["level"]).upper(),
+        log_phy_payload=_expect_bool("logging.log_phy_payload", logging_data.get("log_phy_payload", True)),
+        log_semtech_udp=_expect_bool("logging.log_semtech_udp", logging_data.get("log_semtech_udp", True)),
+    )
+    
+    scenario_v1 = AttackScenarioV1(
+        schema_version="1.0",
+        scenario=scenario,
+        target=target,
+        gateway=gateway,
+        device=device,
+        attack=attack,
+        expected=expected,
+        logging=logging,
+    )
+    
+    # Validate
+    scenario_v1.validate()
+    
+    return scenario_v1
+
+
+def _load_v09_format(raw: dict[str, Any]) -> AttackScenarioConfig:
+    """
+    Load attack scenario in v0.9 (legacy) format.
+    
+    This is the current format with attack-specific top-level blocks.
+    Maintained for backward compatibility with existing scenarios.
+    """
     try:
         attack = raw["attack"]
         gateway = raw["gateway"]
         device = raw["device"]
         logging = raw["logging"]
     except KeyError as exc:
-        raise ValueError(f"missing required section: {exc.args[0]}") from exc
+        raise ValueError(f"v0.9 format: missing required section: {exc.args[0]}") from exc
     
     # Validate gateway
     gateway_eui = _expect_str("gateway.gateway_eui", gateway["gateway_eui"]).lower()
