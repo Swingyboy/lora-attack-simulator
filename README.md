@@ -115,11 +115,18 @@ lorawan-sim run-attack examples/attacks/join-replay-v1.json
 - Rich scenario listing with title, category, description
 - Detailed scenario information with `info` command
 
-**Parameter Management (Phase 3 Complete):**
+**Parameter Management (Phase 3):**
 - Hierarchical parameter display with nested paths
 - Runtime parameter modification with type inference
 - Individual and bulk parameter reset
 - Scenario validation before execution
+
+**Attack Execution (Phase 4):**
+- Execute attack scenarios directly from shell
+- Real-time structured logging output
+- Formatted results display with metrics
+- Automatic results file generation (.results.json)
+- Graceful keyboard interrupt handling (Ctrl+C)
 
 **Example Session:**
 ```bash
@@ -156,6 +163,18 @@ lorawan-sim(join-replay-v1) > reset target.host
 
 lorawan-sim(join-replay-v1) > reset
 # Reset all parameters to defaults
+
+lorawan-sim(join-replay-v1) > run
+# Execute the attack scenario
+# 🚀 Starting attack execution...
+# [Structured logs appear here]
+# ============================================================
+# ATTACK RESULTS
+# ============================================================
+# Status: ✓ SUCCESS
+# Message: Join replay detected and rejected by Network Server
+# Metrics:...
+# 💾 Results saved to: examples/attacks/join-replay-v1.results.json
 
 lorawan-sim(join-replay-v1) > clear
 # Clear active scenario

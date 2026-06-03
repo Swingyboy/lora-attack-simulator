@@ -493,7 +493,7 @@ class LoRaWANShell(cmd.Cmd):
             print(f"✗ Validation error: {e}")
     
     def do_run(self, args: str) -> None:
-        """Execute the current scenario.
+        """Execute the currently loaded attack scenario.
         
         Usage:
             run
@@ -502,7 +502,129 @@ class LoRaWANShell(cmd.Cmd):
             print("No scenario loaded. Use 'use <scenario>' first.")
             return
         
-        print("Attack execution not yet implemented (Phase 4)")
+        # Validate scenario before execution
+        print("Validating scenario...")
+        import tempfile
+        
+        try:
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp:
+                json.dump(self.current_scenario, tmp, indent=2)
+                tmp_path = tmp.name
+            
+            from lorawan_sim.domain.attack_scenario.loader import load_attack_scenario
+            scenario = load_attack_scenario(tmp_path)
+            
+        except Exception as e:
+            print(f"\n❌ Validation failed: {e}")
+            return
+        finally:
+            import os
+            if 'tmp_path' in locals():
+                os.unlink(tmp_path)
+        
+        print("✓ Validation passed\n")
+        
+        # Execute attack
+        print("=" * 60)
+        print(f"Executing: {self.current_scenario.get('scenario', {}).get('title', self.current_scenario_name)}")
+        print("=" * 60)
+        
+        try:
+            # Configure logging for attack execution
+            import logging
+            from lorawan_sim.observability.logging.json_logger import configure_logging
+            
+            log_config = self.current_scenario.get('logging', {})
+            log_level = log_config.get('level', 'INFO').upper()
+            configure_logging(level=log_level)
+            
+            logger = logging.getLogger("lorawan_sim")
+            
+            # Import and run attack
+            from lorawan_sim.attacks.runner import AttackRunner
+            
+            runner = AttackRunner(logger=logger)
+            print(f"\n🚀 Starting attack execution...\n")
+            
+            results = runner.run(scenario)
+            
+            # Display results
+            self._display_results(results)
+            
+            # Save results to file
+            self._save_results(results)
+            
+            print("\n✓ Attack execution complete")
+            
+        except KeyboardInterrupt:
+            print("\n\n⚠️  Execution interrupted by user (Ctrl+C)")
+            print("Cleaning up resources...")
+            
+        except Exception as e:
+            print(f"\n❌ Attack execution failed: {e}")
+            import traceback
+            print("\nStack trace:")
+            traceback.print_exc()
+    
+    def _display_results(self, results: dict[str, Any]) -> None:
+        """Display attack execution results in formatted output."""
+        print("\n" + "=" * 60)
+        print("ATTACK RESULTS")
+        print("=" * 60)
+        
+        # Success status
+        success = results.get('success', False)
+        status_symbol = "✓" if success else "✗"
+        print(f"\nStatus: {status_symbol} {'SUCCESS' if success else 'FAILED'}")
+        print(f"Message: {results.get('message', 'No message')}")
+        
+        # Metrics
+        metrics = results.get('metrics', {})
+        if metrics:
+            print(f"\n{'Metrics':-^60}")
+            for key, value in metrics.items():
+                # Format metric name (snake_case to Title Case)
+                formatted_key = key.replace('_', ' ').title()
+                print(f"  {formatted_key:.<40} {value}")
+        
+        # Expected behavior (v1.0 scenarios)
+        expected_behavior = results.get('expected_behavior')
+        if expected_behavior:
+            print(f"\n{'Expected Behavior':-^60}")
+            print(f"  {expected_behavior}")
+        
+        # Success criteria (v1.0 scenarios)
+        success_criteria = results.get('success_criteria')
+        if success_criteria:
+            print(f"\n{'Success Criteria':-^60}")
+            for criterion in success_criteria:
+                print(f"  • {criterion}")
+        
+        # Captured packets summary
+        captured = results.get('captured_packets', {})
+        if captured:
+            uplinks = len(captured.get('uplinks', []))
+            downlinks = len(captured.get('downlinks', []))
+            print(f"\n{'Captured Packets':-^60}")
+            print(f"  Uplinks: {uplinks}")
+            print(f"  Downlinks: {downlinks}")
+        
+        print("\n" + "=" * 60)
+    
+    def _save_results(self, results: dict[str, Any]) -> None:
+        """Save execution results to .results.json file."""
+        if not self.current_scenario_path:
+            return
+        
+        # Save to same directory as scenario file
+        results_path = self.current_scenario_path.with_suffix('.results.json')
+        
+        try:
+            with open(results_path, 'w') as f:
+                json.dump(results, f, indent=2)
+            print(f"\n💾 Results saved to: {results_path}")
+        except Exception as e:
+            print(f"\n⚠️  Failed to save results: {e}")
     
     def do_clear(self, args: str) -> None:
         """Clear the current scenario session.
@@ -531,6 +653,7 @@ class LoRaWANShell(cmd.Cmd):
     do_quit = do_exit
     do_q = do_exit
     do_EOF = do_exit
+    do_r = do_run  # Alias for run
     
     def emptyline(self) -> None:
         """Do nothing on empty line."""
