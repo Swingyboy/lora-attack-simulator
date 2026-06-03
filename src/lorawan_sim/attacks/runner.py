@@ -8,6 +8,17 @@ from pathlib import Path
 from typing import Any
 
 from lorawan_sim.attacks.join_abuse import JoinAbuseAttack
+from lorawan_sim.attacks.join_replay import JoinReplayAttack
+from lorawan_sim.attacks.join_replay_generators import (
+    DuplicateDevNonceGenerator,
+    RollbackDevNonceGenerator,
+    MemoryDepthDevNonceGenerator,
+)
+from lorawan_sim.attacks.join_replay_verifiers import (
+    DuplicateDevNonceVerifier,
+    RollbackDevNonceVerifier,
+    MemoryDepthVerifier,
+)
 from lorawan_sim.attacks.mac_abuse import MACCommandAbuse
 from lorawan_sim.attacks.replay import ReplayAttack
 from lorawan_sim.lorawan.scenario.schema_v1 import (
@@ -147,20 +158,72 @@ class AttackRunner:
         
         elif attack_type == "join_replay":
             join_config = parse_join_replay_config(scenario.attack.config)
-            return JoinAbuseAttack(
+            
+            # Get attack mode (with backwards compatibility)
+            mode = join_config.mode or "duplicate_devnonce"
+            # Legacy: mode="replay" → "duplicate_devnonce"
+            if mode == "replay":
+                mode = "duplicate_devnonce"
+            
+            # Create generator and verifier based on mode
+            if mode == "duplicate_devnonce":
+                # For duplicate mode, we need to perform one join to capture DevNonce
+                # Then replay it - so generator will receive DevNonce during setup
+                # We'll use a deferred generator pattern
+                generator = None  # Will be set after setup captures DevNonce
+                verifier = DuplicateDevNonceVerifier()
+                
+            elif mode == "devnonce_rollback":
+                # Extract rollback parameters
+                baseline_dev_nonce = join_config.baseline_dev_nonce or 100
+                rollback_dev_nonce = join_config.rollback_dev_nonce or 99
+                generator = RollbackDevNonceGenerator(
+                    baseline=baseline_dev_nonce,
+                    rollback=rollback_dev_nonce,
+                )
+                verifier = RollbackDevNonceVerifier()
+                
+            elif mode == "devnonce_memory_depth":
+                # Extract memory depth parameters
+                count = join_config.count or 100
+                replay_indices = join_config.replay_indices or [0, 9, 99]
+                generator = MemoryDepthDevNonceGenerator(count=count)
+                verifier = MemoryDepthVerifier(replay_indices=replay_indices)
+                
+            else:
+                raise ValueError(f"Unknown join_replay mode: {mode}")
+            
+            # For duplicate_devnonce, we need special handling
+            if mode == "duplicate_devnonce":
+                # Use legacy JoinAbuseAttack for backwards compatibility
+                # (it has the setup logic to capture DevNonce)
+                return JoinAbuseAttack(
+                    config=config,
+                    device=device,
+                    gateway=gateway,
+                    logger=self.logger,
+                    radio=radio,
+                    mode="replay",
+                    flood_count=join_config.replay_count,
+                    flood_interval_sec=join_config.delay_sec,
+                    replay_delay_sec=join_config.delay_sec,
+                    virtual_devices=1,
+                    expected=scenario.expected,
+                    timing=join_config.timing,
+                    inter_message_delay_sec=scenario.scenario.timeout_sec,
+                )
+            
+            # For other modes, use new JoinReplayAttack
+            return JoinReplayAttack(
                 config=config,
                 device=device,
                 gateway=gateway,
-                logger=self.logger,
                 radio=radio,
-                mode="replay",
-                flood_count=join_config.replay_count,
-                flood_interval_sec=join_config.delay_sec,
-                replay_delay_sec=join_config.delay_sec,  # Pass delay for replay timing
-                virtual_devices=1,
-                expected=scenario.expected,
-                timing=join_config.timing,  # Pass timing configuration
-                inter_message_delay_sec=scenario.scenario.timeout_sec,  # Delay between uplinks
+                timing=join_config.timing,
+                generator=generator,
+                verifier=verifier,
+                logger=self.logger,
+                expected_behavior=scenario.expected,
             )
         
         elif attack_type == "join_flood":

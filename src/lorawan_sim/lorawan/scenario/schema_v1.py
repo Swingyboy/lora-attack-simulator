@@ -128,14 +128,25 @@ class JoinReplayConfigV1:
     """Join replay attack configuration (v1.0).
     
     Tests DevNonce replay protection by replaying JoinRequests.
+    
+    Supported modes:
+    - "replay" or "duplicate_devnonce": Replay same DevNonce (100 → 100)
+    - "devnonce_rollback": Send lower DevNonce after higher (100 → 99)
+    - "devnonce_memory_depth": Test NS memory of historical DevNonces (1 → 2 → ... → N, then replay)
     """
     
-    mode: str  # "replay" (simple replay mode)
-    replay_count: int  # Number of times to replay
-    delay_sec: float  # Delay before replay
-    dev_nonce_strategy: str  # "reuse_original", "increment", "random"
-    mic_strategy: str  # "valid" (recalculate) or "reuse_original"
+    mode: str  # "replay", "duplicate_devnonce", "devnonce_rollback", "devnonce_memory_depth"
+    replay_count: int  # Number of times to replay (legacy field for duplicate mode)
+    delay_sec: float  # Delay before replay (legacy field)
+    dev_nonce_strategy: str  # "reuse_original", "increment", "random" (legacy field)
+    mic_strategy: str  # "valid" (recalculate) or "reuse_original" (legacy field)
     timing: AttackTiming | None = None  # Optional timing configuration
+    
+    # New fields for specific modes
+    baseline_dev_nonce: int | None = None  # For rollback mode: higher DevNonce
+    rollback_dev_nonce: int | None = None  # For rollback mode: lower DevNonce
+    count: int | None = None  # For memory_depth mode: number of joins to generate
+    replay_indices: list[int] | None = None  # For memory_depth mode: which DevNonces to replay
 
 
 @dataclass(frozen=True)
@@ -264,7 +275,13 @@ def parse_join_replay_config(config: dict[str, Any]) -> JoinReplayConfigV1:
             join_accept_timeout_sec=timing_data.get("join_accept_timeout_sec", 30.0),
             rx1_delay_sec=timing_data.get("rx1_delay_sec", 1.0),
             rx2_delay_sec=timing_data.get("rx2_delay_sec", 2.0),
+            inter_message_delay_sec=timing_data.get("inter_message_delay_sec", 30.0),
         )
+    
+    # Parse replay_indices if present (for memory_depth mode)
+    replay_indices = None
+    if "replay_indices" in config:
+        replay_indices = config["replay_indices"]
     
     return JoinReplayConfigV1(
         mode=config.get("mode", "replay"),
@@ -273,6 +290,10 @@ def parse_join_replay_config(config: dict[str, Any]) -> JoinReplayConfigV1:
         dev_nonce_strategy=config.get("dev_nonce_strategy", "reuse_original"),
         mic_strategy=config.get("mic_strategy", "valid"),
         timing=timing,
+        baseline_dev_nonce=config.get("baseline_dev_nonce"),
+        rollback_dev_nonce=config.get("rollback_dev_nonce"),
+        count=config.get("count"),
+        replay_indices=replay_indices,
     )
 
 
