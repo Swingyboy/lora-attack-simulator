@@ -572,7 +572,7 @@ class LoRaWANShell(cmd.Cmd):
         
         # Import validation lazily to avoid loading dependencies
         try:
-            from lorawan.scenario.loader import load_attack_scenario
+            from lorawan_sim.lorawan.scenario.loader import load_attack_scenario
             import tempfile
             import json as json_module
             
@@ -627,7 +627,7 @@ class LoRaWANShell(cmd.Cmd):
                 json.dump(self.session.scenario_data, tmp, indent=2)
                 tmp_path = tmp.name
             
-            from lorawan.scenario.loader import load_attack_scenario
+            from lorawan_sim.lorawan.scenario.loader import load_attack_scenario
             scenario = load_attack_scenario(tmp_path)
             
         except Exception as e:
@@ -657,7 +657,7 @@ class LoRaWANShell(cmd.Cmd):
             logger = logging.getLogger("lorawan_sim")
             
             # Import and run attack
-            from attacks.runner import AttackRunner
+            from lorawan_sim.attacks.runner import AttackRunner
             
             runner = AttackRunner(logger=logger)
             print(f"\n🚀 Starting attack execution...\n")
