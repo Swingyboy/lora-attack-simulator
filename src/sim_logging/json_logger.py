@@ -164,7 +164,14 @@ class ColoredConsoleFormatter(logging.Formatter):
 
 
 class LoggingConfig:
-    """Global logging configuration state."""
+    """
+    Global logging configuration state with explicit precedence.
+    
+    Logging Precedence (highest to lowest):
+    1. CLI/Session overrides (set logging.level commands)
+    2. Scenario configuration (logging section in scenario JSON)
+    3. Framework defaults (INFO level, colored output, secret masking)
+    """
     
     def __init__(self) -> None:
         self.level: str = "INFO"
@@ -175,11 +182,41 @@ class LoggingConfig:
         self.use_colors: bool = True
         self.log_phy_payload: bool = False
         self.log_semtech_udp: bool = False
+        
+        # Track source of current log level for precedence
+        self.level_source: str = "framework_default"  # "framework_default" | "scenario" | "cli_override"
+    
+    def set_level(self, level: str, source: str = "framework_default") -> bool:
+        """
+        Set log level with precedence checking.
+        
+        Args:
+            level: New log level
+            source: Source of the change (framework_default, scenario, cli_override)
+        
+        Returns:
+            True if level was changed, False if blocked by precedence
+        
+        Precedence order:
+            cli_override (2) > scenario (1) > framework_default (0)
+        """
+        precedence = {"framework_default": 0, "scenario": 1, "cli_override": 2}
+        
+        current_precedence = precedence.get(self.level_source, 0)
+        new_precedence = precedence.get(source, 0)
+        
+        # Only apply if new source has higher or equal precedence
+        if new_precedence >= current_precedence:
+            self.level = level.upper()
+            self.level_source = source
+            return True
+        return False
     
     def to_dict(self) -> dict[str, Any]:
         """Export config as dict."""
         return {
             "level": self.level,
+            "level_source": self.level_source,
             "session_log_file": str(self.session_log_file) if self.session_log_file else None,
             "session_id": self.session_id,
             "scenario_id": self.scenario_id,
@@ -224,8 +261,10 @@ def configure_logging(
     """
     global _logging_config
     
-    # Update global config
-    _logging_config.level = level.upper()
+    # Set level with precedence (defaults to framework_default source)
+    _logging_config.set_level(level, source="framework_default")
+    
+    # Update other config (no precedence needed for these)
     _logging_config.session_id = session_id
     _logging_config.scenario_id = scenario_id
     _logging_config.mask_secrets = mask_secrets
@@ -273,14 +312,30 @@ def configure_logging(
         logger.warning("Secret masking disabled - sensitive data will appear in logs")
 
 
-def reconfigure_level(level: str) -> None:
-    """Reconfigure log level at runtime."""
-    global _logging_config
-    _logging_config.level = level.upper()
+def reconfigure_level(level: str, source: str = "cli_override") -> None:
+    """
+    Reconfigure log level at runtime with precedence awareness.
     
-    logger = logging.getLogger("lorawan_sim")
-    logger.setLevel(getattr(logging, level.upper(), logging.INFO))
-    logger.info(f"Log level changed to: {level.upper()}")
+    Args:
+        level: New log level (ERROR, WARNING, INFO, DEBUG, TRACE)
+        source: Source of change (cli_override by default, scenario for scenario-driven changes)
+    
+    Note:
+        Respects logging precedence. CLI overrides always win over scenario config.
+    """
+    global _logging_config
+    
+    # Try to set level with precedence check
+    changed = _logging_config.set_level(level, source)
+    
+    if changed:
+        # Update logger level
+        logger = logging.getLogger("lorawan_sim")
+        logger.setLevel(getattr(logging, _logging_config.level, logging.INFO))
+        logger.info(f"Log level changed to: {_logging_config.level} (source: {source})")
+    else:
+        logger = logging.getLogger("lorawan_sim")
+        logger.debug(f"Log level change to {level} blocked by precedence (current source: {_logging_config.level_source})")
 
 
 def set_scenario_context(scenario_id: str | None) -> None:
