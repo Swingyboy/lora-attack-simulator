@@ -386,10 +386,20 @@ class JoinAbuseAttack(BaseAttack):
         # - ns_responded=False means NS rejected (no response = secure)
         
         if ns_responded:
-            self.logger.warning(
-                "⚠️  VULNERABILITY: NS accepted duplicate DevNonce! (sent JoinAccept)",
-                extra={"security": "FAIL", "dev_nonce": dev_nonce_hex},
-            )
+            if join_succeeded:
+                self.logger.warning(
+                    "⚠️  VULNERABILITY: NS accepted duplicate DevNonce! Valid JoinAccept received",
+                    extra={"security": "FAIL", "dev_nonce": dev_nonce_hex},
+                )
+            else:
+                self.logger.warning(
+                    "⚠️  VULNERABILITY: NS accepted duplicate DevNonce! (sent downlink response)",
+                    extra={"security": "FAIL", "dev_nonce": dev_nonce_hex},
+                )
+                self.logger.info(
+                    "Note: Check DEBUG logs for details about the response "
+                    "(wrong message type, malformed JoinAccept, MIC failure, etc.)"
+                )
         else:
             self.logger.info(
                 "✓ NS rejected duplicate DevNonce (secure behavior)",

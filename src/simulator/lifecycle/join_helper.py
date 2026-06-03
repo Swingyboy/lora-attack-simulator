@@ -138,10 +138,55 @@ def perform_otaa_join_with_devnonce(
             logger.info("No JoinAccept received (NS rejected or timeout)")
         return (False, False)  # NS did not respond
     
-    # NS responded with something - this means it accepted the request
-    # (if it rejected, it would not send anything)
+    # NS responded with something
     if logger:
         logger.info("downlink_received")
+        logger.debug(f"Raw downlink PHYPayload: {join_accept.hex()}")
+        logger.debug(f"Downlink size: {len(join_accept)} bytes")
+    
+    # Parse MHDR to check message type
+    if len(join_accept) == 0:
+        if logger:
+            logger.error("Empty downlink received from NS")
+        return (True, False)  # NS responded but empty
+    
+    mhdr = join_accept[0]
+    mtype = (mhdr >> 5) & 0x07  # Extract MType from bits 7-5
+    
+    # Import MHDR constants
+    from lorawan.protocol.frames import (
+        MHDR_JOIN_ACCEPT,
+        MHDR_UNCONFIRMED_DATA_UP,
+        MHDR_CONFIRMED_DATA_UP,
+    )
+    
+    # Map MType to human-readable name
+    mtype_names = {
+        0x00: "JoinRequest",
+        0x01: "JoinAccept",
+        0x02: "UnconfirmedDataUp",
+        0x03: "UnconfirmedDataDown",
+        0x04: "ConfirmedDataUp",
+        0x05: "ConfirmedDataDown",
+        0x06: "RFU",
+        0x07: "Proprietary",
+    }
+    
+    mtype_name = mtype_names.get(mtype, f"Unknown({mtype})")
+    
+    if logger:
+        logger.debug(f"Downlink MHDR: 0x{mhdr:02x}, MType: {mtype} ({mtype_name})")
+    
+    # Check if it's actually a JoinAccept
+    if mhdr != MHDR_JOIN_ACCEPT:
+        if logger:
+            logger.warning(
+                f"NS sent {mtype_name} instead of JoinAccept (MHDR=0x{mhdr:02x})"
+            )
+            logger.warning(
+                "This indicates NS accepted the request but responded with wrong message type"
+            )
+        return (True, False)  # NS responded but wrong message type
     
     # Try to apply JoinAccept
     try:
@@ -156,10 +201,20 @@ def perform_otaa_join_with_devnonce(
         return (True, True)  # NS responded and JoinAccept valid
         
     except Exception as e:
-        # NS responded but JoinAccept was malformed or invalid
-        # This still means NS ACCEPTED the replay (it tried to respond)
+        # NS responded with JoinAccept but it's malformed
         if logger:
-            logger.error(f"Could not apply JoinAccept: {e}")
+            logger.error(f"Could not parse JoinAccept: {e}")
+            logger.debug(f"Exception type: {type(e).__name__}")
+            logger.debug(f"Exception details: {str(e)}")
+            
+            # Try to provide more context
+            if "MIC" in str(e):
+                logger.debug("MIC verification failed - NS may have used wrong AppKey")
+            elif "size" in str(e):
+                logger.debug(f"Invalid size - expected multiple of 16, got {len(join_accept)-1} encrypted bytes")
+            elif "too short" in str(e):
+                logger.debug("Payload too short after decryption")
+        
         return (True, False)  # NS responded but JoinAccept invalid
 
 
