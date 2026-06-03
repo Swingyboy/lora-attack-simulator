@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "scenario": {
     "id": "join-replay-v1",
-    "title": "Join Replay Attack (v1.0 format)",
+    "title": "Join Replay Attack",
     "description": "Replay a JoinRequest with the same DevNonce to test NS DevNonce validation",
     "category": "join_abuse",
     "type": "join_replay",
