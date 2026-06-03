@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-from transport.in_memory import InMemoryTransport
+from lorawan_sim.lorawan.transport.in_memory import InMemoryTransport
 from lorawan_sim.lorawan.device.model import SimulatedDevice
 from lorawan_sim.lorawan.gateway.model import GatewaySimulator
 from lorawan_sim.lorawan.scenario.schema import RadioMetadata
@@ -23,7 +23,7 @@ def _build_join_accept(app_key_hex: str, dev_addr_hex: str) -> bytes:
     rx_delay = bytes([0x01])
     plain_wo_mic = app_nonce + net_id + dev_addr_le + dl_settings + rx_delay
 
-    from lorawan.protocol.crypto_v103 import aes_cmac_4
+    from lorawan_sim.lorawan.protocol.crypto_v103 import aes_cmac_4
 
     mhdr = bytes([0x20])
     mic = aes_cmac_4(app_key, mhdr + plain_wo_mic)
@@ -116,7 +116,7 @@ class DeviceCryptoFlowTests(unittest.TestCase):
             snr=7.5,
         )
         with patch(
-            "lorawan.gateway.model.time.monotonic",
+            "lorawan_sim.lorawan.gateway.model.time.monotonic",
             side_effect=[0.0, 0.2, 1.1, 1.1],
         ):
             gateway.start()
