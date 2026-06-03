@@ -109,24 +109,58 @@ lorawan-sim run-attack examples/attacks/join-replay-v1.json
 
 ### Interactive Shell Features
 
-**Scenario Discovery (Phase 2):**
+**Scenario Discovery:**
 - Automatic metadata extraction from v1.0 scenario files
 - Category-based filtering (replay, join_abuse, mac_abuse)
 - Rich scenario listing with title, category, description
 - Detailed scenario information with `info` command
 
-**Parameter Management (Phase 3):**
+**Parameter Management:**
 - Hierarchical parameter display with nested paths
 - Runtime parameter modification with type inference
 - Individual and bulk parameter reset
 - Scenario validation before execution
 
-**Attack Execution (Phase 4):**
+**Attack Execution:**
 - Execute attack scenarios directly from shell
 - Real-time structured logging output
 - Formatted results display with metrics
 - Automatic results file generation (.results.json)
 - Graceful keyboard interrupt handling (Ctrl+C)
+
+**Logging & Debugging:**
+- Session-wide log files: `logs/session-<timestamp>.log`
+- TRACE, DEBUG, INFO, WARNING, ERROR log levels
+- Colored terminal output for readability
+- Secret masking (AppKey, NwkKey, session keys)
+- Runtime log level changes: `set logging.level debug`
+- Configuration inspection: `show logging`
+
+**Available Commands:**
+```bash
+# Scenario management
+show scenarios [category]  # List scenarios (optionally filter by category)
+info <scenario>           # Display detailed scenario metadata
+use <scenario>            # Load scenario into session
+clear                     # Clear active scenario
+
+# Parameter management
+show options              # Display all parameters with current values
+set <path> <value>        # Modify parameter (e.g., set target.host 192.168.1.10)
+reset [parameter]         # Reset parameter(s) to default
+
+# Validation and execution
+validate                  # Validate current scenario configuration
+run                       # Execute attack scenario
+
+# Logging configuration
+show logging              # Display logging configuration
+set logging.level <level> # Change log level (ERROR|WARNING|INFO|DEBUG|TRACE)
+
+# Utility
+help [command]            # Show help for command
+exit                      # Exit shell (aliases: quit, q)
+```
 
 **Example Session:**
 ```bash
@@ -176,33 +210,59 @@ lorawan-sim(join-replay-v1) > run
 # Metrics:...
 # 💾 Results saved to: examples/attacks/join-replay-v1.results.json
 
+lorawan-sim(join-replay-v1) > show logging
+# Display logging configuration (log level, session file, etc.)
+
+lorawan-sim(join-replay-v1) > set logging.level trace
+# Enable TRACE logging for detailed protocol debugging
+
 lorawan-sim(join-replay-v1) > clear
 # Clear active scenario
 
 lorawan-sim > exit
 ```
 
+### Logging System
+
+**Features:**
+- **Session Log Files**: All logs saved to `logs/session-<timestamp>.log` in JSONL format
+- **Dual Output**: Colored terminal output + structured file logging
+- **Log Levels**: TRACE (protocol details), DEBUG (execution flow), INFO (milestones), WARNING, ERROR
+- **Secret Masking**: Automatically masks AppKey, NwkKey, session keys in logs
+- **Context Tracking**: Session ID and scenario ID included in all log entries
+- **Runtime Configuration**: Change log level during execution with `set logging.level <level>`
+
+**Example Log Output:**
+```bash
+# Terminal (colored, human-readable)
+[INFO] lorawan_sim.gateway - Gateway initialized: 0102030405060708
+[DEBUG] lorawan_sim.device - Sending JoinRequest with DevNonce: 12345
+[TRACE] lorawan_sim.protocol - PHYPayload: 00abcd...
+
+# File (structured JSONL)
+{"ts":"2026-06-03T12:00:00Z","level":"INFO","logger":"lorawan_sim.gateway","message":"Gateway initialized: 0102030405060708","session_id":"a1b2c3d4","scenario_id":"join-replay-v1"}
+```
+
+**Inspection:**
+```bash
+lorawan-sim > show logging
+============================================================
+LOGGING CONFIGURATION
+============================================================
+Log Level:          INFO
+Session Log File:   logs/session-20260603-120000.log
+Session ID:         a1b2c3d4
+Scenario ID:        join-replay-v1
+Mask Secrets:       enabled
+Colored Output:     enabled
+PHY Payload Log:    disabled
+Semtech UDP Log:    disabled
+============================================================
+```
+
 ## Attack Framework
 
-The simulator implements three categories of LoRaWAN security tests:
-
-### E2E vs Prototype Implementation Status
-
-**E2E-Supported Scenarios (fully integrated):**
-- ✅ Baseline JoinRequest → JoinAccept → periodic uplink over Semtech UDP
-- ✅ Join-replay attack with proper DevNonce validation (tested against ChirpStack)
-- ✅ Long-running debug scenario for ChirpStack integration (`debug-join-uplink.json`)
-- ✅ Real Network Server response handling (awaits JoinAccept, derives session keys)
-
-**Prototype Attack Modules (orchestration + analysis logic implemented):**
-- 🔧 Replay attack variants (immediate/delayed/burst)
-- 🔧 Join flood attack
-- 🔧 MAC command abuse scenarios
-
-**Future E2E Hardening:**
-- Real packet capture/replay validation against ChirpStack
-- Deterministic NS response validation for all attack types
-- Integration tests with live Network Server for replay and MAC abuse modules
+The simulator implements three categories of LoRaWAN Network Server security tests. All attacks are executed via the interactive shell or command-line interface with support for parameter customization, validation, and comprehensive result analysis.
 
 ### 1. Replay Attacks
 
@@ -218,11 +278,17 @@ Test Network Server replay protection mechanisms by capturing and replaying upli
 - Validate FCnt window handling
 - Detect replay protection vulnerabilities
 
-**Example Scenarios:**
+**Example Usage:**
 ```bash
-lorawan-sim validate-attack examples/attacks/replay-immediate.json
-lorawan-sim validate-attack examples/attacks/replay-delayed.json
-lorawan-sim validate-attack examples/attacks/replay-burst.json
+# Interactive shell (recommended)
+$ lorawan-sim
+lorawan-sim > use uplink-replay-v1
+lorawan-sim(uplink-replay-v1) > set target.host 192.168.1.10
+lorawan-sim(uplink-replay-v1) > validate
+lorawan-sim(uplink-replay-v1) > run
+
+# Command-line (automation)
+lorawan-sim run-attack examples/attacks/uplink-replay-v1.json
 ```
 
 ### 2. Join Procedure Abuse
@@ -238,11 +304,17 @@ Test Network Server join validation and rate limiting with DevNonce replay and j
 - Test join request rate limiting
 - Detect join flooding vulnerabilities (DoS)
 
-**Example Scenarios:**
+**Example Usage:**
 ```bash
-lorawan-sim validate-attack examples/attacks/join-replay.json
-lorawan-sim validate-attack examples/attacks/join-flood-small.json  # 10 joins, 3 devices
-lorawan-sim validate-attack examples/attacks/join-flood-large.json  # 100 joins, 10 devices
+# Interactive shell (recommended)
+$ lorawan-sim
+lorawan-sim > use join-replay-v1
+lorawan-sim(join-replay-v1) > show options  # Inspect parameters
+lorawan-sim(join-replay-v1) > set attack.config.replay_count 5
+lorawan-sim(join-replay-v1) > run
+
+# Command-line (automation)
+lorawan-sim run-attack examples/attacks/join-replay-v1.json
 ```
 
 ### 3. MAC Command Abuse
@@ -267,12 +339,18 @@ Test Network Server MAC command parsing and validation with legitimate and malfo
 - Validate ADR state tracking
 - Detect parser vulnerabilities
 
-**Example Scenarios:**
+**Example Usage:**
 ```bash
-lorawan-sim validate-attack examples/attacks/mac-link-adr.json
-lorawan-sim validate-attack examples/attacks/mac-rx-param-setup.json
-lorawan-sim validate-attack examples/attacks/mac-malformed-truncated.json
-lorawan-sim validate-attack examples/attacks/mac-malformed-invalid.json
+# Interactive shell (recommended)
+$ lorawan-sim
+lorawan-sim > show scenarios mac_abuse  # Show MAC abuse scenarios
+lorawan-sim > use mac-link-adr-v1
+lorawan-sim(mac-link-adr-v1) > show options  # Inspect ADR parameters
+lorawan-sim(mac-link-adr-v1) > set attack.config.data_rate 3  # Modify ADR settings
+lorawan-sim(mac-link-adr-v1) > run
+
+# Command-line (automation)
+lorawan-sim run-attack examples/attacks/mac-link-adr-v1.json
 ```
 
 **Note on MAC Command Test Semantics:**
@@ -310,17 +388,6 @@ PYTHONPATH=src python -m unittest discover -s src/lorawan_sim/tests -v
 - Phase 2 (Replay): 5 tests
 - Phase 3 (Join Abuse): 11 tests
 - Phase 4 (MAC Abuse): 27 tests
-
-### Project Status
-
-**Completed Phases (4/5):**
-- ✅ Phase 1: Core Attack Infrastructure
-- ✅ Phase 2: Replay Attack Implementation
-- ✅ Phase 3: Join Procedure Abuse
-- ✅ Phase 4: MAC Command Abuse
-- 🚧 Phase 5: Integration and Documentation (in progress)
-
-See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for detailed roadmap.
 
 ## Documentation
 
