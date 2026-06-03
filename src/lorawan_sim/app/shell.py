@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from simulator.session import Session
+from lorawan_sim.app.session import Session
 
 
 @dataclass

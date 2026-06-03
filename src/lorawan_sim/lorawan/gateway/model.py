@@ -4,9 +4,9 @@ import base64
 import time
 from logging import Logger
 
-from transport.transport import TransportClient
-from lorawan.scenario.schema import RadioMetadata
-from lorawan.semtech.codec import (
+from lorawan_sim.lorawan.transport.transport import TransportClient
+from lorawan_sim.lorawan.scenario.schema import RadioMetadata
+from lorawan_sim.lorawan.semtech.codec import (
     PULL_ACK,
     PULL_RESP,
     PUSH_ACK,

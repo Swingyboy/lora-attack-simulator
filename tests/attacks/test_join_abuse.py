@@ -6,12 +6,12 @@ import unittest
 from logging import getLogger
 from unittest.mock import MagicMock
 
-from attacks.base import AttackConfig
-from attacks.join_abuse import JoinAbuseAnalyzer, JoinAbuseAttack, VirtualDevice
-from attacks.packet_capture import CapturedPacket, PacketCapture
-from lorawan.device.model import SimulatedDevice
-from lorawan.gateway.model import GatewaySimulator
-from lorawan.scenario.schema import RadioMetadata
+from lorawan_sim.attacks.base import AttackConfig
+from lorawan_sim.attacks.join_abuse import JoinAbuseAnalyzer, JoinAbuseAttack, VirtualDevice
+from lorawan_sim.attacks.packet_capture import CapturedPacket, PacketCapture
+from lorawan_sim.lorawan.device.model import SimulatedDevice
+from lorawan_sim.lorawan.gateway.model import GatewaySimulator
+from lorawan_sim.lorawan.scenario.schema import RadioMetadata
 
 
 class TestJoinAbuseAnalyzer(unittest.TestCase):

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from logging import Logger
 
-from lorawan.device.model import SimulatedDevice
-from lorawan.gateway.model import GatewaySimulator
-from lorawan.scenario.schema import RadioMetadata
+from lorawan_sim.lorawan.device.model import SimulatedDevice
+from lorawan_sim.lorawan.gateway.model import GatewaySimulator
+from lorawan_sim.lorawan.scenario.schema import RadioMetadata
 
 
 def perform_otaa_join(

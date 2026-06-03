@@ -5,13 +5,13 @@ from dataclasses import dataclass, field
 from typing import Any
 from logging import Logger
 
-from lorawan.protocol.frames import (
+from lorawan_sim.lorawan.protocol.frames import (
     build_join_request,
     build_unconfirmed_data_up,
     decode_join_accept,
     derive_session_keys,
 )
-from lorawan.protocol.mac_commands import (
+from lorawan_sim.lorawan.protocol.mac_commands import (
     CID_LINK_ADR_REQ,
     CID_LINK_ADR_ANS,
     CID_RX_PARAM_SETUP_REQ,

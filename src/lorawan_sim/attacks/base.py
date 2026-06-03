@@ -7,10 +7,10 @@ from dataclasses import dataclass
 from logging import Logger
 from typing import TYPE_CHECKING, Any
 
-from attacks.analyzer import AttackAnalyzer
-from attacks.packet_capture import PacketCapture
-from lorawan.device.model import SimulatedDevice
-from lorawan.gateway.model import GatewaySimulator
+from lorawan_sim.attacks.analyzer import AttackAnalyzer
+from lorawan_sim.attacks.packet_capture import PacketCapture
+from lorawan_sim.lorawan.device.model import SimulatedDevice
+from lorawan_sim.lorawan.gateway.model import GatewaySimulator
 
 if TYPE_CHECKING:
     from lorawan.scenario.schema_v1 import ExpectedBehavior

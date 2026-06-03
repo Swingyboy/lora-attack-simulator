@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import socket
 
-from transport.transport import TransportClient
+from lorawan_sim.lorawan.transport.transport import TransportClient
 
 
 class UdpTransport(TransportClient):

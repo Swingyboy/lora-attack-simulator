@@ -50,7 +50,7 @@ scenario = session.get_effective_scenario()   # Has modified port
 The Session object is typically used by the CLI shell:
 
 ```python
-from simulator.session import Session
+# Session class defined in this module
 
 session = Session()
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from lorawan.scenario.base_types import (
+from lorawan_sim.lorawan.scenario.base_types import (
     DeviceConfig,
     GatewayConfig,
     LoggingConfig,

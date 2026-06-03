@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 
-from transport.transport import TransportClient
+from lorawan_sim.lorawan.transport.transport import TransportClient
 
 
 class InMemoryTransport(TransportClient):

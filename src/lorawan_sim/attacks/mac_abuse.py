@@ -6,15 +6,15 @@ import time
 from logging import Logger
 from typing import TYPE_CHECKING, Any
 
-from attacks.analyzer import AttackAnalyzer
-from attacks.base import AttackConfig, BaseAttack
-from attacks.packet_capture import CapturedPacket, PacketCapture
-from attacks.validation import validate_criteria
-from simulator.lifecycle.join_helper import perform_otaa_join
-from lorawan.device.model import SimulatedDevice
-from lorawan.gateway.model import GatewaySimulator
-from lorawan.scenario.schema import RadioMetadata
-from lorawan.protocol.mac_commands import (
+from lorawan_sim.attacks.analyzer import AttackAnalyzer
+from lorawan_sim.attacks.base import AttackConfig, BaseAttack
+from lorawan_sim.attacks.packet_capture import CapturedPacket, PacketCapture
+from lorawan_sim.attacks.validation import validate_criteria
+from lorawan_sim.lorawan.lifecycle.join import perform_otaa_join
+from lorawan_sim.lorawan.device.model import SimulatedDevice
+from lorawan_sim.lorawan.gateway.model import GatewaySimulator
+from lorawan_sim.lorawan.scenario.schema import RadioMetadata
+from lorawan_sim.lorawan.protocol.mac_commands import (
     CID_DEV_STATUS_REQ,
     CID_LINK_ADR_REQ,
     CID_NEW_CHANNEL_REQ,

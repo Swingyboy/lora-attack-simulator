@@ -3,9 +3,9 @@ from __future__ import annotations
 from logging import Logger
 from typing import TYPE_CHECKING
 
-from transport.udp import UdpTransport
-from lorawan.gateway.model import GatewaySimulator
-from lorawan.scenario.schema import GatewayConfig
+from lorawan_sim.lorawan.transport.udp import UdpTransport
+from lorawan_sim.lorawan.gateway.model import GatewaySimulator
+from lorawan_sim.lorawan.scenario.schema import GatewayConfig
 
 if TYPE_CHECKING:
     from lorawan.scenario.schema_v1 import GatewayConfigV1, TargetConfig

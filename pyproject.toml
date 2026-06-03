@@ -16,4 +16,8 @@ dependencies = [
 dev = []
 
 [project.scripts]
-lorawan-sim = "cli.main:main"
+lorawan-sim = "lorawan_sim.app.cli:main"
+
+[tool.setuptools]
+packages = ["lorawan_sim"]
+package-dir = {"" = "src"}

@@ -4,12 +4,12 @@ import unittest
 from logging import getLogger
 from unittest.mock import MagicMock
 
-from attacks.base import AttackConfig
-from attacks.packet_capture import CapturedPacket, PacketCapture
-from attacks.replay import ReplayAnalyzer, ReplayAttack
-from lorawan.device.model import SimulatedDevice
-from lorawan.gateway.model import GatewaySimulator
-from lorawan.scenario.schema import RadioMetadata
+from lorawan_sim.attacks.base import AttackConfig
+from lorawan_sim.attacks.packet_capture import CapturedPacket, PacketCapture
+from lorawan_sim.attacks.replay import ReplayAnalyzer, ReplayAttack
+from lorawan_sim.lorawan.device.model import SimulatedDevice
+from lorawan_sim.lorawan.gateway.model import GatewaySimulator
+from lorawan_sim.lorawan.scenario.schema import RadioMetadata
 
 
 class TestReplayAnalyzer(unittest.TestCase):

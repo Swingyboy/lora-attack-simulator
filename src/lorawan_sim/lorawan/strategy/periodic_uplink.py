@@ -4,7 +4,7 @@ import time
 from dataclasses import dataclass
 from typing import Iterator
 
-from lorawan.device.model import SimulatedDevice
+from lorawan_sim.lorawan.device.model import SimulatedDevice
 
 
 @dataclass

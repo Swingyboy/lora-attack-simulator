@@ -7,19 +7,19 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from attacks.join_abuse import JoinAbuseAttack
-from attacks.mac_abuse import MACCommandAbuse
-from attacks.replay import ReplayAttack
-from lorawan.scenario.schema_v1 import (
+from lorawan_sim.attacks.join_abuse import JoinAbuseAttack
+from lorawan_sim.attacks.mac_abuse import MACCommandAbuse
+from lorawan_sim.attacks.replay import ReplayAttack
+from lorawan_sim.lorawan.scenario.schema_v1 import (
     AttackScenarioV1,
     parse_join_flood_config,
     parse_join_replay_config,
     parse_mac_command_config,
     parse_replay_config,
 )
-from lorawan.device.factory import create_device
-from lorawan.gateway.factory import create_gateway
-from lorawan.scenario.schema import RadioMetadata
+from lorawan_sim.lorawan.device.factory import create_device
+from lorawan_sim.lorawan.gateway.factory import create_gateway
+from lorawan_sim.lorawan.scenario.schema import RadioMetadata
 
 
 class AttackRunner:

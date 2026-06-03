@@ -9,9 +9,9 @@ from unittest.mock import patch
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 from transport.in_memory import InMemoryTransport
-from lorawan.device.model import SimulatedDevice
-from lorawan.gateway.model import GatewaySimulator
-from lorawan.scenario.schema import RadioMetadata
+from lorawan_sim.lorawan.device.model import SimulatedDevice
+from lorawan_sim.lorawan.gateway.model import GatewaySimulator
+from lorawan_sim.lorawan.scenario.schema import RadioMetadata
 
 
 def _build_join_accept(app_key_hex: str, dev_addr_hex: str) -> bytes:

@@ -10,14 +10,14 @@ import json
 from pathlib import Path
 from typing import Any
 
-from lorawan.scenario.schema import (
+from lorawan_sim.lorawan.scenario.schema import (
     AttackMeta,
     AttackScenarioConfig,
     JoinAbuseConfig,
     MACCommandConfig,
     ReplayConfig,
 )
-from lorawan.scenario.schema_v1 import (
+from lorawan_sim.lorawan.scenario.schema_v1 import (
     AttackConfigV1,
     AttackScenarioV1,
     ExpectedBehavior,
@@ -26,7 +26,7 @@ from lorawan.scenario.schema_v1 import (
     ScenarioMeta,
     TargetConfig,
 )
-from lorawan.scenario.base_types import (
+from lorawan_sim.lorawan.scenario.base_types import (
     ActivationConfig,
     DeviceConfig,
     GatewayConfig,

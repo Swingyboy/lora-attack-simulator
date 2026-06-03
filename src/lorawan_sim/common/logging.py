@@ -36,7 +36,7 @@ the highest-precedence source wins.
 
 ### Shell Initialization
 ```python
-from sim_logging.json_logger import configure_logging
+from lorawan_sim.common.logging import configure_logging
 
 # Framework default (precedence: 0)
 configure_logging(level=\"INFO\")  # Uses source=\"framework_default\"
@@ -44,7 +44,7 @@ configure_logging(level=\"INFO\")  # Uses source=\"framework_default\"
 
 ### CLI Runtime Override
 ```python
-from sim_logging.json_logger import reconfigure_level
+from lorawan_sim.common.logging import reconfigure_level
 
 # CLI override (precedence: 2 - highest)
 reconfigure_level(\"DEBUG\", source=\"cli_override\")
