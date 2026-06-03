@@ -11,6 +11,13 @@ from lorawan_sim.attacks.join_abuse import JoinAbuseAttack
 from lorawan_sim.attacks.mac_abuse import MACCommandAbuse
 from lorawan_sim.attacks.replay import ReplayAttack
 from lorawan_sim.domain.attack_scenario.schema import AttackScenarioConfig
+from lorawan_sim.domain.attack_scenario.schema_v1 import (
+    AttackScenarioV1,
+    parse_join_flood_config,
+    parse_join_replay_config,
+    parse_mac_command_config,
+    parse_replay_config,
+)
 from lorawan_sim.domain.device.factory import create_device
 from lorawan_sim.domain.gateway.factory import create_gateway
 from lorawan_sim.domain.scenario.schema import RadioMetadata
@@ -22,9 +29,9 @@ class AttackRunner:
     def __init__(self, logger: logging.Logger | None = None) -> None:
         self.logger = logger or logging.getLogger("lorawan_sim.attacks")
     
-    def run(self, scenario: AttackScenarioConfig) -> dict[str, Any]:
+    def run(self, scenario: AttackScenarioConfig | AttackScenarioV1) -> dict[str, Any]:
         """
-        Run an attack scenario.
+        Run an attack scenario (supports v0.9 and v1.0 formats).
         
         Args:
             scenario: The attack scenario to execute
@@ -32,6 +39,14 @@ class AttackRunner:
         Returns:
             Attack results including analysis and metrics
         """
+        # Route to appropriate handler based on scenario type
+        if isinstance(scenario, AttackScenarioV1):
+            return self._run_v1(scenario)
+        else:
+            return self._run_v09(scenario)
+    
+    def _run_v09(self, scenario: AttackScenarioConfig) -> dict[str, Any]:
+        """Run v0.9 format scenario (legacy)."""
         self.logger.info(f"Starting attack scenario: {scenario.attack.name}")
         self.logger.info(f"Attack type: {scenario.attack.attack_type}")
         self.logger.info(f"Description: {scenario.attack.description}")
@@ -75,6 +90,156 @@ class AttackRunner:
                 "metrics": {},
                 "error": str(e),
             }
+    
+    def _run_v1(self, scenario: AttackScenarioV1) -> dict[str, Any]:
+        """Run v1.0 format scenario."""
+        self.logger.info(f"Starting attack scenario (v1.0): {scenario.scenario.title}")
+        self.logger.info(f"Attack type: {scenario.attack.type}")
+        self.logger.info(f"Description: {scenario.scenario.description}")
+        self.logger.info(f"Target: {scenario.target.name} @ {scenario.target.host}:{scenario.target.port}")
+        
+        # Build device and gateway from config
+        device = create_device(scenario.device)
+        
+        # For v1.0, we need to convert GatewayConfigV1 to v0.9 format for create_gateway
+        # This is a temporary bridge until we refactor create_gateway
+        from lorawan_sim.domain.scenario.schema import GatewayConfig, SemtechUDPConfig, RadioMetadata
+        
+        gateway_v09 = GatewayConfig(
+            gateway_eui=scenario.gateway.gateway_eui,
+            semtech_udp=SemtechUDPConfig(
+                host=scenario.target.host,
+                port=scenario.target.port,
+                pull_data_interval_sec=scenario.gateway.pull_data_interval_sec,
+            ),
+            radio_metadata=RadioMetadata(
+                frequency=scenario.gateway.radio.frequency_hz,
+                data_rate=scenario.gateway.radio.data_rate,
+                rssi=scenario.gateway.radio.rssi,
+                snr=scenario.gateway.radio.snr,
+            ),
+        )
+        
+        gateway = create_gateway(gateway_v09, self.logger)
+        
+        # Extract radio metadata for attack
+        radio = RadioMetadata(
+            frequency=scenario.gateway.radio.frequency_hz,
+            data_rate=scenario.gateway.radio.data_rate,
+            rssi=scenario.gateway.radio.rssi,
+            snr=scenario.gateway.radio.snr,
+        )
+        
+        # Create attack instance based on type
+        attack = self._create_attack_v1(scenario, device, gateway, radio)
+        
+        # Run attack lifecycle
+        try:
+            self.logger.info("Executing attack...")
+            result = attack.run()
+            
+            # Convert AttackResult to dict
+            results = {
+                "success": result.success,
+                "message": result.message,
+                "metrics": result.metrics,
+                "captured_packets": result.captured_packets,
+                "expected_behavior": scenario.expected.secure_behavior,
+                "success_criteria": scenario.expected.success_criteria,
+            }
+            
+            self.logger.info(f"Attack completed: {results['message']}")
+            return results
+            
+        except Exception as e:
+            self.logger.exception(f"Attack failed: {e}")
+            return {
+                "success": False,
+                "message": f"Attack execution failed: {str(e)}",
+                "metrics": {},
+                "error": str(e),
+            }
+    
+    def _create_attack_v1(
+        self,
+        scenario: AttackScenarioV1,
+        device: Any,
+        gateway: Any,
+        radio: RadioMetadata,
+    ) -> Any:
+        """Create attack instance from v1.0 scenario configuration."""
+        from lorawan_sim.attacks.base import AttackConfig
+        
+        attack_type = scenario.attack.type
+        
+        # Build base attack config
+        config_dict = {
+            "name": scenario.scenario.id,
+            "description": scenario.scenario.description,
+            "timeout_sec": scenario.scenario.timeout_sec,
+        }
+        config = AttackConfig(**config_dict)
+        
+        # Parse attack-specific config and create attack
+        if attack_type == "uplink_replay":
+            replay_config = parse_replay_config(scenario.attack.config)
+            return ReplayAttack(
+                config=config,
+                device=device,
+                gateway=gateway,
+                logger=self.logger,
+                radio=radio,
+                replay_mode=replay_config.replay_phase.mode,
+                delay_sec=replay_config.replay_phase.delay_sec,
+                burst_count=replay_config.replay_phase.count,
+                burst_interval_sec=0.1,  # Not in config, use default
+            )
+        
+        elif attack_type == "join_replay":
+            join_config = parse_join_replay_config(scenario.attack.config)
+            return JoinAbuseAttack(
+                config=config,
+                device=device,
+                gateway=gateway,
+                logger=self.logger,
+                radio=radio,
+                mode="replay",
+                flood_count=join_config.replay_count,
+                flood_interval_sec=join_config.delay_sec,
+                virtual_devices=1,
+            )
+        
+        elif attack_type == "join_flood":
+            flood_config = parse_join_flood_config(scenario.attack.config)
+            return JoinAbuseAttack(
+                config=config,
+                device=device,
+                gateway=gateway,
+                logger=self.logger,
+                radio=radio,
+                mode="flood",
+                flood_count=flood_config.flood_count,
+                flood_interval_sec=flood_config.flood_interval_sec,
+                virtual_devices=flood_config.virtual_devices,
+            )
+        
+        elif attack_type in ("mac_command_injection", "mac_malformed"):
+            mac_config = parse_mac_command_config(scenario.attack.config)
+            malformation_type = mac_config.malformation_type or "truncated"
+            return MACCommandAbuse(
+                config=config,
+                device=device,
+                gateway=gateway,
+                logger=self.logger,
+                radio=radio,
+                command_type=mac_config.command_type,
+                malformed=mac_config.malformed,
+                malformation_type=malformation_type,
+                parameters=mac_config.parameters or {},
+            )
+        
+        else:
+            raise ValueError(f"Unknown attack type: {attack_type}")
     
     def _create_attack(
         self,

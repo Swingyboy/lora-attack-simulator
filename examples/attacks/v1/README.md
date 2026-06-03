@@ -74,6 +74,12 @@ This directory contains example attack scenarios using the **v1.0 unified format
 - **Description**: Tests uplink replay protection by replaying data frames
 - **Expected**: NS should reject replayed uplinks with same FCnt
 
+### mac-link-adr-v1.json
+- **Category**: `mac_abuse`
+- **Type**: `mac_command_injection`
+- **Description**: Tests MAC command handling with LinkADRReq injection
+- **Expected**: NS should validate and safely apply ADR parameters
+
 ## Backward Compatibility
 
 The loader supports both v0.9 and v1.0 formats during the migration period:
@@ -88,16 +94,16 @@ All existing v0.9 scenarios in `examples/attacks/*.json` continue to work.
 # Validate v1.0 scenario
 lorawan-sim validate-attack examples/attacks/v1/join-replay-v1.json
 
-# Run v1.0 attack (Phase 2 required)
-# lorawan-sim run-attack examples/attacks/v1/join-replay-v1.json
+# Run v1.0 attack (Phase 2 complete - now supported!)
+lorawan-sim run-attack examples/attacks/v1/join-replay-v1.json
 ```
 
-⚠️ **Note**: Attack runner (`run-attack`) does not yet support v1.0 format. This will be implemented in Phase 2 of the migration.
+✅ **Phase 2 Complete**: Attack runner now supports v1.0 format with typed configs.
 
 ## Migration Status
 
 - ✅ **Phase 1**: Schema and dual-format loader complete
-- ⏳ **Phase 2**: Runner support and attack config migration
+- ✅ **Phase 2**: Runner support and typed configs complete
 - ⏳ **Phase 3**: Target abstraction and naming consistency
 - ⏳ **Phase 4**: Expected behavior validation
 - ⏳ **Phase 5**: Full migration and v0.9 deprecation
