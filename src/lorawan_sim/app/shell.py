@@ -69,6 +69,18 @@ class LoRaWANShell(cmd.Cmd):
         """Initialize the shell."""
         super().__init__(*args, **kwargs)
         
+        # Initialize logging for shell session
+        from lorawan_sim.observability.logging.json_logger import configure_logging
+        import uuid
+        
+        session_id = str(uuid.uuid4())[:8]
+        configure_logging(
+            level="INFO",
+            session_id=session_id,
+            mask_secrets=True,
+            use_colors=True,
+        )
+        
         # Discover scenarios on startup
         self._discover_scenarios()
     
@@ -89,15 +101,16 @@ class LoRaWANShell(cmd.Cmd):
         print(f"Loaded {len(self.scenario_metadata)} scenarios")
     
     def do_show(self, args: str) -> None:
-        """Show scenarios or options.
+        """Show scenarios, options, or logging configuration.
         
         Usage:
             show scenarios             - List all available attack scenarios
             show scenarios <category>  - Filter by category (replay, join_abuse, mac_abuse)
             show options              - Show current scenario parameters (requires active scenario)
+            show logging              - Show current logging configuration
         """
         if not args:
-            print("Usage: show [scenarios|options]")
+            print("Usage: show [scenarios|options|logging]")
             return
         
         parts = args.split()
@@ -107,9 +120,11 @@ class LoRaWANShell(cmd.Cmd):
             self._show_scenarios(category)
         elif parts[0] == "options":
             self._show_options()
+        elif parts[0] == "logging":
+            self._show_logging()
         else:
             print(f"Unknown show command: {parts[0]}")
-            print("Available: show scenarios [category], show options")
+            print("Available: show scenarios [category], show options, show logging")
     
     def _show_scenarios(self, category_filter: str | None = None) -> None:
         """Display available scenarios with metadata.
@@ -190,6 +205,28 @@ class LoRaWANShell(cmd.Cmd):
                     value_str = value_str[:27] + "..."
                 print(f"{path:<40} {value_str:<30}")
     
+    def _show_logging(self) -> None:
+        """Display current logging configuration."""
+        from lorawan_sim.observability.logging.json_logger import get_logging_config
+        
+        config = get_logging_config()
+        
+        print("\n" + "=" * 60)
+        print("LOGGING CONFIGURATION")
+        print("=" * 60)
+        print(f"\nLog Level:          {config.level}")
+        print(f"Session Log File:   {config.session_log_file or 'Not configured'}")
+        print(f"Session ID:         {config.session_id or 'None'}")
+        print(f"Scenario ID:        {config.scenario_id or 'None'}")
+        print(f"Mask Secrets:       {'enabled' if config.mask_secrets else 'disabled'}")
+        print(f"Colored Output:     {'enabled' if config.use_colors else 'disabled'}")
+        print(f"PHY Payload Log:    {'enabled' if config.log_phy_payload else 'disabled'}")
+        print(f"Semtech UDP Log:    {'enabled' if config.log_semtech_udp else 'disabled'}")
+        print("=" * 60)
+        
+        print("\nTip: Use 'set logging.level <level>' to change log level")
+        print("Available levels: ERROR, WARNING, INFO, DEBUG, TRACE")
+    
     def do_use(self, args: str) -> None:
         """Load a scenario into the current session.
         
@@ -265,7 +302,7 @@ class LoRaWANShell(cmd.Cmd):
         print()
     
     def do_set(self, args: str) -> None:
-        """Set a parameter value for the current scenario.
+        """Set a parameter value for the current scenario or logging config.
         
         Usage:
             set <parameter> <value>
@@ -274,14 +311,13 @@ class LoRaWANShell(cmd.Cmd):
             set target.host 192.168.1.10
             set attack.config.replay_count 5
             set gateway.radio.rssi -70
+            set logging.level debug
+            set logging.file logs/custom.log
         """
-        if not self.current_scenario:
-            print("No scenario loaded. Use 'use <scenario>' first.")
-            return
-        
         if not args:
             print("Usage: set <parameter> <value>")
             print("Example: set target.host 192.168.1.10")
+            print("         set logging.level debug")
             return
         
         parts = args.split(maxsplit=1)
@@ -292,6 +328,16 @@ class LoRaWANShell(cmd.Cmd):
         
         param_path = parts[0]
         value_str = parts[1]
+        
+        # Handle logging configuration specially
+        if param_path.startswith("logging."):
+            self._set_logging_param(param_path, value_str)
+            return
+        
+        # Handle scenario parameters
+        if not self.current_scenario:
+            print("No scenario loaded. Use 'use <scenario>' first.")
+            return
         
         try:
             # Navigate to the nested parameter and set value
