@@ -381,9 +381,12 @@ class JoinAbuseAttack(BaseAttack):
         )
         
         # Key distinction:
-        # - ns_responded=True means NS sent a downlink (it ACCEPTED the replay)
+        # - ns_responded=True means NS sent JoinAccept (it ACCEPTED the replay)
         # - join_succeeded=True means device could parse the JoinAccept
-        # - ns_responded=False means NS rejected (no response = secure)
+        # - ns_responded=False means NS did NOT send JoinAccept (secure)
+        #
+        # Note: If NS sends other message types (UnconfirmedDataDown, etc.),
+        # that's NOT counted as accepting the replay - only JoinAccept matters.
         
         if ns_responded:
             if join_succeeded:
@@ -393,12 +396,12 @@ class JoinAbuseAttack(BaseAttack):
                 )
             else:
                 self.logger.warning(
-                    "⚠️  VULNERABILITY: NS accepted duplicate DevNonce! (sent downlink response)",
+                    "⚠️  VULNERABILITY: NS accepted duplicate DevNonce! (sent malformed JoinAccept)",
                     extra={"security": "FAIL", "dev_nonce": dev_nonce_hex},
                 )
                 self.logger.info(
-                    "Note: Check DEBUG logs for details about the response "
-                    "(wrong message type, malformed JoinAccept, MIC failure, etc.)"
+                    "Note: Check DEBUG logs for JoinAccept parsing errors "
+                    "(MIC failure, size issues, decryption problems, etc.)"
                 )
         else:
             self.logger.info(

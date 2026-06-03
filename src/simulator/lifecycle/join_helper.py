@@ -180,13 +180,16 @@ def perform_otaa_join_with_devnonce(
     # Check if it's actually a JoinAccept
     if mhdr != MHDR_JOIN_ACCEPT:
         if logger:
-            logger.warning(
+            logger.info(
                 f"NS sent {mtype_name} instead of JoinAccept (MHDR=0x{mhdr:02x})"
             )
-            logger.warning(
-                "This indicates NS accepted the request but responded with wrong message type"
+            logger.info(
+                "This is NOT a JoinAccept - NS did not establish new session (not a vulnerability)"
             )
-        return (True, False)  # NS responded but wrong message type
+            logger.info(
+                "Possible reasons: NS responding to existing session, protocol quirk, or implementation bug"
+            )
+        return (False, False)  # NS did not send JoinAccept = did not accept replay
     
     # Try to apply JoinAccept
     try:
