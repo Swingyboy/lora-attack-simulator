@@ -302,6 +302,16 @@ class JoinAbuseAttack(BaseAttack):
             except Exception as e:
                 self.logger.warning(f"Could not send test uplink: {e}")
             
+            # Wait for NS to process the test uplink and respond
+            # This prevents downlink responses from mixing with replay responses
+            self.logger.debug("Waiting for test uplink response to complete...")
+            time.sleep(2.0)
+            
+            # Drain any pending downlinks (responses to test uplink)
+            # This ensures we only capture the response to the replayed JoinRequest
+            self.logger.debug("Draining pending downlinks before replay...")
+            self.gateway.drain_downlinks(drain_time_sec=1.0)
+            
             # Store the captured DevNonce for replay
             self._captured_join_request = CapturedPacket(
                 timestamp=time.time(),
@@ -309,9 +319,6 @@ class JoinAbuseAttack(BaseAttack):
                 packet_type="join_request",
                 metadata={"dev_nonce": captured_dev_nonce.hex(), "phase": "setup"},
             )
-            
-            # Short wait for any potential downlink
-            time.sleep(0.5)
             
         elif self.mode == "flood":
             # Generate virtual devices for flooding
