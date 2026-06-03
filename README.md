@@ -83,7 +83,9 @@ lorawan-sim shell                   # Start interactive shell
 lorawan-sim                        # Same as shell (default)
 
 # Within shell:
-# > show scenarios                 # List available scenarios
+# > show scenarios                 # List all scenarios with metadata
+# > show scenarios replay          # Filter by category
+# > info join-replay-v1            # Show detailed scenario info
 # > use join-replay-v1             # Load a scenario
 # > show options                   # View parameters (Phase 3)
 # > set target.host 192.168.1.10   # Modify parameters (Phase 3)
@@ -100,6 +102,35 @@ lorawan-sim run-attack examples/attacks/join-replay-v1.json
 # - examples/attacks/join-replay-v1.json        (Join procedure DevNonce replay)
 # - examples/attacks/uplink-replay-v1.json      (Uplink FCnt replay)
 # - examples/attacks/mac-link-adr-v1.json       (MAC command injection)
+```
+
+### Interactive Shell Features
+
+**Scenario Discovery (Phase 2 Complete):**
+- Automatic metadata extraction from v1.0 scenario files
+- Category-based filtering (replay, join_abuse, mac_abuse)
+- Rich scenario listing with title, category, description
+- Detailed scenario information with `info` command
+
+**Example Session:**
+```bash
+$ lorawan-sim
+lorawan-sim > show scenarios
+# Shows all scenarios with metadata
+
+lorawan-sim > show scenarios join_abuse
+# Filter by category
+
+lorawan-sim > info join-replay-v1
+# Show detailed scenario information
+
+lorawan-sim > use join-replay-v1
+# Load scenario (prompt changes to show active scenario)
+
+lorawan-sim(join-replay-v1) > clear
+# Clear active scenario
+
+lorawan-sim > exit
 ```
 
 ## Attack Framework
