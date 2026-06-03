@@ -116,7 +116,7 @@ class DeviceCryptoFlowTests(unittest.TestCase):
             snr=7.5,
         )
         with patch(
-            "lorawan_sim.domain.gateway.model.time.monotonic",
+            "lorawan.gateway.model.time.monotonic",
             side_effect=[0.0, 0.2, 1.1, 1.1],
         ):
             gateway.start()
