@@ -78,17 +78,16 @@ lorawan-sim --help
 ### Basic Usage
 
 ```bash
-# Validate a standard scenario
-lorawan-sim validate examples/debug-join-uplink.json
-
-# Run a standard scenario
-lorawan-sim run examples/debug-join-uplink.json
-
 # Validate an attack scenario
-lorawan-sim validate-attack examples/attacks/replay-immediate.json
+lorawan-sim validate-attack examples/attacks/join-replay-v1.json
 
-# Run an attack scenario (implementation in progress)
-lorawan-sim run-attack examples/attacks/replay-immediate.json
+# Run an attack scenario
+lorawan-sim run-attack examples/attacks/join-replay-v1.json
+
+# Available v1.0 example scenarios:
+# - examples/attacks/join-replay-v1.json        (Join procedure DevNonce replay)
+# - examples/attacks/uplink-replay-v1.json      (Uplink FCnt replay)
+# - examples/attacks/mac-link-adr-v1.json       (MAC command injection)
 ```
 
 ## Attack Framework
