@@ -20,6 +20,7 @@ build/
 
 # Project logs and artifacts
 logs/
+results/
 *.txt
 
 # Local session artifacts

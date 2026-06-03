@@ -73,10 +73,10 @@ class LoRaWANShell(cmd.Cmd):
         from lorawan_sim.observability.logging.json_logger import configure_logging
         import uuid
         
-        session_id = str(uuid.uuid4())[:8]
+        self.session_id = str(uuid.uuid4())[:8]
         configure_logging(
             level="INFO",
-            session_id=session_id,
+            session_id=self.session_id,
             mask_secrets=True,
             use_colors=True,
         )
@@ -420,6 +420,35 @@ class LoRaWANShell(cmd.Cmd):
             # Default to string
             return value_str
     
+    def _set_logging_param(self, param_path: str, value_str: str) -> None:
+        """Set logging configuration parameter."""
+        from lorawan_sim.observability.logging.json_logger import reconfigure_level
+        
+        # Extract parameter name (e.g., "logging.level" -> "level")
+        param_name = param_path.split(".", 1)[1] if "." in param_path else param_path
+        
+        if param_name == "level":
+            # Validate log level
+            valid_levels = ["ERROR", "WARNING", "INFO", "DEBUG", "TRACE"]
+            level = value_str.upper()
+            
+            if level not in valid_levels:
+                print(f"Error: Invalid log level '{value_str}'")
+                print(f"Valid levels: {', '.join(valid_levels)}")
+                return
+            
+            # Reconfigure log level
+            reconfigure_level(level)
+            print(f"✓ Log level changed to: {level}")
+        
+        elif param_name == "file":
+            print("Note: Log file cannot be changed during session")
+            print("The current session log file will continue to be used")
+        
+        else:
+            print(f"Error: Unknown logging parameter: {param_name}")
+            print("Available: logging.level")
+    
     def do_reset(self, args: str) -> None:
         """Reset parameters to default values.
         
@@ -658,12 +687,24 @@ class LoRaWANShell(cmd.Cmd):
         print("\n" + "=" * 60)
     
     def _save_results(self, results: dict[str, Any]) -> None:
-        """Save execution results to .results.json file."""
+        """Save execution results to results/<session-id>/ directory."""
         if not self.current_scenario_path:
             return
         
-        # Save to same directory as scenario file
-        results_path = self.current_scenario_path.with_suffix('.results.json')
+        from pathlib import Path
+        
+        # Get session ID from logging config
+        from lorawan_sim.observability.logging.json_logger import get_logging_config
+        log_config = get_logging_config()
+        session_id = log_config.session_id if log_config else "default"
+        
+        # Create results directory structure: results/<session-id>/
+        results_dir = Path("results") / session_id
+        results_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Use scenario filename as base
+        scenario_name = self.current_scenario_path.stem
+        results_path = results_dir / f"{scenario_name}.results.json"
         
         try:
             with open(results_path, 'w') as f:
