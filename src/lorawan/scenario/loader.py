@@ -36,6 +36,40 @@ from lorawan.scenario.base_types import (
 )
 
 
+# Validation helper functions
+def _expect_str(name: str, value: Any) -> str:
+    """Validate that value is a non-empty string."""
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"{name} must be non-empty string")
+    return value
+
+
+def _expect_int(name: str, value: Any, min_value: int | None = None) -> int:
+    """Validate that value is an integer, optionally >= min_value."""
+    if not isinstance(value, int):
+        raise ValueError(f"{name} must be integer")
+    if min_value is not None and value < min_value:
+        raise ValueError(f"{name} must be >= {min_value}")
+    return value
+
+
+def _expect_bool(name: str, value: Any) -> bool:
+    """Validate that value is a boolean."""
+    if not isinstance(value, bool):
+        raise ValueError(f"{name} must be boolean")
+    return value
+
+
+def _expect_hex(name: str, value: str, size_bytes: int) -> None:
+    """Validate that value is valid hex string of expected size."""
+    if len(value) != size_bytes * 2:
+        raise ValueError(f"{name} must be {size_bytes * 2} hex chars")
+    try:
+        bytes.fromhex(value)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be valid hex") from exc
+
+
 def _load_replay_config(data: dict[str, Any]) -> ReplayConfig:
     """Load replay attack configuration."""
     mode = _expect_str("replay.mode", data["mode"])
