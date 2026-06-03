@@ -42,14 +42,8 @@
     "config": {
       "mode": "replay",
       "replay_count": 1,
-      "delay_sec": 0.5,
       "dev_nonce_strategy": "reuse_original",
-      "mic_strategy": "valid",
-      "timing": {
-        "join_accept_timeout_sec": 30.0,
-        "rx1_delay_sec": 1.0,
-        "rx2_delay_sec": 2.0
-      }
+      "mic_strategy": "valid"
     }
   },
   "expected": {

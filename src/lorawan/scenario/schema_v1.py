@@ -261,17 +261,15 @@ def parse_join_replay_config(config: dict[str, Any]) -> JoinReplayConfigV1:
     if "timing" in config:
         timing_data = config["timing"]
         timing = AttackTiming(
-            join_accept_timeout_sec=timing_data.get("join_accept_timeout_sec", 5.0),
+            join_accept_timeout_sec=timing_data.get("join_accept_timeout_sec", 30.0),
             rx1_delay_sec=timing_data.get("rx1_delay_sec", 1.0),
             rx2_delay_sec=timing_data.get("rx2_delay_sec", 2.0),
-            stabilization_delay_sec=timing_data.get("stabilization_delay_sec", 0.5),
-            drain_timeout_sec=timing_data.get("drain_timeout_sec", 1.0),
         )
     
     return JoinReplayConfigV1(
         mode=config.get("mode", "replay"),
         replay_count=config.get("replay_count", 1),
-        delay_sec=config.get("delay_sec", 0.5),
+        delay_sec=config.get("delay_sec", 0.5),  # Legacy field, kept for compatibility
         dev_nonce_strategy=config.get("dev_nonce_strategy", "reuse_original"),
         mic_strategy=config.get("mic_strategy", "valid"),
         timing=timing,
