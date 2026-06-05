@@ -6,12 +6,12 @@ import unittest
 from logging import getLogger
 from unittest.mock import MagicMock
 
-from lorawan_sim.attacks.base import AttackConfig
-from lorawan_sim.attacks.mac_abuse import MACCommandAbuse, MACCommandAnalyzer
-from lorawan_sim.attacks.packet_capture import PacketCapture
-from lorawan_sim.lorawan.device.model import SimulatedDevice
-from lorawan_sim.lorawan.gateway.model import GatewaySimulator
-from lorawan_sim.lorawan.scenario.schema import RadioMetadata
+from lora_attack_toolkit.attacks.base import AttackConfig
+from lora_attack_toolkit.attacks.builtin.mac_abuse import MACCommandAbuse, MACCommandAnalyzer
+from lora_attack_toolkit.attacks.packet_capture import PacketCapture
+from lora_attack_toolkit.device.model import SimulatedDevice
+from lora_attack_toolkit.gateway.model import GatewaySimulator
+from lora_attack_toolkit.core.schema import RadioMetadata
 
 
 class TestMACCommandAnalyzer(unittest.TestCase):

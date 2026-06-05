@@ -6,8 +6,8 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from lwat_sim.attacks.packet_capture import PacketCapture
-    from lwat_sim.core.schema_v1 import ExpectedBehavior
+    from lora_attack_toolkit.attacks.packet_capture import PacketCapture
+    from lora_attack_toolkit.core.schema_v1 import ExpectedBehavior
 
 
 class AttackAnalyzer(ABC):

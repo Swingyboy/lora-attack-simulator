@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from lorawan_sim.lorawan.protocol.mac_commands import (
+from lora_attack_toolkit.lorawan.protocol.mac_commands import (
     CID_DEV_STATUS_REQ,
     CID_DUTY_CYCLE_REQ,
     CID_LINK_ADR_REQ,

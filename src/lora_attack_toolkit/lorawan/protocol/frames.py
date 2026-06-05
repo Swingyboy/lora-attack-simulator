@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from lwat_sim.lorawan.protocol.crypto_v103 import aes_cmac_4, data_mic, derive_session_key, lorawan_payload_cipher
+from lora_attack_toolkit.lorawan.protocol.crypto_v103 import aes_cmac_4, data_mic, derive_session_key, lorawan_payload_cipher
 
 MHDR_JOIN_REQUEST = 0x00
 MHDR_JOIN_ACCEPT = 0x20

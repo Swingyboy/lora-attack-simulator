@@ -7,7 +7,7 @@ import unittest.mock
 from logging import getLogger
 from unittest.mock import MagicMock, Mock
 
-from lorawan_sim.attacks.join_replay_verifiers import (
+from lora_attack_toolkit.attacks.builtin.join_replay_verifiers import (
     DuplicateDevNonceVerifier,
     JoinStepResult,
     MemoryDepthVerifier,

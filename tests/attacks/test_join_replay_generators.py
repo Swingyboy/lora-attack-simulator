@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from lorawan_sim.attacks.join_replay_generators import (
+from lora_attack_toolkit.attacks.builtin.join_replay_generators import (
     DuplicateDevNonceGenerator,
     IncrementingDevNonceGenerator,
     MemoryDepthDevNonceGenerator,

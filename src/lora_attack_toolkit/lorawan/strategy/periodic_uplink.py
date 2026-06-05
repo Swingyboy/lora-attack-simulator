@@ -4,7 +4,7 @@ import time
 from dataclasses import dataclass
 from typing import Iterator
 
-from lwat_sim.device.model import SimulatedDevice
+from lora_attack_toolkit.device.model import SimulatedDevice
 
 
 @dataclass

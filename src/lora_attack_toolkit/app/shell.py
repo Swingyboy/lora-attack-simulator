@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from lwat_sim.app.session import Session
+from lora_attack_toolkit.app.session import Session
 
 
 @dataclass
@@ -51,8 +51,8 @@ class LoRaWANShell(cmd.Cmd):
 
     intro = """
 ╔════════════════════════════════════════════════════════════════╗
-║  LoRaWAN Offensive Security Testing Framework                 ║
-║  Version: 0.1.0-mvp                                           ║
+║  LoRAT (LoRa Attack Toolkit) v0.2.0                           ║
+║  Offensive Security Testing for LoRaWAN Network Servers       ║
 ║  Transport: Semtech UDP                                        ║
 ║                                                                ║
 ║  Type 'help' for available commands                           ║
@@ -60,7 +60,7 @@ class LoRaWANShell(cmd.Cmd):
 ╚════════════════════════════════════════════════════════════════╝
 """
     
-    prompt = "lorawan-sim > "
+    prompt = "lorat > "
     
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Initialize the shell."""
@@ -70,7 +70,7 @@ class LoRaWANShell(cmd.Cmd):
         self.session = Session()
         
         # Initialize logging for shell session
-        from lwat_sim.logging.logging import configure_logging
+        from lora_attack_toolkit.logging.logging import configure_logging
         
         configure_logging(
             level="INFO",
@@ -209,7 +209,7 @@ class LoRaWANShell(cmd.Cmd):
     
     def _show_logging(self) -> None:
         """Display current logging configuration."""
-        from lwat_sim.logging.logging import get_logging_config
+        from lora_attack_toolkit.logging.logging import get_logging_config
         
         config = get_logging_config()
         
@@ -264,7 +264,7 @@ class LoRaWANShell(cmd.Cmd):
             )
             
             # Update prompt to show active scenario
-            self.prompt = f"lorawan-sim({scenario_name}) > "
+            self.prompt = f"lorat({scenario_name}) > "
             
             print(f"✓ Loaded scenario: {scenario_name}")
             print(f"  Title: {metadata.title}")
@@ -456,7 +456,7 @@ class LoRaWANShell(cmd.Cmd):
     
     def _set_logging_param(self, param_path: str, value_str: str) -> None:
         """Set logging configuration parameter."""
-        from lwat_sim.logging.logging import reconfigure_level
+        from lora_attack_toolkit.logging.logging import reconfigure_level
         
         # Extract parameter name (e.g., "logging.level" -> "level")
         param_name = param_path.split(".", 1)[1] if "." in param_path else param_path
@@ -572,7 +572,7 @@ class LoRaWANShell(cmd.Cmd):
         
         # Import validation lazily to avoid loading dependencies
         try:
-            from lwat_sim.core.loader import load_attack_scenario
+            from lora_attack_toolkit.core.loader import load_attack_scenario
             import tempfile
             import json as json_module
             
@@ -627,7 +627,7 @@ class LoRaWANShell(cmd.Cmd):
                 json.dump(self.session.scenario_data, tmp, indent=2)
                 tmp_path = tmp.name
             
-            from lwat_sim.core.loader import load_attack_scenario
+            from lora_attack_toolkit.core.loader import load_attack_scenario
             scenario = load_attack_scenario(tmp_path)
             
         except Exception as e:
@@ -648,16 +648,16 @@ class LoRaWANShell(cmd.Cmd):
         try:
             # Configure logging for attack execution
             import logging
-            from lwat_sim.logging.logging import configure_logging
+            from lora_attack_toolkit.logging.logging import configure_logging
             
             log_config = self.session.scenario_data.get('logging', {})
             log_level = log_config.get('level', 'INFO').upper()
             configure_logging(level=log_level)
             
-            logger = logging.getLogger("lwat_sim")
+            logger = logging.getLogger("lora_attack_toolkit")
             
             # Import and run attack
-            from lwat_sim.app.runner import AttackRunner
+            from lora_attack_toolkit.app.runner import AttackRunner
             
             runner = AttackRunner(logger=logger)
             print(f"\n🚀 Starting attack execution...\n")
@@ -767,7 +767,7 @@ class LoRaWANShell(cmd.Cmd):
             print(f"Cleared scenario: {self.session.scenario_name}")
             self.session.clear_scenario()
         
-        self.prompt = "lorawan-sim > "
+        self.prompt = "lorat > "
     
     def do_exit(self, args: str) -> bool:
         """Exit the interactive shell.
