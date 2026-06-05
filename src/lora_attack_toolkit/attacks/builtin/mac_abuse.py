@@ -28,6 +28,8 @@ if TYPE_CHECKING:
     from lora_attack_toolkit.attacks.context import AttackContext
     from lora_attack_toolkit.core.schema_v1 import ExpectedBehavior, MACCommandConfigV1
 
+from lora_attack_toolkit.core.schema_v1 import MACCommandConfigV1
+
 
 class MACCommandAnalyzer(AttackAnalyzer):
     """Analyzer for MAC command abuse attack results."""
@@ -42,6 +44,8 @@ class MACCommandAnalyzer(AttackAnalyzer):
         uplinks_before = 0
         uplinks_after = 0
         mac_commands_injected = 0
+        malformed_commands = 0
+        adr_state_changes = 0
         
         for packet in capture.uplinks:
             phase = packet.metadata.get("phase", "")
@@ -50,8 +54,12 @@ class MACCommandAnalyzer(AttackAnalyzer):
             elif phase == "execute":
                 if packet.metadata.get("mac_command_type"):
                     mac_commands_injected += 1
+                    if packet.metadata.get("malformed"):
+                        malformed_commands += 1
                 else:
                     uplinks_after += 1
+                    if packet.metadata.get("adr_state"):
+                        adr_state_changes += 1
         
         if mac_commands_injected == 0:
             return {
@@ -67,11 +75,18 @@ class MACCommandAnalyzer(AttackAnalyzer):
             "uplinks_after_attack": uplinks_after,
             "total_uplinks": stats["total_uplinks"],
             "total_downlinks": stats["total_downlinks"],
+            "device_responded": uplinks_after > 0,
+            "malformed_commands": malformed_commands,
+            "adr_state_changes": adr_state_changes,
         }
         
         message = f"MAC command abuse executed: {mac_commands_injected} command(s) injected"
+        if malformed_commands > 0:
+            message += f"; malformed command(s): {malformed_commands}"
         if uplinks_after > 0:
             message += f", device sent {uplinks_after} uplink(s) after"
+        if adr_state_changes > 0:
+            message += f"; ADR state change observed ({adr_state_changes})"
         
         # Base result
         result = {
@@ -103,6 +118,36 @@ class MACCommandAbuse(BaseAttack):
     """
     
     name = "mac_command_injection"
+
+    def __init__(
+        self,
+        config: Any | None = None,
+        device: Any | None = None,
+        gateway: Any | None = None,
+        logger: Any | None = None,
+        radio: Any | None = None,
+        command_type: str = "LinkADRReq",
+        malformed: bool = False,
+        malformation_type: str | None = None,
+        parameters: dict[str, Any] | None = None,
+        expected: Any | None = None,
+    ) -> None:
+        self.config = config
+        self.device = device
+        self.gateway = gateway
+        self.logger = logger
+        self.radio = radio
+        self.command_type = command_type
+        self.malformed = malformed
+        self.malformation_type = malformation_type
+        self.parameters = parameters or {}
+        self.expected = expected
+        self.analyzer = MACCommandAnalyzer()
+        self._current_adr_state = {
+            "data_rate": 0,
+            "tx_power": 0,
+            "nb_trans": 1,
+        }
     
     def run(self, ctx: AttackContext) -> AttackResult:
         """
@@ -121,11 +166,7 @@ class MACCommandAbuse(BaseAttack):
             config: MACCommandConfigV1 = ctx.config
             
             # Track ADR state
-            adr_state = {
-                "data_rate": 0,
-                "tx_power": 0,
-                "nb_trans": 1,
-            }
+            adr_state = dict(self._current_adr_state)
             
             # Start gateway
             ctx.logger.info("Starting gateway...")
@@ -260,10 +301,23 @@ class MACCommandAbuse(BaseAttack):
                 error=str(e),
             )
     
+    def _resolve_config(self, config: MACCommandConfigV1 | None = None) -> MACCommandConfigV1:
+        if config is not None:
+            return config
+        return MACCommandConfigV1(
+            command_type=self.command_type,
+            malformed=self.malformed,
+            parameters=self.parameters,
+            malformation_type=self.malformation_type,
+        )
+
     def _build_legitimate_command(
-        self, config: MACCommandConfigV1, ctx: AttackContext
+        self,
+        config: MACCommandConfigV1 | None = None,
+        ctx: AttackContext | None = None,
     ) -> MACCommand:
         """Build legitimate MAC command based on command_type."""
+        config = self._resolve_config(config)
         params = config.parameters or {}
         
         if config.command_type == "LinkADRReq":
@@ -292,9 +346,12 @@ class MACCommandAbuse(BaseAttack):
             raise ValueError(f"Unsupported command type: {config.command_type}")
     
     def _build_malformed_command(
-        self, config: MACCommandConfigV1, ctx: AttackContext
+        self,
+        config: MACCommandConfigV1 | None = None,
+        ctx: AttackContext | None = None,
     ) -> MACCommand:
         """Build malformed MAC command for attack."""
+        config = self._resolve_config(config)
         cid_map = {
             "LinkADRReq": CID_LINK_ADR_REQ,
             "RXParamSetupReq": CID_RX_PARAM_SETUP_REQ,
@@ -312,9 +369,14 @@ class MACCommandAbuse(BaseAttack):
         )
     
     def _update_adr_state(
-        self, mac_command: MACCommand, adr_state: dict, ctx: AttackContext
+        self,
+        mac_command: MACCommand,
+        adr_state: dict[str, Any] | None = None,
+        ctx: AttackContext | None = None,
     ) -> None:
         """Update ADR state based on LinkADRReq command."""
+        if adr_state is None:
+            adr_state = self._current_adr_state
         if len(mac_command.payload) < 4:
             return
         
@@ -328,7 +390,8 @@ class MACCommandAbuse(BaseAttack):
         adr_state["tx_power"] = tx_power
         adr_state["nb_trans"] = nb_trans
         
-        ctx.logger.info(
-            f"ADR state updated: DR={data_rate}, TXPower={tx_power}, NbTrans={nb_trans}",
-            extra=adr_state,
-        )
+        if ctx is not None:
+            ctx.logger.info(
+                f"ADR state updated: DR={data_rate}, TXPower={tx_power}, NbTrans={nb_trans}",
+                extra=adr_state,
+            )

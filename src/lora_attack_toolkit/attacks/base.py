@@ -5,6 +5,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
+from lora_attack_toolkit.attacks.config import AttackConfig
+
 if TYPE_CHECKING:
     from lora_attack_toolkit.attacks.context import AttackContext
     from lora_attack_toolkit.attacks.result import AttackResult

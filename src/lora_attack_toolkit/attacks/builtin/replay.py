@@ -57,6 +57,7 @@ class ReplayAnalyzer(AttackAnalyzer):
         metrics = {
             "original_fcnt": original.fcnt if original else None,
             "replays_count": len(replays),
+            "replays_sent": len(replays),
             "total_uplinks": stats["total_uplinks"],
             "total_downlinks": stats["total_downlinks"],
         }
@@ -213,3 +214,7 @@ class UplinkReplayAttack(BaseAttack):
                 metrics={},
                 error=str(e),
             )
+
+
+# Backwards-compatible alias for older tests and examples.
+ReplayAttack = UplinkReplayAttack
