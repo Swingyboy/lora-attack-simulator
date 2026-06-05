@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from lora_attack_toolkit.attacks.registry import AttackRegistry
 from lora_attack_toolkit.core.schema_v1 import AttackScenarioV1
 from lora_attack_toolkit.device.factory import create_device
 from lora_attack_toolkit.gateway.factory import create_gateway
@@ -61,8 +62,6 @@ class AttackRunner:
         # Create gateway with v1.0 config
         gateway = create_gateway((scenario.gateway, scenario.target), self.logger)
         
-        # Extract radio metadata for attack
-        from lora_attack_toolkit.core.schema import RadioMetadata
         radio = RadioMetadata(
             frequency=scenario.gateway.radio.frequency_hz,
             data_rate=scenario.gateway.radio.data_rate,
@@ -73,10 +72,17 @@ class AttackRunner:
         # Create attack context with services and typed config
         try:
             self.logger.info("Executing attack...")
-            ctx = self._create_attack_context(scenario, device, gateway, radio)
-            attack = self._create_attack_instance(scenario.attack.type)
+            spec = AttackRegistry.get_spec(scenario.attack.type)
+            typed_config = spec.config_parser(scenario.attack.config)
+            ctx = self._create_attack_context(
+                scenario,
+                device,
+                gateway,
+                radio,
+                typed_config,
+            )
+            attack = spec.attack_class()
             
-            # NEW API: Run attack with context
             result = attack.run(ctx)
             
             # Use AttackResult.to_dict() for consistent output
@@ -104,6 +110,7 @@ class AttackRunner:
         device: Any,
         gateway: Any,
         radio: RadioMetadata,
+        typed_config: Any,
     ) -> Any:
         """
         Create AttackContext with services and typed configuration.
@@ -119,29 +126,7 @@ class AttackRunner:
         """
         from lora_attack_toolkit.attacks.context import AttackContext, AttackServices, AttackInput
         from lora_attack_toolkit.attacks.packet_capture import PacketCapture
-        from lora_attack_toolkit.core.schema_v1 import (
-            parse_replay_config,
-            parse_join_replay_config,
-            parse_join_flood_config,
-            parse_mac_command_config,
-        )
-        
-        # Parse typed configuration based on attack type
-        attack_type = scenario.attack.type
         attack_config_dict = scenario.attack.config
-        
-        # Map attack type to parser
-        config_parsers = {
-            "uplink_replay": parse_replay_config,
-            "join_replay": parse_join_replay_config,
-            "join_flood": parse_join_flood_config,
-            "mac_injection": parse_mac_command_config,
-        }
-        
-        # Parse typed config if parser exists
-        typed_config = None
-        if attack_type in config_parsers:
-            typed_config = config_parsers[attack_type](attack_config_dict)
         
         # Create services
         capture = PacketCapture(logger=self.logger)
@@ -167,68 +152,6 @@ class AttackRunner:
             services=services,
             input=attack_input,
         )
-    
-    def _create_attack_instance(self, attack_type: str) -> Any:
-        """
-        Create attack instance from registry.
-        
-        Args:
-            attack_type: Attack type identifier
-        
-        Returns:
-            Attack instance (parameterless constructor)
-        """
-        from lora_attack_toolkit.attacks.registry import AttackRegistry
-        
-        # Get attack class from registry
-        spec = AttackRegistry.get_spec(attack_type)
-        attack_class = spec.attack_class
-        
-        # Instantiate attack (no constructor parameters in new API)
-        return attack_class()
-    
-    def _create_attack_v1(
-        self,
-        scenario: AttackScenarioV1,
-        device: Any,
-        gateway: Any,
-        radio: RadioMetadata,
-    ) -> Any:
-        """Create attack instance from v1.0 scenario configuration using registry."""
-        from lora_attack_toolkit.attacks.base import AttackConfig
-        from lora_attack_toolkit.attacks.registry import AttackRegistry
-        
-        attack_type = scenario.attack.type
-        
-        # Build base attack config
-        config_dict = {
-            "name": scenario.scenario.id,
-            "description": scenario.scenario.description,
-            "timeout_sec": scenario.scenario.timeout_sec,
-        }
-        config = AttackConfig(**config_dict)
-        
-        try:
-            # NEW: Use registry to get attack spec
-            spec = AttackRegistry.get_spec(attack_type)
-            
-            # Use spec's factory to create attack
-            attack = spec.factory(
-                config=config,
-                device=device,
-                gateway=gateway,
-                logger=self.logger,
-                radio=radio,
-                attack_config=scenario.attack.config,
-                expected=scenario.expected,
-            )
-            
-            return attack
-            
-        except ValueError as e:
-            # Registry lookup failed - provide helpful error
-            self.logger.error(f"Attack type lookup failed: {e}")
-            raise ValueError(f"Unknown or unsupported attack type: {attack_type}") from e
     
     def run_from_file(self, scenario_path: str) -> dict[str, Any]:
         """

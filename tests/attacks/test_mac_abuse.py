@@ -6,12 +6,13 @@ import unittest
 from logging import getLogger
 from unittest.mock import MagicMock
 
-from lora_attack_toolkit.attacks.base import AttackConfig
+from lora_attack_toolkit.attacks.context import AttackContext, AttackInput, AttackServices
 from lora_attack_toolkit.attacks.builtin.mac_abuse import MACCommandAbuse, MACCommandAnalyzer
 from lora_attack_toolkit.attacks.packet_capture import PacketCapture
 from lora_attack_toolkit.device.model import SimulatedDevice
 from lora_attack_toolkit.gateway.model import GatewaySimulator
 from lora_attack_toolkit.core.schema import RadioMetadata
+from lora_attack_toolkit.core.schema_v1 import MACCommandConfigV1
 
 
 class TestMACCommandAnalyzer(unittest.TestCase):
@@ -134,12 +135,6 @@ class TestMACCommandAbuse(unittest.TestCase):
     def setUp(self) -> None:
         """Set up test fixtures."""
         self.logger = getLogger("test")
-        self.config = AttackConfig(
-            name="test-mac-abuse",
-            description="Test MAC command abuse attack",
-            timeout_sec=30.0,
-        )
-        
         self.device = SimulatedDevice(
             dev_eui="0011223344556677",
             join_eui="0011223344556677",
@@ -154,87 +149,84 @@ class TestMACCommandAbuse(unittest.TestCase):
             rssi=-60,
             snr=7.5,
         )
-    
-    def test_mac_abuse_creation_link_adr(self) -> None:
-        """Test MACCommandAbuse creation with LinkADRReq."""
-        attack = MACCommandAbuse(
-            config=self.config,
-            device=self.device,
-            gateway=self.gateway,
-            logger=self.logger,
-            radio=self.radio,
+        self.attack_config = MACCommandConfigV1(
             command_type="LinkADRReq",
             malformed=False,
+            parameters={"data_rate": 5, "tx_power": 2},
         )
-        
-        self.assertEqual(attack.command_type, "LinkADRReq")
-        self.assertFalse(attack.malformed)
-        self.assertIsNotNone(attack.analyzer)
+        self.ctx = AttackContext(
+            services=AttackServices(
+                device=self.device,
+                gateway=self.gateway,
+                logger=self.logger,
+                capture=PacketCapture(self.logger),
+                metrics=None,
+            ),
+            input=AttackInput(
+                typed_config=self.attack_config,
+                expected_behavior=None,
+                radio=self.radio,
+                timeout_sec=30.0,
+            ),
+        )
+    
+    def test_mac_abuse_creation_link_adr(self) -> None:
+        """Test MACCommandAbuse creation as a plugin."""
+        attack = MACCommandAbuse()
+
+        self.assertEqual(attack.name, "mac_command_injection")
     
     def test_mac_abuse_creation_malformed(self) -> None:
-        """Test MACCommandAbuse creation with malformed command."""
-        attack = MACCommandAbuse(
-            config=self.config,
-            device=self.device,
-            gateway=self.gateway,
-            logger=self.logger,
-            radio=self.radio,
-            command_type="LinkADRReq",
-            malformed=True,
-            malformation_type="truncated",
+        """Test MACCommandAbuse uses typed context config."""
+        self.ctx = AttackContext(
+            services=self.ctx.services,
+            input=AttackInput(
+                typed_config=MACCommandConfigV1(
+                    command_type="LinkADRReq",
+                    malformed=True,
+                    malformation_type="truncated",
+                ),
+                expected_behavior=None,
+                radio=self.radio,
+                timeout_sec=30.0,
+            ),
         )
-        
-        self.assertTrue(attack.malformed)
-        self.assertEqual(attack.malformation_type, "truncated")
+
+        self.assertTrue(self.ctx.config.malformed)
+        self.assertEqual(self.ctx.config.malformation_type, "truncated")
     
     def test_build_legitimate_link_adr_req(self) -> None:
         """Test building legitimate LinkADRReq command."""
-        attack = MACCommandAbuse(
-            config=self.config,
-            device=self.device,
-            gateway=self.gateway,
-            logger=self.logger,
-            radio=self.radio,
-            command_type="LinkADRReq",
-            parameters={"data_rate": 5, "tx_power": 2},
-        )
-        
-        cmd = attack._build_legitimate_command()
+        attack = MACCommandAbuse()
+        cmd = attack._build_legitimate_command(self.attack_config)
         
         self.assertEqual(cmd.cid, 0x03)  # LinkADRReq CID
         self.assertEqual(len(cmd.payload), 4)
     
     def test_build_legitimate_rx_param_setup_req(self) -> None:
         """Test building legitimate RXParamSetupReq command."""
-        attack = MACCommandAbuse(
-            config=self.config,
-            device=self.device,
-            gateway=self.gateway,
-            logger=self.logger,
-            radio=self.radio,
-            command_type="RXParamSetupReq",
-            parameters={"rx2_data_rate": 3, "frequency": 869525000},
+        attack = MACCommandAbuse()
+        cmd = attack._build_legitimate_command(
+            MACCommandConfigV1(
+                command_type="RXParamSetupReq",
+                malformed=False,
+                parameters={"rx2_data_rate": 3, "frequency": 869525000},
+            )
         )
-        
-        cmd = attack._build_legitimate_command()
         
         self.assertEqual(cmd.cid, 0x05)  # RXParamSetupReq CID
         self.assertEqual(len(cmd.payload), 4)
     
     def test_build_malformed_command(self) -> None:
         """Test building malformed MAC command."""
-        attack = MACCommandAbuse(
-            config=self.config,
-            device=self.device,
-            gateway=self.gateway,
-            logger=self.logger,
-            radio=self.radio,
-            command_type="LinkADRReq",
-            malformed=True,
-            malformation_type="truncated",
+        attack = MACCommandAbuse()
+        cmd = attack._build_malformed_command(
+            MACCommandConfigV1(
+                command_type="LinkADRReq",
+                malformed=True,
+                malformation_type="truncated",
+            )
         )
-        
-        cmd = attack._build_malformed_command()
         
         self.assertEqual(cmd.cid, 0x03)  # LinkADRReq CID
         # Truncated should have less than 4 bytes
@@ -242,28 +234,20 @@ class TestMACCommandAbuse(unittest.TestCase):
     
     def test_adr_state_tracking(self) -> None:
         """Test ADR state tracking."""
-        attack = MACCommandAbuse(
-            config=self.config,
-            device=self.device,
-            gateway=self.gateway,
-            logger=self.logger,
-            radio=self.radio,
-            command_type="LinkADRReq",
+        attack = MACCommandAbuse()
+        adr_state = {"data_rate": 0, "tx_power": 0, "nb_trans": 1}
+        cmd = attack._build_legitimate_command(
+            MACCommandConfigV1(
+                command_type="LinkADRReq",
+                malformed=False,
+                parameters={"data_rate": 5, "tx_power": 2, "redundancy": 1},
+            )
         )
-        
-        # Initial state
-        self.assertEqual(attack._current_adr_state["data_rate"], 0)
-        self.assertEqual(attack._current_adr_state["tx_power"], 0)
-        
-        # Build LinkADRReq
-        cmd = attack._build_legitimate_command()
-        
-        # Update ADR state
-        attack._update_adr_state(cmd)
-        
-        # Check state was updated
-        # Note: default parameters in _build_legitimate_command
-        # The actual values depend on parameters passed
+
+        attack._update_adr_state(cmd, adr_state)
+
+        self.assertEqual(adr_state["data_rate"], cmd.payload[0] >> 4)
+        self.assertEqual(adr_state["tx_power"], cmd.payload[0] & 0x0F)
 
 
 if __name__ == "__main__":

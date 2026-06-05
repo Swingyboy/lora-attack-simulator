@@ -118,36 +118,6 @@ class MACCommandAbuse(BaseAttack):
     """
     
     name = "mac_command_injection"
-
-    def __init__(
-        self,
-        config: Any | None = None,
-        device: Any | None = None,
-        gateway: Any | None = None,
-        logger: Any | None = None,
-        radio: Any | None = None,
-        command_type: str = "LinkADRReq",
-        malformed: bool = False,
-        malformation_type: str | None = None,
-        parameters: dict[str, Any] | None = None,
-        expected: Any | None = None,
-    ) -> None:
-        self.config = config
-        self.device = device
-        self.gateway = gateway
-        self.logger = logger
-        self.radio = radio
-        self.command_type = command_type
-        self.malformed = malformed
-        self.malformation_type = malformation_type
-        self.parameters = parameters or {}
-        self.expected = expected
-        self.analyzer = MACCommandAnalyzer()
-        self._current_adr_state = {
-            "data_rate": 0,
-            "tx_power": 0,
-            "nb_trans": 1,
-        }
     
     def run(self, ctx: AttackContext) -> AttackResult:
         """
@@ -166,7 +136,11 @@ class MACCommandAbuse(BaseAttack):
             config: MACCommandConfigV1 = ctx.config
             
             # Track ADR state
-            adr_state = dict(self._current_adr_state)
+            adr_state = {
+                "data_rate": 0,
+                "tx_power": 0,
+                "nb_trans": 1,
+            }
             
             # Start gateway
             ctx.logger.info("Starting gateway...")
@@ -225,9 +199,9 @@ class MACCommandAbuse(BaseAttack):
             )
             
             if config.malformed:
-                mac_command = self._build_malformed_command(config, ctx)
+                mac_command = self._build_malformed_command(config)
             else:
-                mac_command = self._build_legitimate_command(config, ctx)
+                mac_command = self._build_legitimate_command(config)
             
             # Capture MAC command injection
             mac_command_bytes = mac_command.to_bytes()
@@ -301,23 +275,11 @@ class MACCommandAbuse(BaseAttack):
                 error=str(e),
             )
     
-    def _resolve_config(self, config: MACCommandConfigV1 | None = None) -> MACCommandConfigV1:
-        if config is not None:
-            return config
-        return MACCommandConfigV1(
-            command_type=self.command_type,
-            malformed=self.malformed,
-            parameters=self.parameters,
-            malformation_type=self.malformation_type,
-        )
-
     def _build_legitimate_command(
         self,
-        config: MACCommandConfigV1 | None = None,
-        ctx: AttackContext | None = None,
+        config: MACCommandConfigV1,
     ) -> MACCommand:
         """Build legitimate MAC command based on command_type."""
-        config = self._resolve_config(config)
         params = config.parameters or {}
         
         if config.command_type == "LinkADRReq":
@@ -347,11 +309,9 @@ class MACCommandAbuse(BaseAttack):
     
     def _build_malformed_command(
         self,
-        config: MACCommandConfigV1 | None = None,
-        ctx: AttackContext | None = None,
+        config: MACCommandConfigV1,
     ) -> MACCommand:
         """Build malformed MAC command for attack."""
-        config = self._resolve_config(config)
         cid_map = {
             "LinkADRReq": CID_LINK_ADR_REQ,
             "RXParamSetupReq": CID_RX_PARAM_SETUP_REQ,
@@ -371,12 +331,10 @@ class MACCommandAbuse(BaseAttack):
     def _update_adr_state(
         self,
         mac_command: MACCommand,
-        adr_state: dict[str, Any] | None = None,
+        adr_state: dict[str, Any],
         ctx: AttackContext | None = None,
     ) -> None:
         """Update ADR state based on LinkADRReq command."""
-        if adr_state is None:
-            adr_state = self._current_adr_state
         if len(mac_command.payload) < 4:
             return
         

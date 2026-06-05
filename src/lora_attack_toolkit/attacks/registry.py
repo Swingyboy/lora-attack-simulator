@@ -15,7 +15,6 @@ class AttackSpec:
     
     Owns all attack-type-specific logic:
     - Config parsing/validation
-    - Factory/construction
     - Aliases for backwards compatibility
     
     This removes hardcoded logic from runner - each plugin is self-contained.
@@ -25,7 +24,6 @@ class AttackSpec:
             name="join_replay",
             attack_class=JoinReplayAttack,
             config_parser=parse_join_replay_config,
-            factory=create_join_replay_attack,
             aliases=["replay", "duplicate_devnonce"],
             description="Test DevNonce replay protection",
         )
@@ -36,7 +34,6 @@ class AttackSpec:
     name: str
     attack_class: Type[BaseAttack]
     config_parser: Callable[[dict[str, Any]], Any]
-    factory: Callable[..., BaseAttack]
     aliases: list[str] = field(default_factory=list)
     description: str = ""
     version: str = "1.0"
@@ -57,8 +54,9 @@ class AttackRegistry:
         # Lookup (in runner):
         spec = AttackRegistry.get_spec("join_replay")
         config = spec.config_parser(scenario.attack.config)
-        attack = spec.factory(config, device, gateway, logger, radio)
-        result = attack.run()
+        attack_cls = AttackRegistry.get_attack_class("join_replay")
+        attack = attack_cls()
+        result = attack.run(ctx)
     """
     
     _specs: dict[str, AttackSpec] = {}
@@ -126,6 +124,16 @@ class AttackRegistry:
             )
         
         return cls._specs[canonical]
+
+    @classmethod
+    def get(cls, name_or_alias: str) -> Type["BaseAttack"]:
+        """Get the attack class by name or alias."""
+        return cls.get_spec(name_or_alias).attack_class
+
+    @classmethod
+    def get_attack_class(cls, name_or_alias: str) -> Type["BaseAttack"]:
+        """Backward-compatible alias for get()."""
+        return cls.get(name_or_alias)
     
     @classmethod
     def list_attacks(cls) -> list[str]:
