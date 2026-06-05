@@ -193,8 +193,8 @@ class JoinReplayAttack(BaseAttack):
             generator = DuplicateDevNonceGenerator(dev_nonce)
             verifier = DuplicateDevNonceVerifier()
         elif mode == "devnonce_rollback":
-            baseline = config.baseline_devnonce or 100
-            rollback = config.rollback_devnonce or 99
+            baseline = config.baseline_dev_nonce or 100
+            rollback = config.rollback_dev_nonce or 99
             generator = RollbackDevNonceGenerator(baseline, rollback)
             verifier = RollbackDevNonceVerifier()
         elif mode in {"memory_depth", "devnonce_memory_depth"}:
