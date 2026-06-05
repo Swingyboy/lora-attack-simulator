@@ -182,18 +182,22 @@ class JoinReplayAttack(BaseAttack):
         self, ctx: AttackContext, config: JoinReplayConfigV1
     ) -> tuple[DevNonceGenerator, JoinReplayVerifier]:
         """Create generator and verifier based on attack mode."""
-        if config.mode == "duplicate_devnonce":
+        mode = config.mode
+        if mode == "replay":
+            mode = "duplicate_devnonce"
+
+        if mode == "duplicate_devnonce":
             # Need to perform first join to get DevNonce to duplicate
             # For now, use a placeholder - will be fixed in execute phase
             dev_nonce = bytes([0x00, 0x64])  # 100
             generator = DuplicateDevNonceGenerator(dev_nonce)
             verifier = DuplicateDevNonceVerifier()
-        elif config.mode == "devnonce_rollback":
+        elif mode == "devnonce_rollback":
             baseline = config.baseline_devnonce or 100
             rollback = config.rollback_devnonce or 99
             generator = RollbackDevNonceGenerator(baseline, rollback)
             verifier = RollbackDevNonceVerifier()
-        elif config.mode == "memory_depth":
+        elif mode in {"memory_depth", "devnonce_memory_depth"}:
             depth = config.memory_depth or 5
             generator = MemoryDepthDevNonceGenerator(depth)
             verifier = MemoryDepthVerifier()
