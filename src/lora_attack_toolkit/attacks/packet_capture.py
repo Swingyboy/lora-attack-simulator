@@ -34,6 +34,7 @@ class PacketCapture:
         self.logger = logger
         self.uplinks: list[CapturedPacket] = []
         self.downlinks: list[CapturedPacket] = []
+        self.metadata: dict = {}
         self._enabled = True
     
     def enable(self) -> None:
