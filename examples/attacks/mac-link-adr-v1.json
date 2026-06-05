@@ -52,7 +52,7 @@
   },
   "expected": {
     "secure_behavior": "ns_validates_mac_commands_and_maintains_secure_adr_state",
-    "success_criteria": [
+    "security_criteria": [
       "ns_validates_mac_command_syntax",
       "ns_maintains_secure_adr_state"
     ]

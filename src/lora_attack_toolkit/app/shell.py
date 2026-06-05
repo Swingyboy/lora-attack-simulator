@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from lorawan_sim.app.session import Session
+from lwat_sim.app.session import Session
 
 
 @dataclass
@@ -70,7 +70,7 @@ class LoRaWANShell(cmd.Cmd):
         self.session = Session()
         
         # Initialize logging for shell session
-        from lorawan_sim.common.logging import configure_logging
+        from lwat_sim.logging.logging import configure_logging
         
         configure_logging(
             level="INFO",
@@ -209,7 +209,7 @@ class LoRaWANShell(cmd.Cmd):
     
     def _show_logging(self) -> None:
         """Display current logging configuration."""
-        from lorawan_sim.common.logging import get_logging_config
+        from lwat_sim.logging.logging import get_logging_config
         
         config = get_logging_config()
         
@@ -456,7 +456,7 @@ class LoRaWANShell(cmd.Cmd):
     
     def _set_logging_param(self, param_path: str, value_str: str) -> None:
         """Set logging configuration parameter."""
-        from lorawan_sim.common.logging import reconfigure_level
+        from lwat_sim.logging.logging import reconfigure_level
         
         # Extract parameter name (e.g., "logging.level" -> "level")
         param_name = param_path.split(".", 1)[1] if "." in param_path else param_path
@@ -572,7 +572,7 @@ class LoRaWANShell(cmd.Cmd):
         
         # Import validation lazily to avoid loading dependencies
         try:
-            from lorawan_sim.lorawan.scenario.loader import load_attack_scenario
+            from lwat_sim.core.loader import load_attack_scenario
             import tempfile
             import json as json_module
             
@@ -627,7 +627,7 @@ class LoRaWANShell(cmd.Cmd):
                 json.dump(self.session.scenario_data, tmp, indent=2)
                 tmp_path = tmp.name
             
-            from lorawan_sim.lorawan.scenario.loader import load_attack_scenario
+            from lwat_sim.core.loader import load_attack_scenario
             scenario = load_attack_scenario(tmp_path)
             
         except Exception as e:
@@ -648,16 +648,16 @@ class LoRaWANShell(cmd.Cmd):
         try:
             # Configure logging for attack execution
             import logging
-            from lorawan_sim.common.logging import configure_logging
+            from lwat_sim.logging.logging import configure_logging
             
             log_config = self.session.scenario_data.get('logging', {})
             log_level = log_config.get('level', 'INFO').upper()
             configure_logging(level=log_level)
             
-            logger = logging.getLogger("lorawan_sim")
+            logger = logging.getLogger("lwat_sim")
             
             # Import and run attack
-            from lorawan_sim.attacks.runner import AttackRunner
+            from lwat_sim.app.runner import AttackRunner
             
             runner = AttackRunner(logger=logger)
             print(f"\n🚀 Starting attack execution...\n")

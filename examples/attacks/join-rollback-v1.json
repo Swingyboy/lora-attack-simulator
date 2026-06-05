@@ -53,7 +53,7 @@
   },
   "expected": {
     "secure_behavior": "ns_rejects_devnonce_rollback",
-    "success_criteria": [
+    "security_criteria": [
       "first_join_request_with_baseline_devnonce_is_accepted",
       "second_join_request_with_lower_devnonce_is_rejected",
       "ns_prevents_devnonce_rollback_attack"

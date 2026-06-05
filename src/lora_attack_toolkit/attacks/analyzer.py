@@ -6,8 +6,8 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from lorawan_sim.attacks.packet_capture import PacketCapture
-    from lorawan_sim.lorawan.scenario.schema_v1 import ExpectedBehavior
+    from lwat_sim.attacks.packet_capture import PacketCapture
+    from lwat_sim.core.schema_v1 import ExpectedBehavior
 
 
 class AttackAnalyzer(ABC):

@@ -53,7 +53,7 @@
   },
   "expected": {
     "secure_behavior": "ns_remembers_all_historical_devnonces",
-    "success_criteria": [
+    "security_criteria": [
       "all_generated_joins_succeed",
       "all_replayed_devnonces_are_rejected",
       "ns_maintains_devnonce_history_for_at_least_50_values"

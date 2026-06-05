@@ -8,7 +8,11 @@ import sys
 
 def main() -> int:
     """Main entry point - starts interactive shell."""
-    from lorawan_sim.app.shell import LoRaWANShell
+    from lwat_sim.app.shell import LoRaWANShell
+    from lwat_sim.attacks.bootstrap import register_builtin_attacks
+    
+    # Bootstrap: register all built-in attack plugins
+    register_builtin_attacks()
     
     shell = LoRaWANShell()
     

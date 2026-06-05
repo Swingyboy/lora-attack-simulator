@@ -56,7 +56,7 @@
   },
   "expected": {
     "secure_behavior": "ns_rejects_replayed_uplinks_with_same_fcnt",
-    "success_criteria": [
+    "security_criteria": [
       "first_uplink_is_sent",
       "replayed_uplinks_with_same_fcnt_are_rejected",
       "ns_maintains_fcnt_validation"

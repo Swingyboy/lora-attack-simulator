@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from logging import Logger
 
-from lorawan_sim.lorawan.device.model import SimulatedDevice
-from lorawan_sim.lorawan.gateway.model import GatewaySimulator
-from lorawan_sim.lorawan.scenario.schema import RadioMetadata
+from lwat_sim.device.model import SimulatedDevice
+from lwat_sim.gateway.model import GatewaySimulator
+from lwat_sim.core.schema import RadioMetadata
 
 
 def perform_otaa_join(
@@ -113,7 +113,7 @@ def perform_otaa_join_with_devnonce(
     device.runtime.dev_nonce = dev_nonce
     
     # Build JoinRequest with specified DevNonce
-    from lorawan_sim.lorawan.protocol.frames import build_join_request
+    from lwat_sim.lorawan.protocol.frames import build_join_request
     
     join_request = build_join_request(
         join_eui=device._join_eui,
@@ -154,7 +154,7 @@ def perform_otaa_join_with_devnonce(
     mtype = (mhdr >> 5) & 0x07  # Extract MType from bits 7-5
     
     # Import MHDR constants
-    from lorawan_sim.lorawan.protocol.frames import (
+    from lwat_sim.lorawan.protocol.frames import (
         MHDR_JOIN_ACCEPT,
         MHDR_UNCONFIRMED_DATA_UP,
         MHDR_CONFIRMED_DATA_UP,

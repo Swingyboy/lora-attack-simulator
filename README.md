@@ -1,14 +1,17 @@
-# LoRaWAN Offensive Security Testing Framework
+# LoRAT (LoRa Attack Toolkit)
 
-A protocol-level attack simulation framework for testing LoRaWAN Network Server implementations.
+**A modular offensive-security testing framework for LoRaWAN Network Servers.**
+
+LoRAT enables security researchers and network operators to validate LoRaWAN Network Server implementations against protocol-level attacks and abuse scenarios.
 
 ## Features
 
-- **Interactive CLI** - Metasploit-like shell for managing attack scenarios
-- **Protocol-Aware Attacks** - Replay, join abuse, MAC command manipulation
-- **Semtech UDP Transport** - Compatible with standard LoRaWAN gateway forwarders
-- **Session-Based Logging** - Structured JSONL logs with secret masking
-- **JSON Scenarios** - Declarative attack definitions with expected behavior validation
+- **Attack Plugin Architecture**: Extensible attack system with typed configurations
+- **Built-in Attack Library**: Join replay, uplink replay, MAC command abuse, join flooding
+- **Interactive Shell**: Real-time attack execution with scenario management
+- **Protocol Validation**: Test DevNonce handling, frame counter validation, MAC command processing
+- **Comprehensive Logging**: Structured logs with attack traces and metrics
+- **Type-Safe Configuration**: JSON schemas with typed Python models
 
 ## Installation
 
@@ -18,208 +21,322 @@ git clone https://github.com/Swingyboy/lora-attack-simulator.git
 cd lora-attack-simulator
 
 # Create virtual environment
-python3.12 -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 
-# Install package
+# Install in editable mode
 pip install -e .
-```
 
-**Requirements:**
-- Python 3.12+
-- `cryptography==3.3.2`
+# Verify installation
+lorat --help
+```
 
 ## Quick Start
 
-### Interactive Mode
+### 1. Interactive Shell Mode
 
 ```bash
-lorawan-sim
+lorat
 ```
 
-Basic workflow:
 ```
-# List available attack scenarios
-show scenarios
+LoRAT v0.2.0 - LoRa Attack Toolkit
+Type 'help' for available commands.
 
-# Load a scenario
-use join-replay-v1
+lorat > load scenarios/join-replay-v1.json
+✓ Loaded scenario: DevNonce Rollback Attack
 
-# View current configuration
-show
+lorat > set logging.level debug
+✓ Log level changed to: DEBUG
 
-# Modify parameters
-set target.host 192.168.1.100
-set target.port 1700
+lorat > run
+🚀 Starting attack execution...
+[INFO] Starting attack: join-rollback-v1
+...
+✓ Attack completed successfully
 
-# Execute attack
-run
-
-# View results
-# Results saved to: results/<session-id>/<scenario>.results.json
+lorat > show results
+Attack: join_replay
+Status: SECURE
+Message: NS correctly rejected invalid DevNonces
+...
 ```
 
-### Automation Mode
+### 2. Command-Line Mode
 
 ```bash
-# Run scenario non-interactively
-lorawan-sim use join-replay-v1 set target.host 192.168.1.100 run
+# Run attack scenario
+lorat run scenarios/join-replay-v1.json
+
+# Validate scenario file
+lorat validate scenarios/custom-attack.json
+
+# Get help
+lorat --help
 ```
 
-## Available Attacks
+## Attack Types
 
-### Replay Attacks
-**Scenario:** `uplink-replay-v1`
+### Join Replay Attack
 
-Captures legitimate uplink packets and replays them to test FCnt validation.
-
-**Tests:** Frame counter replay protection
-
-### Join Procedure Abuse
-**Scenario:** `join-replay-v1`
-
-Replays JoinRequest messages with identical DevNonce values.
-
-**Tests:** DevNonce validation, join procedure replay protection
-
-### MAC Command Manipulation
-**Scenario:** `mac-link-adr-v1`
-
-Injects LinkADRReq commands to manipulate device parameters.
-
-**Tests:** MAC command validation, ADR manipulation defenses
-
-## Creating Attack Scenarios
-
-Scenarios are JSON files in `examples/attacks/`:
+Tests DevNonce replay protection:
 
 ```json
 {
   "schema_version": "1.0",
-  "scenario": {
-    "title": "My Attack",
-    "category": "replay"
-  },
-  "target": {
-    "name": "test-ns",
-    "transport": "semtech_udp",
-    "host": "127.0.0.1",
-    "port": 1700
-  },
-  "gateway": {
-    "gateway_eui": "0102030405060708",
-    "radio": {...}
-  },
-  "device": {
-    "dev_eui": "0011223344556677",
-    "activation": {...}
-  },
+  "scenario_id": "join-replay-test",
   "attack": {
-    "type": "replay",
-    "config": {...}
-  },
-  "expected_behavior": {
-    "should_reject_replay": true
+    "type": "join_replay",
+    "mode": "devnonce_rollback",
+    "baseline_devnonce": 100,
+    "rollback_devnonce": 99
   }
 }
 ```
 
-See `examples/attacks/` for complete examples.
+**Modes:**
+- `duplicate_devnonce`: Replay same DevNonce (100 → 100)
+- `devnonce_rollback`: Send lower DevNonce after higher (100 → 99)
+- `memory_depth`: Test NS memory of historical DevNonces
 
-## Logging
+### Uplink Replay Attack
 
-### Session Logs
+Tests frame counter validation:
 
-All CLI activity is automatically logged to `logs/session-<timestamp>.log` in JSONL format.
-
-### Log Levels
-
-```bash
-# In interactive mode
-set logging.level debug
-
-# Available: ERROR, WARNING, INFO, DEBUG, TRACE
+```json
+{
+  "attack": {
+    "type": "uplink_replay",
+    "replay_phase": {
+      "count": 3,
+      "delay_sec": 1.0
+    }
+  }
+}
 ```
 
-### View Logging Configuration
+### MAC Command Abuse
 
-```bash
-show logging
+Tests MAC command handling:
+
+```json
+{
+  "attack": {
+    "type": "mac_command_injection",
+    "command_type": "LinkADRReq",
+    "malformed": false,
+    "parameters": {
+      "data_rate": 5,
+      "tx_power": 2
+    }
+  }
+}
 ```
 
-**Features:**
-- Dual output: terminal (colored) + file (JSONL)
-- Automatic secret masking (AppKey, NwkSKey, AppSKey)
-- Session-wide log files (one file per CLI session)
-- TRACE level for protocol debugging
+### Join Flood Attack
+
+Tests join request rate limiting:
+
+```json
+{
+  "attack": {
+    "type": "join_flood",
+    "mode": "flood",
+    "flood_count": 100,
+    "flood_interval_sec": 0.1,
+    "virtual_devices": 5
+  }
+}
+```
+
+## Writing Custom Attacks
+
+LoRAT uses a plugin architecture. Create a new attack in 3 steps:
+
+### 1. Create Attack Class
+
+```python
+from lora_attack_toolkit.attacks.base import BaseAttack
+from lora_attack_toolkit.attacks.result import AttackResult
+
+class CustomAttack(BaseAttack):
+    name = "custom_attack"
+    
+    def run(self, ctx):
+        """Execute attack using context services."""
+        # Access typed configuration
+        config = ctx.config
+        
+        # Use framework services
+        ctx.gateway.start()
+        ctx.logger.info("Starting custom attack")
+        
+        # Build and send attack traffic
+        uplink = ctx.device.build_data_uplink(...)
+        ctx.gateway.forward_uplink(uplink, ctx.radio)
+        
+        # Capture packets
+        ctx.capture.capture_uplink(uplink, ...)
+        
+        # Stop gateway
+        ctx.gateway.stop()
+        
+        # Return result
+        return AttackResult(
+            attack_name=self.name,
+            attack_type="custom",
+            success=True,
+            message="Attack completed",
+            metrics={},
+        )
+```
+
+### 2. Register Attack
+
+```python
+from lora_attack_toolkit.attacks.registry import AttackRegistry, AttackSpec
+
+AttackRegistry.register(
+    AttackSpec(
+        name="custom_attack",
+        attack_class=CustomAttack,
+        config_parser=parse_custom_config,
+        aliases=[],
+        description="Custom attack description",
+    )
+)
+```
+
+### 3. Create Scenario
+
+```json
+{
+  "schema_version": "1.0",
+  "attack": {
+    "type": "custom_attack",
+    "custom_param": "value"
+  }
+}
+```
+
+## Configuration
+
+### Device Configuration
+
+```json
+{
+  "device": {
+    "dev_eui": "0123456789abcdef",
+    "app_eui": "fedcba9876543210",
+    "app_key": "00112233445566778899aabbccddeeff"
+  }
+}
+```
+
+### Target Configuration
+
+```json
+{
+  "target": {
+    "name": "chirpstack-local",
+    "network_server": {
+      "host": "127.0.0.1",
+      "port": 1700
+    }
+  }
+}
+```
+
+### Security Criteria
+
+```json
+{
+  "expected_behavior": {
+    "security_criteria": [
+      {
+        "criterion": "duplicate_devnonce_rejected",
+        "description": "NS must reject duplicate DevNonce"
+      }
+    ],
+    "secure_behavior": "reject_replayed_devnonce"
+  }
+}
+```
+
+## Testing
+
+```bash
+# Run all tests
+.venv/bin/python -m pytest -q
+
+# Run specific test module
+.venv/bin/python -m pytest tests/attacks/ -v
+
+# Run with coverage
+.venv/bin/python -m pytest --cov=lora_attack_toolkit
+```
+
+## Project Structure
+
+```
+src/lora_attack_toolkit/
+├── app/                 # CLI and shell interface
+│   ├── cli.py
+│   ├── runner.py
+│   └── shell.py
+├── attacks/            # Attack plugin system
+│   ├── base.py         # BaseAttack interface
+│   ├── context.py      # AttackContext
+│   ├── registry.py     # AttackRegistry
+│   └── builtin/        # Built-in attacks
+├── core/               # Configuration and schemas
+├── lorawan/            # LoRaWAN protocol implementation
+├── device/             # Device simulation
+├── gateway/            # Gateway simulation
+├── transport/          # Network transport
+└── metrics/            # Metrics and analysis
+```
 
 ## Architecture
 
-### Package Structure
+LoRAT follows SOLID principles:
 
-```
-src/
-├── cli/                # Interactive shell
-├── simulator/          # Runtime engine, session management
-├── lorawan/            # Protocol implementation
-│   ├── protocol/       # Frames, crypto, MAC commands
-│   ├── device/         # Device simulator
-│   ├── gateway/        # Gateway simulator
-│   ├── scenario/       # Scenario schemas
-│   └── semtech/        # Semtech UDP codec
-├── attacks/            # Attack implementations
-├── transport/          # UDP, in-memory transports
-├── sim_logging/        # Logging subsystem
-└── monitoring/         # ChirpStack integration
+- **Single Responsibility**: Attacks own attack logic, Runner owns orchestration
+- **Open/Closed**: Add new attacks without modifying core framework
+- **Liskov Substitution**: All attacks implement `BaseAttack.run(ctx)`
+- **Interface Segregation**: `AttackContext` exposes only necessary services
+- **Dependency Inversion**: Attacks depend on abstractions, not framework internals
 
-tests/                  # Unit and integration tests
-examples/attacks/       # Attack scenario templates
-```
+## Requirements
 
-### Key Components
-
-- **Session** (`simulator/session.py`) - Tracks loaded scenario and runtime state
-- **AttackRunner** (`attacks/runner.py`) - Orchestrates attack execution
-- **TransportClient** (`transport/transport.py`) - Abstract transport interface
-- **PacketCapture** (`attacks/packet_capture.py`) - Records attack traffic
-
-## Development
-
-### Running Tests
-
-```bash
-PYTHONPATH=src python -m unittest discover -s tests -q
-```
-
-### Test Structure
-
-```
-tests/
-├── test_device_crypto_flow.py      # Device join/uplink flow
-├── test_scenario_loader.py         # Scenario validation
-├── attacks/
-│   ├── test_replay.py              # Replay attack logic
-│   ├── test_join_abuse.py          # Join abuse logic
-│   └── test_mac_abuse.py           # MAC command abuse
-└── protocol/
-    └── test_mac_commands.py        # MAC command utilities
-```
-
-## Security Notice
-
-**This framework is for authorized security testing only.**
-
-- Only test Network Servers you own or have written permission to test
-- Unauthorized LoRaWAN traffic may violate regulations (e.g., FCC Part 15, ETSI EN 300.220)
-- The framework does not implement duty cycle restrictions
-- Misuse may disrupt legitimate LoRaWAN networks
+- Python 3.10+
+- Virtual environment recommended
+- No external LoRaWAN server required for testing (uses built-in simulators)
 
 ## License
 
-MIT License - See LICENSE file for details
+MIT License
+
+## Contributing
+
+Contributions welcome! Please:
+
+1. Follow existing code style
+2. Add tests for new features
+3. Update documentation
+4. Ensure `pytest` passes
+
+## Disclaimer
+
+LoRAT is intended for authorized security testing only. Users are responsible for ensuring they have proper authorization before testing any LoRaWAN Network Server.
 
 ## References
 
-- LoRaWAN 1.0.3 Specification
-- Semtech UDP Packet Forwarder Protocol
-- ChirpOTLE: A Framework for Practical LoRaWAN Security Evaluation
+- [LoRaWAN Specification](https://lora-alliance.org/resource_hub/lorawan-specification-v1-0-3/)
+- [LoRaWAN Security Whitepaper](https://lora-alliance.org/resource_hub/lorawan-security-whitepaper/)
+
+---
+
+**Version**: 0.2.0  
+**Status**: Active Development  
+**Maintainer**: [@Swingyboy](https://github.com/Swingyboy)

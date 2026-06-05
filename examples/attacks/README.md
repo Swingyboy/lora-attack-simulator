@@ -91,21 +91,24 @@ All existing v0.9 scenarios in `examples/attacks/*.json` continue to work.
 ## Running v1.0 Scenarios
 
 ```bash
-# Validate v1.0 scenario
-lorawan-sim validate-attack examples/attacks/v1/join-replay-v1.json
+# Interactive mode
+python -m lora_attack_toolkit.app.cli
+# Then: use join-replay-v1
 
-# Run v1.0 attack (Phase 2 complete - now supported!)
-lorawan-sim run-attack examples/attacks/v1/join-replay-v1.json
+# Command-line mode
+python -m lora_attack_toolkit.app.cli use join-replay-v1 run
+
+# After pip install -e .
+lorat use join-replay-v1 run
 ```
 
-✅ **Phase 2 Complete**: Attack runner now supports v1.0 format with typed configs.
+✅ **Complete**: Attack Plugin API with registry-based dispatch.
 
 ## Migration Status
 
-- ✅ **Phase 1**: Schema and dual-format loader complete
-- ✅ **Phase 2**: Runner support and typed configs complete
-- ⏳ **Phase 3**: Target abstraction and naming consistency
-- ⏳ **Phase 4**: Expected behavior validation
-- ⏳ **Phase 5**: Full migration and v0.9 deprecation
+- ✅ **Plugin Architecture**: Registry-based attack system complete
+- ✅ **Directory Structure**: Organized modular package layout
+- ✅ **Project Rename**: LoRAT (LoRa Attack Toolkit)
+- ✅ **Security Criteria**: Renamed from success_criteria
 
 See `Attack_Scenario_Format_Specification.md` (project root) for full specification and `~/.copilot/session-state/.../files/scenario_format_analysis.md` for implementation plan.
