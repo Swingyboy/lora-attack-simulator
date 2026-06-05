@@ -241,8 +241,9 @@ class JoinReplayAttack(BaseAttack):
             
             # Wait before next step (except after last step)
             if idx < len(dev_nonce_sequence):
-                ctx.logger.debug(f"Waiting {config.inter_message_delay_sec}s before next join...")
-                time.sleep(config.inter_message_delay_sec)
+                delay = self._join_inter_message_delay(config)
+                ctx.logger.debug(f"Waiting {delay}s before next join...")
+                time.sleep(delay)
         
         return join_results
     
@@ -266,7 +267,7 @@ class JoinReplayAttack(BaseAttack):
             radio=ctx.radio,
             results=results,
             execute_join_step_fn=execute_join_step_fn,
-            inter_message_delay_sec=config.inter_message_delay_sec,
+            inter_message_delay_sec=self._join_inter_message_delay(config),
             logger=ctx.logger,
         )
         
@@ -286,7 +287,7 @@ class JoinReplayAttack(BaseAttack):
                 device=ctx.device,
                 gateway=ctx.gateway,
                 radio=ctx.radio,
-                timeout_sec=config.join_accept_timeout_sec,
+                timeout_sec=self._join_accept_timeout(config),
                 logger=ctx.logger,
             )
             
@@ -302,7 +303,7 @@ class JoinReplayAttack(BaseAttack):
                 gateway=ctx.gateway,
                 radio=ctx.radio,
                 dev_nonce=dev_nonce,
-                timeout_sec=config.join_accept_timeout_sec,
+                timeout_sec=self._join_accept_timeout(config),
                 logger=ctx.logger,
             )
             
@@ -315,3 +316,15 @@ class JoinReplayAttack(BaseAttack):
             uplink_sent=join_success,  # Simplified - assume uplink sent if join successful
             timestamp=timestamp,
         )
+
+    def _join_accept_timeout(self, config: JoinReplayConfigV1) -> float:
+        timing = config.timing
+        if timing is not None:
+            return timing.join_accept_timeout_sec
+        return 30.0
+
+    def _join_inter_message_delay(self, config: JoinReplayConfigV1) -> float:
+        timing = config.timing
+        if timing is not None:
+            return timing.inter_message_delay_sec
+        return config.delay_sec
