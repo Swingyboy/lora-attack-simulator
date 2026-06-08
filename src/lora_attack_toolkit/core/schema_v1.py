@@ -59,8 +59,8 @@ class ScenarioMeta:
     id: str  # Unique scenario identifier (e.g., "join-replay-basic")
     title: str  # Human-readable title
     description: str  # Short description
-    category: str  # High-level category ("replay", "join_abuse", "mac_abuse")
-    type: str  # Specific attack type ("uplink_replay", "join_replay", etc.)
+    category: str  # High-level category ("replay", "join_devnonce", "mac_abuse")
+    type: str  # Specific attack type ("uplink_replay", "join_devnonce", etc.)
     timeout_sec: float  # Maximum execution time
 
 
@@ -95,13 +95,15 @@ class AttackTiming:
     """Timing configuration for attacks following LoRaWAN specification.
     
     Default values follow LoRaWAN 1.0.3 timing specification:
-    - RX1 window opens 1s after uplink transmission ends
-    - RX2 window opens 2s after uplink transmission ends
+    - RX1 window opens after rx1_delay_sec and stays open for rx1_window_sec
+    - RX2 window opens after rx2_delay_sec and stays open for rx2_window_sec
     """
     
     join_accept_timeout_sec: float = 30.0  # Max wait for JoinAccept response
     rx1_delay_sec: float = 1.0  # LoRaWAN RX1 window delay
+    rx1_window_sec: float = 1.0  # LoRaWAN RX1 window duration
     rx2_delay_sec: float = 2.0  # LoRaWAN RX2 window delay (total from uplink)
+    rx2_window_sec: float = 1.0  # LoRaWAN RX2 window duration
     inter_message_delay_sec: float = 30.0  # Delay between consecutive messages
 
 
@@ -137,42 +139,16 @@ class ReplayConfigV1:
 
 
 @dataclass(frozen=True)
-class JoinReplayConfigV1:
-    """Join replay attack configuration (v1.0).
-    
-    Tests DevNonce replay protection by replaying JoinRequests.
-    
-    Supported modes:
-    - "replay" or "duplicate_devnonce": Replay same DevNonce (100 → 100)
-    - "devnonce_rollback": Send lower DevNonce after higher (100 → 99)
-    - "devnonce_memory_depth": Test NS memory of historical DevNonces (1 → 2 → ... → N, then replay)
-    """
-    
-    mode: str  # "replay", "duplicate_devnonce", "devnonce_rollback", "devnonce_memory_depth"
-    replay_count: int  # Number of times to replay (legacy field for duplicate mode)
-    delay_sec: float  # Delay before replay (legacy field)
-    dev_nonce_strategy: str  # "reuse_original", "increment", "random" (legacy field)
-    mic_strategy: str  # "valid" (recalculate) or "reuse_original" (legacy field)
-    timing: AttackTiming | None = None  # Optional timing configuration
-    
-    # New fields for specific modes
-    baseline_dev_nonce: int | None = None  # For rollback mode: higher DevNonce
-    rollback_dev_nonce: int | None = None  # For rollback mode: lower DevNonce
-    count: int | None = None  # For memory_depth mode: number of joins to generate
-    replay_indices: list[int] | None = None  # For memory_depth mode: which DevNonces to replay
+class JoinDevNonceConfigV1:
+    """Unified DevNonce validation configuration."""
 
-
-@dataclass(frozen=True)
-class JoinFloodConfigV1:
-    """Join flood attack configuration (v1.0).
-    
-    Tests join handling capacity by flooding with multiple JoinRequests.
-    """
-    
-    mode: str  # "flood" (flood mode)
-    flood_count: int  # Total number of JoinRequests to send
-    flood_interval_sec: float  # Interval between requests
-    virtual_devices: int  # Number of virtual devices (unique DevEUIs)
+    valid_join_count: int = 1
+    valid_devnonce_start: int = 1
+    valid_devnonce_step: int = 1
+    final_check: str = "same_as_last"
+    result_cache_size: int = 10
+    final_devnonce: int | None = None
+    timing: AttackTiming | None = None
 
 
 @dataclass(frozen=True)
@@ -196,7 +172,7 @@ class AttackConfigV1:
     No attack-specific top-level blocks.
     """
     
-    type: str  # Attack type (e.g., "join_replay", "uplink_replay", "mac_abuse")
+    type: str  # Attack type (e.g., "join_devnonce", "uplink_replay", "mac_abuse")
     config: dict[str, Any]  # Attack-specific configuration (flexible dict)
 
 
@@ -229,7 +205,7 @@ class AttackScenarioV1:
         # Validate attack type matches category
         valid_types = {
             "replay": ["uplink_replay", "downlink_replay"],
-            "join_abuse": ["join_replay", "join_flood"],
+            "join_devnonce": ["join_devnonce"],
             "mac_abuse": ["mac_command_injection", "mac_malformed"],
         }
         
@@ -278,45 +254,47 @@ def parse_replay_config(config: dict[str, Any]) -> ReplayConfigV1:
     )
 
 
-def parse_join_replay_config(config: dict[str, Any]) -> JoinReplayConfigV1:
-    """Parse join replay config from dict."""
+def parse_join_devnonce_config(config: dict[str, Any]) -> JoinDevNonceConfigV1:
+    """Parse the unified DevNonce validation config from dict."""
     # Parse timing if present
     timing = None
     if "timing" in config:
         timing_data = config["timing"]
-        timing = AttackTiming(
-            join_accept_timeout_sec=timing_data.get("join_accept_timeout_sec", 30.0),
-            rx1_delay_sec=timing_data.get("rx1_delay_sec", 1.0),
-            rx2_delay_sec=timing_data.get("rx2_delay_sec", 2.0),
-            inter_message_delay_sec=timing_data.get("inter_message_delay_sec", 30.0),
+        rx1_delay_sec = float(timing_data.get("rx1_delay_sec", 1.0))
+        rx1_window_sec = float(timing_data.get("rx1_window_sec", 1.0))
+        rx2_delay_sec = float(timing_data.get("rx2_delay_sec", 2.0))
+        rx2_window_sec = float(timing_data.get("rx2_window_sec", 1.0))
+        join_accept_timeout_sec = float(
+            timing_data.get(
+                "join_accept_timeout_sec",
+                rx2_delay_sec + rx2_window_sec,
+            )
         )
-    
-    # Parse replay_indices if present (for memory_depth mode)
-    replay_indices = None
-    if "replay_indices" in config:
-        replay_indices = config["replay_indices"]
-    
-    return JoinReplayConfigV1(
-        mode=config.get("mode", "replay"),
-        replay_count=config.get("replay_count", 1),
-        delay_sec=config.get("delay_sec", 0.5),  # Legacy field, kept for compatibility
-        dev_nonce_strategy=config.get("dev_nonce_strategy", "reuse_original"),
-        mic_strategy=config.get("mic_strategy", "valid"),
+        if join_accept_timeout_sec < rx2_delay_sec + rx2_window_sec:
+            raise ValueError(
+                "timing.join_accept_timeout_sec must be >= rx2_delay_sec + rx2_window_sec"
+            )
+        timing = AttackTiming(
+            join_accept_timeout_sec=join_accept_timeout_sec,
+            rx1_delay_sec=rx1_delay_sec,
+            rx1_window_sec=rx1_window_sec,
+            rx2_delay_sec=rx2_delay_sec,
+            rx2_window_sec=rx2_window_sec,
+            inter_message_delay_sec=float(timing_data.get("inter_message_delay_sec", 30.0)),
+        )
+
+    valid_join_count = config.get("valid_join_count", 1)
+    valid_devnonce_start = config.get("valid_devnonce_start", 1)
+    final_check = config.get("final_check", "same_as_last")
+
+    return JoinDevNonceConfigV1(
+        valid_join_count=int(valid_join_count),
+        valid_devnonce_start=int(valid_devnonce_start),
+        valid_devnonce_step=int(config.get("valid_devnonce_step", 1)),
+        final_check=str(final_check),
+        result_cache_size=int(config.get("result_cache_size", 10)),
+        final_devnonce=config.get("final_devnonce"),
         timing=timing,
-        baseline_dev_nonce=config.get("baseline_dev_nonce"),
-        rollback_dev_nonce=config.get("rollback_dev_nonce"),
-        count=config.get("count"),
-        replay_indices=replay_indices,
-    )
-
-
-def parse_join_flood_config(config: dict[str, Any]) -> JoinFloodConfigV1:
-    """Parse join flood config from dict."""
-    return JoinFloodConfigV1(
-        mode=config.get("mode", "flood"),
-        flood_count=config.get("flood_count", 10),
-        flood_interval_sec=config.get("flood_interval_sec", 0.1),
-        virtual_devices=config.get("virtual_devices", 1),
     )
 
 

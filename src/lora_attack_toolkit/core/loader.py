@@ -13,7 +13,6 @@ from typing import Any
 from lora_attack_toolkit.core.schema import (
     AttackMeta,
     AttackScenarioConfig,
-    JoinAbuseConfig,
     MACCommandConfig,
     ReplayConfig,
 )
@@ -81,20 +80,6 @@ def _load_replay_config(data: dict[str, Any]) -> ReplayConfig:
         delay_sec=float(data.get("delay_sec", 0.0)),
         burst_count=_expect_int("replay.burst_count", data.get("burst_count", 1), 1),
         burst_interval_sec=float(data.get("burst_interval_sec", 0.1)),
-    )
-
-
-def _load_join_abuse_config(data: dict[str, Any]) -> JoinAbuseConfig:
-    """Load join abuse attack configuration."""
-    mode = _expect_str("join_abuse.mode", data["mode"])
-    if mode not in ["replay", "flood"]:
-        raise ValueError("join_abuse.mode must be replay or flood")
-    
-    return JoinAbuseConfig(
-        mode=mode,
-        flood_count=_expect_int("join_abuse.flood_count", data.get("flood_count", 10), 1),
-        flood_interval_sec=float(data.get("flood_interval_sec", 0.1)),
-        virtual_devices=_expect_int("join_abuse.virtual_devices", data.get("virtual_devices", 1), 1),
     )
 
 
@@ -269,5 +254,4 @@ def _load_v1_format(raw: dict[str, Any]) -> AttackScenarioV1:
     scenario_v1.validate()
     
     return scenario_v1
-
 

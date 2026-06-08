@@ -7,7 +7,7 @@ LoRAT enables security researchers and network operators to validate LoRaWAN Net
 ## Features
 
 - **Attack Plugin Architecture**: Extensible attack system with typed configurations
-- **Built-in Attack Library**: Join replay, uplink replay, MAC command abuse, join flooding
+- **Built-in Attack Library**: Join DevNonce validation, uplink replay, MAC command abuse
 - **Interactive Shell**: Real-time attack execution with scenario management
 - **Protocol Validation**: Test DevNonce handling, frame counter validation, MAC command processing
 - **Comprehensive Logging**: Structured logs with attack traces and metrics
@@ -43,8 +43,8 @@ lorat
 LoRAT v0.2.0 - LoRa Attack Toolkit
 Type 'help' for available commands.
 
-lorat > load scenarios/join-replay-v1.json
-✓ Loaded scenario: DevNonce Rollback Attack
+lorat > load scenarios/join-devnonce-v1.json
+✓ Loaded scenario: Join DevNonce Validation
 
 lorat > set logging.level debug
 ✓ Log level changed to: DEBUG
@@ -56,7 +56,7 @@ lorat > run
 ✓ Attack completed successfully
 
 lorat > show results
-Attack: join_replay
+Attack: join_devnonce
 Status: SECURE
 Message: NS correctly rejected invalid DevNonces
 ...
@@ -66,7 +66,7 @@ Message: NS correctly rejected invalid DevNonces
 
 ```bash
 # Run attack scenario
-lorat run scenarios/join-replay-v1.json
+lorat run scenarios/join-devnonce-v1.json
 
 # Validate scenario file
 lorat validate scenarios/custom-attack.json
@@ -77,7 +77,7 @@ lorat --help
 
 ## Attack Types
 
-### Join Replay Attack
+### Join DevNonce Validation
 
 Tests DevNonce replay protection:
 
@@ -86,18 +86,23 @@ Tests DevNonce replay protection:
   "schema_version": "1.0",
   "scenario_id": "join-replay-test",
   "attack": {
-    "type": "join_replay",
-    "mode": "devnonce_rollback",
-    "baseline_devnonce": 100,
-    "rollback_devnonce": 99
+    "type": "join_devnonce",
+    "config": {
+      "valid_join_count": 50,
+      "valid_devnonce_start": 0,
+      "valid_devnonce_step": 1,
+      "final_check": "replay_first",
+      "result_cache_size": 10
+    }
   }
 }
 ```
 
 **Modes:**
-- `duplicate_devnonce`: Replay same DevNonce (100 → 100)
-- `devnonce_rollback`: Send lower DevNonce after higher (100 → 99)
-- `memory_depth`: Test NS memory of historical DevNonces
+- `same_as_last`: Replay the last accepted DevNonce
+- `lower_than_last`: Send a lower DevNonce than the last accepted one
+- `replay_first`: Replay the first accepted DevNonce after N valid joins
+- `custom`: Use an explicitly configured final DevNonce
 
 ### Uplink Replay Attack
 
@@ -129,22 +134,6 @@ Tests MAC command handling:
       "data_rate": 5,
       "tx_power": 2
     }
-  }
-}
-```
-
-### Join Flood Attack
-
-Tests join request rate limiting:
-
-```json
-{
-  "attack": {
-    "type": "join_flood",
-    "mode": "flood",
-    "flood_count": 100,
-    "flood_interval_sec": 0.1,
-    "virtual_devices": 5
   }
 }
 ```
@@ -254,7 +243,7 @@ AttackRegistry.register(
   "expected_behavior": {
     "security_criteria": [
       {
-        "criterion": "duplicate_devnonce_rejected",
+        "criterion": "replayed_join_requests_with_same_devnonce_are_rejected",
         "description": "NS must reject duplicate DevNonce"
       }
     ],

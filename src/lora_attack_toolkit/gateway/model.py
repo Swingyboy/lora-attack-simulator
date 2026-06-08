@@ -88,6 +88,7 @@ class GatewaySimulator:
                 downlink_phy = base64.b64decode(txpk["data"])
                 self._transport.send(encode_tx_ack(semtech.token, self._gateway_eui))
                 self._logger.info("downlink_received")
+                self._logger.debug(f"Downlink {downlink_phy.hex()[:32]}...")
                 return downlink_phy
         return None
     

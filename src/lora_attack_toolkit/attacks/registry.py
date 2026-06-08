@@ -21,10 +21,9 @@ class AttackSpec:
     
     Example:
         spec = AttackSpec(
-            name="join_replay",
-            attack_class=JoinReplayAttack,
-            config_parser=parse_join_replay_config,
-            aliases=["replay", "duplicate_devnonce"],
+            name="join_devnonce",
+            attack_class=JoinDevNonceAttack,
+            config_parser=parse_join_devnonce_config,
             description="Test DevNonce replay protection",
         )
         
@@ -52,9 +51,9 @@ class AttackRegistry:
         register_builtin_attacks()
         
         # Lookup (in runner):
-        spec = AttackRegistry.get_spec("join_replay")
+        spec = AttackRegistry.get_spec("join_devnonce")
         config = spec.config_parser(scenario.attack.config)
-        attack_cls = AttackRegistry.get_attack_class("join_replay")
+        attack_cls = AttackRegistry.get_attack_class("join_devnonce")
         attack = attack_cls()
         result = attack.run(ctx)
     """

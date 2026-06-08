@@ -13,20 +13,6 @@ This directory contains example attack scenarios using the **v1.0 unified format
 
 ### Example Comparison
 
-**v0.9 format** (legacy):
-```json
-{
-  "scenario": {...},
-  "gateway": {...},
-  "device": {...},
-  "join_abuse": {           // Attack-specific top-level block
-    "mode": "replay",
-    "replay_count": 1
-  },
-  "logging": {...}
-}
-```
-
 **v1.0 format** (new):
 ```json
 {
@@ -34,8 +20,8 @@ This directory contains example attack scenarios using the **v1.0 unified format
   "scenario": {
     "id": "...",
     "title": "...",
-    "category": "join_abuse",
-    "type": "join_replay"
+    "category": "join_devnonce",
+    "type": "join_devnonce"
   },
   "target": {               // NEW: NS connection abstraction
     "name": "chirpstack-local",
@@ -46,14 +32,14 @@ This directory contains example attack scenarios using the **v1.0 unified format
   "gateway": {...},
   "device": {...},
   "attack": {               // Unified attack section
-    "type": "join_replay",
+    "type": "join_devnonce",
     "config": {             // Nested config
-      "mode": "replay",
-      "replay_count": 1
+      "valid_join_count": 1,
+      "final_check": "same_as_last"
     }
   },
   "expected": {             // NEW: Security criteria
-    "secure_behavior": "ns_rejects_duplicate_devnonce",
+    "secure_behavior": "ns_rejects_invalid_devnonce",
     "success_criteria": [...]
   },
   "logging": {...}
@@ -62,11 +48,11 @@ This directory contains example attack scenarios using the **v1.0 unified format
 
 ## Available Examples
 
-### join-replay-v1.json
-- **Category**: `join_abuse`
-- **Type**: `join_replay`
-- **Description**: Tests Network Server DevNonce validation by replaying JoinRequests
-- **Expected**: NS should reject replayed joins with duplicate DevNonce
+### join-devnonce-v1.json
+- **Category**: `join_devnonce`
+- **Type**: `join_devnonce`
+- **Description**: Tests Network Server DevNonce validation through replay, rollback, and retention checks
+- **Expected**: NS should reject invalid or reused DevNonce values
 
 ### uplink-replay-v1.json
 - **Category**: `replay`
@@ -80,26 +66,18 @@ This directory contains example attack scenarios using the **v1.0 unified format
 - **Description**: Tests MAC command handling with LinkADRReq injection
 - **Expected**: NS should validate and safely apply ADR parameters
 
-## Backward Compatibility
-
-The loader supports both v0.9 and v1.0 formats during the migration period:
-- **No schema_version field** → Detected as v0.9 (legacy)
-- **schema_version: "1.0"** → Parsed with v1.0 schema
-
-All existing v0.9 scenarios in `examples/attacks/*.json` continue to work.
-
 ## Running v1.0 Scenarios
 
 ```bash
 # Interactive mode
 python -m lora_attack_toolkit.app.cli
-# Then: use join-replay-v1
+# Then: use join-devnonce-v1
 
 # Command-line mode
-python -m lora_attack_toolkit.app.cli use join-replay-v1 run
+python -m lora_attack_toolkit.app.cli use join-devnonce-v1 run
 
 # After pip install -e .
-lorat use join-replay-v1 run
+lorat use join-devnonce-v1 run
 ```
 
 ✅ **Complete**: Attack Plugin API with registry-based dispatch.

@@ -8,14 +8,12 @@ from __future__ import annotations
 
 import logging
 
-from lora_attack_toolkit.attacks.builtin.join_abuse import JoinAbuseAttack
-from lora_attack_toolkit.attacks.builtin.join_replay import JoinReplayAttack
+from lora_attack_toolkit.attacks.builtin.join_devnonce import JoinDevNonceAttack
 from lora_attack_toolkit.attacks.builtin.mac_abuse import MACCommandAbuse
 from lora_attack_toolkit.attacks.registry import AttackRegistry, AttackSpec
 from lora_attack_toolkit.attacks.builtin.replay import UplinkReplayAttack
 from lora_attack_toolkit.core.schema_v1 import (
-    parse_join_flood_config,
-    parse_join_replay_config,
+    parse_join_devnonce_config,
     parse_mac_command_config,
     parse_replay_config,
 )
@@ -66,22 +64,10 @@ def register_builtin_attacks() -> None:
     # Join Replay Attack (with multiple modes)
     _register_builtin(
         AttackSpec(
-            name="join_replay",
-            attack_class=JoinReplayAttack,
-            config_parser=parse_join_replay_config,
-            aliases=["replay", "duplicate_devnonce"],
-            description="Test DevNonce replay protection with various strategies",
-        )
-    )
-    
-    # Join Flood Attack
-    _register_builtin(
-        AttackSpec(
-            name="join_flood",
-            attack_class=JoinAbuseAttack,
-            config_parser=parse_join_flood_config,
-            aliases=[],
-            description="Flood Network Server with join requests",
+            name="join_devnonce",
+            attack_class=JoinDevNonceAttack,
+            config_parser=parse_join_devnonce_config,
+            description="Test DevNonce replay protection with unified validation modes",
         )
     )
     

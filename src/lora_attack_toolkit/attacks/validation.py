@@ -126,61 +126,32 @@ def validate_join_criterion(
     - "first_join_request_is_accepted" - initial join succeeded
     - "replayed_join_requests_with_same_devnonce_are_rejected" - DevNonce validation working
     - "ns_maintains_devnonce_history" - DevNonce tracking in place
-    - "join_flooding_is_rate_limited" - rate limiting detected
-    - "ns_rejects_excessive_join_requests" - flood protection active
     """
     attack_type = metrics.get("attack_type")
     
     if criterion == "first_join_request_is_accepted":
-        join_accepts = metrics.get("join_accepts_received", 0)
+        join_accepts = metrics.get("accepted_generation_count", metrics.get("join_accepts_received", 0))
         if join_accepts >= 1:
-            return CriterionResult(criterion, True, f"Initial join succeeded ({join_accepts} JoinAccepts received)")
+            return CriterionResult(criterion, True, f"Initial join succeeded ({join_accepts} accepted baseline joins)")
         return CriterionResult(criterion, False, "No JoinAccepts received - initial join failed")
     
     elif criterion in (
         "replayed_join_requests_with_same_devnonce_are_rejected",
         "ns_maintains_devnonce_history",
     ):
-        if attack_type == "join_replay":
-            # Check if replayed join was rejected
-            duplicate_accepted = metrics.get("duplicate_devnonce_accepted", False)
-            dev_nonce = metrics.get("dev_nonce", "unknown")
-            
-            if duplicate_accepted:
+        if attack_type == "join_devnonce":
+            final_accepted = metrics.get("final_join_accepted", False)
+            dev_nonce = metrics.get("final_devnonce", metrics.get("dev_nonce", "unknown"))
+
+            if final_accepted:
                 return CriterionResult(
                     criterion,
                     False,
-                    f"⚠️  VULNERABLE: NS accepted duplicate DevNonce {dev_nonce}",
+                    f"⚠️  VULNERABLE: NS accepted final DevNonce {dev_nonce}",
                 )
-            
+
             return CriterionResult(
-                criterion, True, f"Duplicate DevNonce {dev_nonce} was rejected"
-            )
-        
-        return CriterionResult(criterion, False, "Criterion not applicable for this attack mode")
-    
-    elif criterion in ("join_flooding_is_rate_limited", "ns_rejects_excessive_join_requests"):
-        if attack_type == "join_flood":
-            join_requests_sent = metrics.get("join_requests_sent", 0)
-            join_accepts = metrics.get("join_accepts_received", 0)
-            
-            if join_requests_sent == 0:
-                return CriterionResult(criterion, False, "No join requests sent")
-            
-            accept_rate = join_accepts / join_requests_sent
-            
-            # Heuristic: If accept rate < 50%, likely rate limiting is active
-            if accept_rate < 0.5:
-                return CriterionResult(
-                    criterion,
-                    True,
-                    f"Rate limiting likely active - {join_accepts}/{join_requests_sent} joins accepted ({accept_rate:.1%})",
-                )
-            
-            return CriterionResult(
-                criterion,
-                False,
-                f"⚠️  Possible lack of rate limiting - {join_accepts}/{join_requests_sent} joins accepted ({accept_rate:.1%})",
+                criterion, True, f"Final DevNonce {dev_nonce} was rejected"
             )
         
         return CriterionResult(criterion, False, "Criterion not applicable for this attack mode")
@@ -260,7 +231,7 @@ def validate_criteria(
     Validate success criteria against attack results.
     
     Args:
-        attack_type: Type of attack ("uplink_replay", "join_replay", "join_flood", "mac_command_injection")
+        attack_type: Type of attack ("uplink_replay", "join_devnonce", "mac_command_injection")
         criteria: List of criterion strings to validate
         metrics: Attack-specific metrics from analyzer
         capture_stats: Packet capture statistics
@@ -274,7 +245,7 @@ def validate_criteria(
     for criterion in criteria:
         if attack_type in ("uplink_replay", "replay"):
             criterion_result = validate_replay_criterion(criterion, metrics, capture_stats)
-        elif attack_type in ("join_replay", "join_flood", "join_abuse"):
+        elif attack_type == "join_devnonce":
             criterion_result = validate_join_criterion(criterion, metrics, capture_stats)
         elif attack_type in ("mac_command_injection", "mac_abuse"):
             criterion_result = validate_mac_criterion(criterion, metrics, capture_stats)
