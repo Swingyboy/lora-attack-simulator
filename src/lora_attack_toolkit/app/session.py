@@ -111,6 +111,9 @@ class Session:
     # Logging configuration
     log_level: str = "INFO"
     log_file: Path | None = None
+
+    # Output verbosity settings
+    output_metrics: str = "summary"  # "none" | "summary" | "full"
     
     def is_scenario_loaded(self) -> bool:
         """Check if a scenario is currently loaded."""

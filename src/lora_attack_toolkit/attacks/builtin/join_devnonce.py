@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import random
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -112,7 +113,7 @@ class JoinDevNonceAttack(BaseAttack):
         try:
             ctx.gateway.start()
             generation_cache = DevNonceResultCache(config.result_cache_size)
-            self._execute_generation_phase(ctx, config, timing, generation_cache)
+            resolved_start = self._execute_generation_phase(ctx, config, timing, generation_cache)
 
             generation_complete = generation_cache.accepted_count >= config.valid_join_count
             generation_partial = 0 < generation_cache.accepted_count < config.valid_join_count
@@ -129,6 +130,7 @@ class JoinDevNonceAttack(BaseAttack):
                     generation_complete=generation_complete,
                     generation_partial=generation_partial,
                     final_check_executed=False,
+                    resolved_devnonce_start=resolved_start,
                 )
                 ctx.capture.metadata["devnonce_validation"] = metrics
                 ctx.logger.debug(f"Received uplinks: {ctx.capture.uplinks}. Received downlinks: {ctx.capture.downlinks}")
@@ -160,6 +162,7 @@ class JoinDevNonceAttack(BaseAttack):
                 generation_complete=generation_complete,
                 generation_partial=generation_partial,
                 final_check_executed=True,
+                resolved_devnonce_start=resolved_start,
             )
             ctx.capture.metadata["devnonce_validation"] = metrics
 
@@ -250,11 +253,14 @@ class JoinDevNonceAttack(BaseAttack):
         config: "JoinDevNonceConfigV1",
         timing: "AttackTiming",
         cache: DevNonceResultCache,
-    ) -> None:
+    ) -> int:
         ctx.logger.info("=== Generation Phase ===")
 
+        resolved_start = self._resolve_devnonce_start(config)
+        ctx.logger.info("Resolved DevNonce start: %d", resolved_start)
+
         for index in range(config.valid_join_count):
-            dev_nonce = self._generate_devnonce(config, index)
+            dev_nonce = self._generate_devnonce(config, index, resolved_start)
             result = self._execute_join_step(
                 ctx=ctx,
                 config=config,
@@ -270,6 +276,7 @@ class JoinDevNonceAttack(BaseAttack):
             cache.accepted_count,
             cache.attempt_count,
         )
+        return resolved_start
 
     def _execute_join_step(
         self,
@@ -405,10 +412,19 @@ class JoinDevNonceAttack(BaseAttack):
 
         raise ValueError(f"Unsupported final_check: {config.final_check}")
 
+    def _resolve_devnonce_start(self, config: "JoinDevNonceConfigV1") -> int:
+        """Resolve valid_devnonce_start to a concrete integer."""
+        if config.valid_devnonce_start == "random":
+            rng = random.Random(config.devnonce_seed)
+            return rng.randint(0, 0xFFFF)
+        return int(config.valid_devnonce_start)
+
     def _generate_devnonce(
-        self, config: "JoinDevNonceConfigV1", index: int
+        self, config: "JoinDevNonceConfigV1", index: int, resolved_start: int
     ) -> bytes:
-        value = config.valid_devnonce_start + (index * config.valid_devnonce_step)
+        value = resolved_start + (index * config.valid_devnonce_step)
+        if config.valid_devnonce_wrap:
+            value = value & 0xFFFF
         return self._devnonce_to_bytes(value)
 
     @staticmethod
@@ -432,6 +448,7 @@ class JoinDevNonceAttack(BaseAttack):
         generation_complete: bool,
         generation_partial: bool,
         final_check_executed: bool,
+        resolved_devnonce_start: int | None = None,
     ) -> dict[str, Any]:
         metrics: dict[str, Any] = {
             "attack_type": self.name,
@@ -444,6 +461,7 @@ class JoinDevNonceAttack(BaseAttack):
             "generation_partial": generation_partial,
             "final_check_executed": final_check_executed,
             "result_cache_size": config.result_cache_size,
+            "valid_devnonce_wrap": config.valid_devnonce_wrap,
             "first_accepted_devnonce": (
                 generation_cache.first_accepted_devnonce.hex()
                 if generation_cache.first_accepted_devnonce is not None
@@ -463,6 +481,11 @@ class JoinDevNonceAttack(BaseAttack):
                 "rx2_window_sec": timing.rx2_window_sec,
             },
         }
+
+        if resolved_devnonce_start is not None:
+            metrics["resolved_devnonce_start"] = resolved_devnonce_start
+        if config.devnonce_seed is not None:
+            metrics["devnonce_seed"] = config.devnonce_seed
 
         if final_devnonce is not None:
             metrics["final_devnonce"] = final_devnonce.hex()

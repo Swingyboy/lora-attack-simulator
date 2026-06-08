@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import cmd
 import json
+import logging
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -208,7 +209,7 @@ class LoRaWANShell(cmd.Cmd):
                 print(f"{param_path:<40} {value_str:<30}")
     
     def _show_logging(self) -> None:
-        """Display current logging configuration."""
+        """Display current logging and output configuration."""
         from lora_attack_toolkit.logging.logging import get_logging_config
         
         config = get_logging_config()
@@ -216,7 +217,7 @@ class LoRaWANShell(cmd.Cmd):
         print("\n" + "=" * 60)
         print("LOGGING CONFIGURATION")
         print("=" * 60)
-        print(f"\nLog Level:          {config.level}")
+        print(f"\nLog Level:          {config.level}  (source: {config.level_source})")
         print(f"Session Log File:   {config.session_log_file or 'Not configured'}")
         print(f"Session ID:         {config.session_id or 'None'}")
         print(f"Scenario ID:        {config.scenario_id or 'None'}")
@@ -225,9 +226,15 @@ class LoRaWANShell(cmd.Cmd):
         print(f"PHY Payload Log:    {'enabled' if config.log_phy_payload else 'disabled'}")
         print(f"Semtech UDP Log:    {'enabled' if config.log_semtech_udp else 'disabled'}")
         print("=" * 60)
+        print("\nOUTPUT CONFIGURATION")
+        print("=" * 60)
+        print(f"\nMetrics Mode:       {self.session.output_metrics}")
+        print("=" * 60)
         
         print("\nTip: Use 'set logging.level <level>' to change log level")
         print("Available levels: ERROR, WARNING, INFO, DEBUG, TRACE")
+        print("\nTip: Use 'set output.metrics <mode>' to control metrics output")
+        print("Available modes: none, summary (default), full")
     
     def do_use(self, args: str) -> None:
         """Load a scenario into the current session.
@@ -333,7 +340,7 @@ class LoRaWANShell(cmd.Cmd):
         print()
     
     def do_set(self, args: str) -> None:
-        """Set a parameter value for the current scenario or logging config.
+        """Set a parameter value for the current scenario or logging/output config.
         
         Usage:
             set <parameter> <value>
@@ -344,6 +351,9 @@ class LoRaWANShell(cmd.Cmd):
             set gateway.radio.rssi -70
             set logging.level debug
             set logging.file logs/custom.log
+            set output.metrics summary
+            set output.metrics full
+            set output.metrics none
         """
         if not args:
             print("Usage: set <parameter> <value>")
@@ -363,6 +373,11 @@ class LoRaWANShell(cmd.Cmd):
         # Handle logging configuration specially
         if param_path.startswith("logging."):
             self._set_logging_param(param_path, value_str)
+            return
+        
+        # Handle output configuration specially
+        if param_path.startswith("output."):
+            self._set_output_param(param_path, value_str)
             return
         
         # Handle scenario parameters
@@ -442,7 +457,9 @@ class LoRaWANShell(cmd.Cmd):
             try:
                 return int(value_str)
             except ValueError:
-                raise ValueError(f"Cannot convert '{value_str}' to int")
+                # Allow string sentinels (e.g. "random" for valid_devnonce_start).
+                # The schema parser will reject values that aren't valid.
+                return value_str
         
         elif isinstance(original_value, float):
             try:
@@ -482,6 +499,23 @@ class LoRaWANShell(cmd.Cmd):
         else:
             print(f"Error: Unknown logging parameter: {param_name}")
             print("Available: logging.level")
+    
+    def _set_output_param(self, param_path: str, value_str: str) -> None:
+        """Set output configuration parameter."""
+        param_name = param_path.split(".", 1)[1] if "." in param_path else param_path
+
+        if param_name == "metrics":
+            valid_modes = ["none", "summary", "full"]
+            mode = value_str.lower()
+            if mode not in valid_modes:
+                print(f"Error: Invalid metrics mode '{value_str}'")
+                print(f"Valid modes: {', '.join(valid_modes)}")
+                return
+            self.session.output_metrics = mode
+            print(f"✓ Metrics output set to: {mode}")
+        else:
+            print(f"Error: Unknown output parameter: {param_name}")
+            print("Available: output.metrics")
     
     def do_reset(self, args: str) -> None:
         """Reset parameters to default values.
@@ -646,14 +680,14 @@ class LoRaWANShell(cmd.Cmd):
         print("=" * 60)
         
         try:
-            # Configure logging for attack execution
-            import logging
-            from lora_attack_toolkit.logging.logging import configure_logging
-            
-            log_config = self.session.scenario_data.get('logging', {})
-            log_level = log_config.get('level', 'INFO').upper()
-            configure_logging(level=log_level)
-            
+            # Apply scenario log level with scenario precedence so a CLI override
+            # (set logging.level debug) is not overwritten.
+            from lora_attack_toolkit.logging.logging import reconfigure_level
+
+            log_config = self.session.scenario_data.get("logging", {})
+            log_level = log_config.get("level", "INFO").upper()
+            reconfigure_level(log_level, source="scenario")
+
             logger = logging.getLogger("lora_attack_toolkit")
             
             # Import and run attack
@@ -682,6 +716,25 @@ class LoRaWANShell(cmd.Cmd):
             print("\nStack trace:")
             traceback.print_exc()
     
+    # Keys shown in summary mode per attack type
+    _SUMMARY_METRICS: dict[str, list[str]] = {
+        "join_devnonce": [
+            "final_check",
+            "valid_join_count",
+            "accepted_generation_count",
+            "generation_complete",
+            "final_check_executed",
+            "final_join_accepted",
+            "final_devnonce_int",
+        ],
+    }
+    _SUMMARY_METRICS_GENERIC: list[str] = [
+        "attack_type",
+        "total_uplinks",
+        "total_downlinks",
+        "success",
+    ]
+
     def _display_results(self, results: dict[str, Any]) -> None:
         """Display attack execution results in formatted output."""
         print("\n" + "=" * 60)
@@ -694,14 +747,26 @@ class LoRaWANShell(cmd.Cmd):
         print(f"\nStatus: {status_symbol} {'SUCCESS' if success else 'FAILED'}")
         print(f"Message: {results.get('message', 'No message')}")
         
-        # Metrics
+        # Metrics (controlled by output.metrics setting)
         metrics = results.get('metrics', {})
-        if metrics:
+        metrics_mode = self.session.output_metrics
+
+        if metrics and metrics_mode != "none":
             print(f"\n{'Metrics':-^60}")
-            for key, value in metrics.items():
-                # Format metric name (snake_case to Title Case)
+
+            if metrics_mode == "summary":
+                attack_type = metrics.get("attack_type", "")
+                keys = self._SUMMARY_METRICS.get(attack_type, self._SUMMARY_METRICS_GENERIC)
+                visible = {k: metrics[k] for k in keys if k in metrics}
+            else:
+                visible = metrics
+
+            for key, value in visible.items():
                 formatted_key = key.replace('_', ' ').title()
                 print(f"  {formatted_key:.<40} {value}")
+
+            if metrics_mode == "summary" and len(metrics) > len(visible):
+                print(f"  (use 'set output.metrics full' to see all {len(metrics)} fields)")
         
         # Expected behavior (v1.0 scenarios)
         expected_behavior = results.get('expected_behavior')
@@ -723,7 +788,6 @@ class LoRaWANShell(cmd.Cmd):
                 uplinks = len(captured.get('uplinks', []))
                 downlinks = len(captured.get('downlinks', []))
             else:
-                # captured_packets is an integer count
                 uplinks = captured
                 downlinks = 0
             print(f"\n{'Captured Packets':-^60}")
@@ -784,6 +848,16 @@ class LoRaWANShell(cmd.Cmd):
     do_EOF = do_exit
     do_r = do_run  # Alias for run
     
+    def default(self, line: str) -> None:
+        """Handle unrecognised commands with a helpful hint."""
+        parts = line.split(maxsplit=1)
+        # Looks like a bare 'key value' — the user probably forgot 'set'.
+        if len(parts) == 2 and "." in parts[0]:
+            print(f"Unknown command. Did you mean:  set {line}")
+        else:
+            print(f"Unknown command: {line!r}")
+        print("Type 'help' for available commands.")
+
     def emptyline(self) -> None:
         """Do nothing on empty line."""
         pass

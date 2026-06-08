@@ -416,5 +416,191 @@ class TestJoinDevNonceAttack(unittest.TestCase):
             AttackRegistry.get_spec("join_abuse")
 
 
+class TestDevNonceGeneration(unittest.TestCase):
+    """Tests for randomized and deterministic DevNonce start and wrap behavior."""
+
+    def setUp(self) -> None:
+        self.attack = JoinDevNonceAttack()
+        self.base_config = parse_join_devnonce_config(
+            {
+                "valid_join_count": 4,
+                "valid_devnonce_start": 1,
+                "valid_devnonce_step": 1,
+                "final_check": "same_as_last",
+                "result_cache_size": 10,
+                "timing": {
+                    "join_accept_timeout_sec": 3.0,
+                    "rx1_delay_sec": 1.0,
+                    "rx1_window_sec": 1.0,
+                    "rx2_delay_sec": 2.0,
+                    "rx2_window_sec": 1.0,
+                },
+            }
+        )
+
+    # --- Schema parsing ---
+
+    def test_parse_numeric_start(self) -> None:
+        cfg = parse_join_devnonce_config({"valid_devnonce_start": 100, "final_check": "same_as_last"})
+        self.assertEqual(cfg.valid_devnonce_start, 100)
+
+    def test_parse_random_start(self) -> None:
+        cfg = parse_join_devnonce_config({"valid_devnonce_start": "random", "final_check": "same_as_last"})
+        self.assertEqual(cfg.valid_devnonce_start, "random")
+
+    def test_parse_invalid_string_start_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            parse_join_devnonce_config({"valid_devnonce_start": "auto", "final_check": "same_as_last"})
+
+    def test_parse_devnonce_seed(self) -> None:
+        cfg = parse_join_devnonce_config({"devnonce_seed": 42, "final_check": "same_as_last"})
+        self.assertEqual(cfg.devnonce_seed, 42)
+
+    def test_parse_valid_devnonce_wrap(self) -> None:
+        cfg = parse_join_devnonce_config({"valid_devnonce_wrap": True, "final_check": "same_as_last"})
+        self.assertTrue(cfg.valid_devnonce_wrap)
+
+    # --- Resolve start ---
+
+    def test_resolve_numeric_start(self) -> None:
+        cfg = replace(self.base_config, valid_devnonce_start=50)
+        self.assertEqual(self.attack._resolve_devnonce_start(cfg), 50)
+
+    def test_resolve_random_start_within_range(self) -> None:
+        cfg = replace(self.base_config, valid_devnonce_start="random", devnonce_seed=None)
+        value = self.attack._resolve_devnonce_start(cfg)
+        self.assertGreaterEqual(value, 0)
+        self.assertLessEqual(value, 0xFFFF)
+
+    def test_resolve_random_start_with_seed_is_reproducible(self) -> None:
+        cfg = replace(self.base_config, valid_devnonce_start="random", devnonce_seed=42)
+        first = self.attack._resolve_devnonce_start(cfg)
+        second = self.attack._resolve_devnonce_start(cfg)
+        self.assertEqual(first, second)
+
+    def test_resolve_random_start_different_seeds_differ(self) -> None:
+        cfg_a = replace(self.base_config, valid_devnonce_start="random", devnonce_seed=1)
+        cfg_b = replace(self.base_config, valid_devnonce_start="random", devnonce_seed=2)
+        # Statistically near-certain that two distinct seeds produce different starts
+        self.assertNotEqual(
+            self.attack._resolve_devnonce_start(cfg_a),
+            self.attack._resolve_devnonce_start(cfg_b),
+        )
+
+    # --- DevNonce generation sequence ---
+
+    def test_generate_devnonce_numeric_start(self) -> None:
+        cfg = replace(self.base_config, valid_devnonce_step=1)
+        values = [
+            int.from_bytes(self.attack._generate_devnonce(cfg, i, 10), "little")
+            for i in range(4)
+        ]
+        self.assertEqual(values, [10, 11, 12, 13])
+
+    def test_generate_devnonce_step(self) -> None:
+        cfg = replace(self.base_config, valid_devnonce_step=5)
+        values = [
+            int.from_bytes(self.attack._generate_devnonce(cfg, i, 0), "little")
+            for i in range(4)
+        ]
+        self.assertEqual(values, [0, 5, 10, 15])
+
+    def test_generate_devnonce_wrap_at_boundary(self) -> None:
+        cfg = replace(self.base_config, valid_devnonce_step=1, valid_devnonce_wrap=True)
+        # Start two below max; next two values should wrap to 0 and 1
+        values = [
+            int.from_bytes(self.attack._generate_devnonce(cfg, i, 0xFFFE), "little")
+            for i in range(4)
+        ]
+        self.assertEqual(values, [0xFFFE, 0xFFFF, 0, 1])
+
+    def test_generate_devnonce_overflow_without_wrap_raises(self) -> None:
+        cfg = replace(self.base_config, valid_devnonce_step=1, valid_devnonce_wrap=False)
+        with self.assertRaises(ValueError):
+            self.attack._generate_devnonce(cfg, 1, 0xFFFF)
+
+    # --- Metrics ---
+
+    def test_metrics_include_resolved_start_and_wrap(self) -> None:
+        attack = JoinDevNonceAttack()
+        config = replace(
+            self.base_config,
+            valid_join_count=1,
+            valid_devnonce_start=77,
+            devnonce_seed=None,
+            valid_devnonce_wrap=True,
+            final_check="same_as_last",
+        )
+
+        def fake_generation(ctx, cfg, timing, cache):
+            cache.store(_step(b"\x4d\x00", accepted=True))
+            return 77  # resolved_start
+
+        attack._execute_generation_phase = Mock(side_effect=fake_generation)
+        attack._execute_join_step = Mock(return_value=_step(b"\x4d\x00", accepted=False))
+
+        logger = getLogger("test")
+        device = MagicMock(spec=SimulatedDevice)
+        device._join_eui = bytes.fromhex("0011223344556677")
+        device._dev_eui = bytes.fromhex("0011223344556677")
+        device._app_key = bytes.fromhex("00112233445566770011223344556677")
+        gateway = MagicMock(spec=GatewaySimulator)
+        capture = PacketCapture(logger)
+        radio = RadioMetadata(frequency=868100000, data_rate="SF7BW125", rssi=-60, snr=7.5)
+        ctx = AttackContext(
+            services=AttackServices(device=device, gateway=gateway, logger=logger, capture=capture, metrics=None),
+            input=AttackInput(typed_config=config, expected_behavior=None, radio=radio, timeout_sec=30.0),
+        )
+
+        result = attack.run(ctx)
+
+        self.assertIn("resolved_devnonce_start", result.metrics)
+        self.assertEqual(result.metrics["resolved_devnonce_start"], 77)
+        self.assertIn("valid_devnonce_wrap", result.metrics)
+        self.assertTrue(result.metrics["valid_devnonce_wrap"])
+        self.assertNotIn("devnonce_seed", result.metrics)  # seed is None → omitted
+
+    def test_metrics_include_seed_when_provided(self) -> None:
+        attack = JoinDevNonceAttack()
+        config = replace(
+            self.base_config,
+            valid_join_count=1,
+            valid_devnonce_start="random",
+            devnonce_seed=42,
+            final_check="same_as_last",
+        )
+
+        import random as _random
+        expected_start = _random.Random(42).randint(0, 0xFFFF)
+
+        def fake_generation(ctx, cfg, timing, cache):
+            nonce = expected_start.to_bytes(2, "little")
+            cache.store(_step(nonce, accepted=True))
+            return expected_start
+
+        attack._execute_generation_phase = Mock(side_effect=fake_generation)
+        attack._execute_join_step = Mock(
+            return_value=_step(expected_start.to_bytes(2, "little"), accepted=False)
+        )
+
+        logger = getLogger("test")
+        device = MagicMock(spec=SimulatedDevice)
+        device._join_eui = bytes.fromhex("0011223344556677")
+        device._dev_eui = bytes.fromhex("0011223344556677")
+        device._app_key = bytes.fromhex("00112233445566770011223344556677")
+        gateway = MagicMock(spec=GatewaySimulator)
+        capture = PacketCapture(logger)
+        radio = RadioMetadata(frequency=868100000, data_rate="SF7BW125", rssi=-60, snr=7.5)
+        ctx = AttackContext(
+            services=AttackServices(device=device, gateway=gateway, logger=logger, capture=capture, metrics=None),
+            input=AttackInput(typed_config=config, expected_behavior=None, radio=radio, timeout_sec=30.0),
+        )
+
+        result = attack.run(ctx)
+
+        self.assertEqual(result.metrics["resolved_devnonce_start"], expected_start)
+        self.assertEqual(result.metrics["devnonce_seed"], 42)
+
+
 if __name__ == "__main__":
     unittest.main()

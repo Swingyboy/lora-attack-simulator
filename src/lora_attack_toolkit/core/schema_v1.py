@@ -143,11 +143,13 @@ class JoinDevNonceConfigV1:
     """Unified DevNonce validation configuration."""
 
     valid_join_count: int = 1
-    valid_devnonce_start: int = 1
+    valid_devnonce_start: int | str = 1  # integer or "random"
     valid_devnonce_step: int = 1
+    valid_devnonce_wrap: bool = False
     final_check: str = "same_as_last"
     result_cache_size: int = 10
     final_devnonce: int | None = None
+    devnonce_seed: int | None = None
     timing: AttackTiming | None = None
 
 
@@ -284,16 +286,28 @@ def parse_join_devnonce_config(config: dict[str, Any]) -> JoinDevNonceConfigV1:
         )
 
     valid_join_count = config.get("valid_join_count", 1)
-    valid_devnonce_start = config.get("valid_devnonce_start", 1)
+
+    valid_devnonce_start_raw = config.get("valid_devnonce_start", 1)
+    if isinstance(valid_devnonce_start_raw, str):
+        if valid_devnonce_start_raw.lower() != "random":
+            raise ValueError(
+                f"valid_devnonce_start must be an integer or 'random', got: {valid_devnonce_start_raw!r}"
+            )
+        valid_devnonce_start: int | str = "random"
+    else:
+        valid_devnonce_start = int(valid_devnonce_start_raw)
+
     final_check = config.get("final_check", "same_as_last")
 
     return JoinDevNonceConfigV1(
         valid_join_count=int(valid_join_count),
-        valid_devnonce_start=int(valid_devnonce_start),
+        valid_devnonce_start=valid_devnonce_start,
         valid_devnonce_step=int(config.get("valid_devnonce_step", 1)),
+        valid_devnonce_wrap=bool(config.get("valid_devnonce_wrap", False)),
         final_check=str(final_check),
         result_cache_size=int(config.get("result_cache_size", 10)),
         final_devnonce=config.get("final_devnonce"),
+        devnonce_seed=config.get("devnonce_seed"),
         timing=timing,
     )
 
