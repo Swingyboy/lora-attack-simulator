@@ -2,17 +2,20 @@
 Interactive shell for LoRaWAN attack simulator.
 
 Provides Metasploit-like workflow for scenario management.
-Uses only standard library to avoid dependency issues.
+Uses cmd2 for autocomplete, help, and history.
 """
 from __future__ import annotations
 
-import cmd
 import json
 import logging
+import signal
 import sys
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+import cmd2
 
 from lora_attack_toolkit.app.session import Session
 
@@ -47,7 +50,7 @@ class ScenarioMetadata:
             return None
 
 
-class LoRaWANShell(cmd.Cmd):
+class LoRaWANShell(cmd2.Cmd):
     """Interactive shell for LoRaWAN offensive security testing."""
 
     intro = """
@@ -63,6 +66,9 @@ class LoRaWANShell(cmd.Cmd):
     
     prompt = "lorat > "
     
+    # Disable built-in cmd2 commands that we don't want
+    # (shortcuts confuse users; keep only our own)
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         """Initialize the shell."""
         super().__init__(*args, **kwargs)
@@ -99,6 +105,8 @@ class LoRaWANShell(cmd.Cmd):
         
         print(f"Loaded {len(self.scenario_metadata)} scenarios")
     
+    # ── show ────────────────────────────────────────────────────────────────
+
     def do_show(self, args: str) -> None:
         """Show scenarios, options, or logging configuration.
         
@@ -106,6 +114,7 @@ class LoRaWANShell(cmd.Cmd):
             show scenarios             - List all available attack scenarios
             show scenarios <category>  - Filter by category (replay, join_devnonce, mac_abuse)
             show options              - Show current scenario parameters (requires active scenario)
+            show options verbose      - Show extended metadata for each parameter
             show logging              - Show current logging configuration
             show <scenario_name>      - Inspect a scenario without loading it
         """
@@ -123,7 +132,11 @@ class LoRaWANShell(cmd.Cmd):
             category = parts[1] if len(parts) > 1 else None
             self._show_scenarios(category)
         elif parts[0] == "options":
-            self._show_options()
+            verbose = len(parts) > 1 and parts[1] == "verbose"
+            if verbose:
+                self._show_options_verbose()
+            else:
+                self._show_options()
         elif parts[0] == "logging":
             self._show_logging()
         else:
@@ -133,20 +146,28 @@ class LoRaWANShell(cmd.Cmd):
                 self._inspect_scenario(scenario_name)
             else:
                 print(f"Unknown show command: {parts[0]}")
-                print("Available: show scenarios [category], show options, show logging, show <scenario_name>")
+                print("Available: show scenarios [category], show options [verbose], show logging, show <scenario_name>")
+    
+    def complete_show(self, text: str, line: str, begidx: int, endidx: int) -> list[str]:
+        """Autocomplete for show command."""
+        words = line.split()
+        # First argument
+        if len(words) == 1 or (len(words) == 2 and not line.endswith(" ")):
+            options = ["scenarios", "options", "logging"] + list(self.scenario_metadata)
+            return [o for o in options if o.startswith(text)]
+        # Second argument to 'show options'
+        if len(words) >= 2 and words[1] == "options":
+            return [v for v in ["verbose"] if v.startswith(text)]
+        return []
     
     def _show_scenarios(self, category_filter: str | None = None) -> None:
-        """Display available scenarios with metadata.
-        
-        Args:
-            category_filter: Optional category to filter (replay, join_devnonce, mac_abuse)
-        """
+        """Display available scenarios with metadata."""
         if not self.scenario_metadata:
             print("No scenarios found in examples/attacks/")
             return
         
         # Filter by category if specified
-        scenarios = self.scenario_metadata.values()
+        scenarios = list(self.scenario_metadata.values())
         if category_filter:
             scenarios = [s for s in scenarios if s.category == category_filter]
             if not scenarios:
@@ -161,18 +182,17 @@ class LoRaWANShell(cmd.Cmd):
         print("-" * 95)
         
         for metadata in sorted(scenarios, key=lambda s: (s.category, s.name)):
-            # Truncate description if too long
             desc = metadata.description
             if len(desc) > 47:
                 desc = desc[:47] + "..."
             print(f"{metadata.name:<25} {metadata.category:<15} {desc:<50}")
         
-        print(f"\n{len(list(scenarios))} scenario(s) available")
+        print(f"\n{len(scenarios)} scenario(s) available")
         print("Use 'use <scenario_name>' to load a scenario")
         print("Use 'show scenarios <category>' to filter by category")
     
     def _show_options(self) -> None:
-        """Display current scenario options."""
+        """Display current scenario options (compact)."""
         if not self.session.is_scenario_loaded():
             print("No scenario loaded. Use 'use <scenario>' first.")
             return
@@ -188,8 +208,65 @@ class LoRaWANShell(cmd.Cmd):
         
         self._display_params(self.session.scenario_data)
         print("\nUse 'set <parameter> <value>' to modify parameters")
-        print("Example: set target.host 192.168.1.100")
-    
+        print("Use 'show options verbose' for extended metadata")
+
+    def _show_options_verbose(self) -> None:
+        """Display current scenario options with full parameter metadata."""
+        if not self.session.is_scenario_loaded():
+            print("No scenario loaded. Use 'use <scenario>' first.")
+            return
+
+        from lora_attack_toolkit.app.params import all_paths, get_param
+
+        try:
+            from rich.console import Console
+            from rich.table import Table
+
+            console = Console()
+            table = Table(title=f"Options: {self.session.scenario_name}", show_lines=True)
+            table.add_column("Path", style="cyan", no_wrap=True)
+            table.add_column("Type", style="magenta")
+            table.add_column("Current Value", style="green")
+            table.add_column("Default", style="yellow")
+            table.add_column("Description")
+
+            for path in all_paths():
+                meta = get_param(path)
+                if meta is None:
+                    continue
+                try:
+                    current = str(self._get_nested_value(self.session.scenario_data, path))
+                except (KeyError, TypeError):
+                    current = "(not set)"
+                allowed_str = ""
+                if meta.allowed_values:
+                    allowed_str = f"\nAllowed: {', '.join(meta.allowed_values)}"
+                table.add_row(
+                    path,
+                    meta.type_str,
+                    current,
+                    str(meta.default) if meta.default is not None else "None",
+                    meta.description + allowed_str,
+                )
+            console.print(table)
+        except ImportError:
+            # Fallback without rich
+            for path in all_paths():
+                meta = get_param(path)
+                if meta is None:
+                    continue
+                try:
+                    current = str(self._get_nested_value(self.session.scenario_data, path))
+                except (KeyError, TypeError):
+                    current = "(not set)"
+                print(f"\n{path}")
+                print(f"  Type:        {meta.type_str}")
+                print(f"  Current:     {current}")
+                print(f"  Default:     {meta.default}")
+                print(f"  Description: {meta.description}")
+                if meta.allowed_values:
+                    print(f"  Allowed:     {', '.join(meta.allowed_values)}")
+
     def _display_params(self, d: dict[str, Any], prefix: str = "") -> None:
         """Recursively display parameters."""
         for key, value in sorted(d.items()):
@@ -202,7 +279,6 @@ class LoRaWANShell(cmd.Cmd):
             if isinstance(value, dict):
                 self._display_params(value, param_path)
             else:
-                # Truncate long values
                 value_str = str(value)
                 if len(value_str) > 27:
                     value_str = value_str[:27] + "..."
@@ -236,6 +312,8 @@ class LoRaWANShell(cmd.Cmd):
         print("\nTip: Use 'set output.metrics <mode>' to control metrics output")
         print("Available modes: none, summary (default), full")
     
+    # ── use ─────────────────────────────────────────────────────────────────
+
     def do_use(self, args: str) -> None:
         """Load a scenario into the current session.
         
@@ -257,20 +335,17 @@ class LoRaWANShell(cmd.Cmd):
             print("Type 'show scenarios' to see available scenarios")
             return
         
-        # Load scenario from JSON
         try:
             metadata = self.scenario_metadata[scenario_name]
             with open(metadata.path, 'r') as f:
                 scenario_data = json.load(f)
             
-            # Use session API to load scenario
             self.session.load_scenario(
                 name=scenario_name,
                 path=metadata.path,
                 data=scenario_data
             )
             
-            # Update prompt to show active scenario
             self.prompt = f"lorat({scenario_name}) > "
             
             print(f"✓ Loaded scenario: {scenario_name}")
@@ -280,15 +355,18 @@ class LoRaWANShell(cmd.Cmd):
             print("\nUse 'show options' to view parameters")
         except Exception as e:
             print(f"Error loading scenario: {e}")
+
+    def complete_use(self, text: str, line: str, begidx: int, endidx: int) -> list[str]:
+        """Autocomplete scenario names for 'use'."""
+        return [n for n in self.scenario_metadata if n.startswith(text)]
     
+    # ── info ─────────────────────────────────────────────────────────────────
+
     def do_info(self, args: str) -> None:
         """Show detailed information about a scenario.
         
         Usage:
             info <scenario_name>
-        
-        Example:
-            info join-replay-v1
         """
         if not args:
             print("Usage: info <scenario_name>")
@@ -297,6 +375,10 @@ class LoRaWANShell(cmd.Cmd):
         
         scenario_name = args.strip()
         self._inspect_scenario(scenario_name)
+
+    def complete_info(self, text: str, line: str, begidx: int, endidx: int) -> list[str]:
+        """Autocomplete scenario names for 'info'."""
+        return [n for n in self.scenario_metadata if n.startswith(text)]
     
     def _inspect_scenario(self, scenario_name: str) -> None:
         """Display detailed information about a scenario without loading it."""
@@ -316,12 +398,8 @@ class LoRaWANShell(cmd.Cmd):
         print(f"\nDescription:")
         print(f"  {metadata.description}")
         
-        # Load scenario data to show default parameters
         try:
-            from pathlib import Path
-            scenario_path = Path(metadata.path)
-            with open(scenario_path, 'r') as f:
-                import json
+            with open(metadata.path, 'r') as f:
                 scenario_data = json.load(f)
             
             print(f"\nDefault Parameters:")
@@ -339,6 +417,8 @@ class LoRaWANShell(cmd.Cmd):
         
         print()
     
+    # ── set ─────────────────────────────────────────────────────────────────
+
     def do_set(self, args: str) -> None:
         """Set a parameter value for the current scenario or logging/output config.
         
@@ -350,7 +430,6 @@ class LoRaWANShell(cmd.Cmd):
             set attack.config.replay_count 5
             set gateway.radio.rssi -70
             set logging.level debug
-            set logging.file logs/custom.log
             set output.metrics summary
             set output.metrics full
             set output.metrics none
@@ -370,26 +449,20 @@ class LoRaWANShell(cmd.Cmd):
         param_path = parts[0]
         value_str = parts[1]
         
-        # Handle logging configuration specially
         if param_path.startswith("logging."):
             self._set_logging_param(param_path, value_str)
             return
         
-        # Handle output configuration specially
         if param_path.startswith("output."):
             self._set_output_param(param_path, value_str)
             return
         
-        # Handle scenario parameters
         if not self.session.is_scenario_loaded():
             print("No scenario loaded. Use 'use <scenario>' first.")
             return
         
         try:
-            # Record override in session
             self.session.set_parameter(param_path, value_str)
-            
-            # Also update in-memory for backward compatibility
             self._set_nested_value(self.session.scenario_data, param_path, value_str)
             print(f"✓ Set {param_path} = {value_str}")
         except KeyError as e:
@@ -397,18 +470,28 @@ class LoRaWANShell(cmd.Cmd):
         except ValueError as e:
             print(f"Error: Invalid value: {e}")
     
-    def _set_nested_value(self, data: dict[str, Any], path: str, value_str: str) -> None:
-        """Set a value in a nested dictionary using dot notation.
+    def complete_set(self, text: str, line: str, begidx: int, endidx: int) -> list[str]:
+        """Autocomplete parameter paths and values for 'set'."""
+        from lora_attack_toolkit.app.params import all_paths, get_allowed_values
+
+        words = line.split()
+        # Are we completing the path (first argument)?
+        if len(words) == 1 or (len(words) == 2 and not line.endswith(" ")):
+            return [p for p in all_paths() if p.startswith(text)]
         
-        Args:
-            data: The dictionary to modify
-            path: Dot-separated path (e.g., "target.host")
-            value_str: String value to set (auto-converts to appropriate type)
-        """
+        # Are we completing the value (second argument)?
+        if len(words) >= 2:
+            path = words[1]
+            allowed = get_allowed_values(path)
+            if allowed:
+                return [v for v in allowed if v.startswith(text)]
+        return []
+    
+    def _set_nested_value(self, data: dict[str, Any], path: str, value_str: str) -> None:
+        """Set a value in a nested dictionary using dot notation."""
         keys = path.split('.')
         current = data
         
-        # Navigate to the parent of the target key
         for key in keys[:-1]:
             if key not in current:
                 raise KeyError(f"'{key}' in path '{path}'")
@@ -416,35 +499,19 @@ class LoRaWANShell(cmd.Cmd):
             if not isinstance(current, dict):
                 raise KeyError(f"'{key}' is not a dict in path '{path}'")
         
-        # Get the final key
         final_key = keys[-1]
         if final_key not in current:
             raise KeyError(f"'{final_key}' in path '{path}'")
         
-        # Get the original value to infer type
         original_value = current[final_key]
-        
-        # Convert value_str to appropriate type
         converted_value = self._convert_value(value_str, original_value)
-        
-        # Set the value
         current[final_key] = converted_value
     
     def _convert_value(self, value_str: str, original_value: Any) -> Any:
-        """Convert string value to appropriate type based on original value.
-        
-        Args:
-            value_str: String value to convert
-            original_value: Original value to infer type from
-        
-        Returns:
-            Converted value
-        """
-        # Handle None
-        if value_str.lower() == 'none' or value_str.lower() == 'null':
+        """Convert string value to appropriate type based on original value."""
+        if value_str.lower() in ('none', 'null'):
             return None
         
-        # Infer type from original value
         if isinstance(original_value, bool):
             if value_str.lower() in ('true', 'yes', '1'):
                 return True
@@ -458,7 +525,6 @@ class LoRaWANShell(cmd.Cmd):
                 return int(value_str)
             except ValueError:
                 # Allow string sentinels (e.g. "random" for valid_devnonce_start).
-                # The schema parser will reject values that aren't valid.
                 return value_str
         
         elif isinstance(original_value, float):
@@ -468,18 +534,15 @@ class LoRaWANShell(cmd.Cmd):
                 raise ValueError(f"Cannot convert '{value_str}' to float")
         
         else:
-            # Default to string
             return value_str
     
     def _set_logging_param(self, param_path: str, value_str: str) -> None:
         """Set logging configuration parameter."""
         from lora_attack_toolkit.logging.logging import reconfigure_level
         
-        # Extract parameter name (e.g., "logging.level" -> "level")
         param_name = param_path.split(".", 1)[1] if "." in param_path else param_path
         
         if param_name == "level":
-            # Validate log level
             valid_levels = ["ERROR", "WARNING", "INFO", "DEBUG", "TRACE"]
             level = value_str.upper()
             
@@ -488,7 +551,6 @@ class LoRaWANShell(cmd.Cmd):
                 print(f"Valid levels: {', '.join(valid_levels)}")
                 return
             
-            # Reconfigure log level
             reconfigure_level(level)
             print(f"✓ Log level changed to: {level}")
         
@@ -517,28 +579,24 @@ class LoRaWANShell(cmd.Cmd):
             print(f"Error: Unknown output parameter: {param_name}")
             print("Available: output.metrics")
     
+    # ── reset ────────────────────────────────────────────────────────────────
+
     def do_reset(self, args: str) -> None:
         """Reset parameters to default values.
         
         Usage:
             reset              - Reset all parameters to defaults
             reset <parameter>  - Reset specific parameter to default
-        
-        Examples:
-            reset
-            reset target.host
         """
         if not self.session.is_scenario_loaded():
             print("No scenario loaded. Use 'use <scenario>' first.")
             return
         
         if not args:
-            # Reset all parameters by reloading from file
             try:
                 with open(self.session.scenario_path, 'r') as f:
                     scenario_data = json.load(f)
                 
-                # Reload using session API
                 self.session.load_scenario(
                     name=self.session.scenario_name or "",
                     path=self.session.scenario_path,
@@ -548,17 +606,12 @@ class LoRaWANShell(cmd.Cmd):
             except Exception as e:
                 print(f"Error reloading scenario: {e}")
         else:
-            # Reset specific parameter
             param_path = args.strip()
             try:
-                # Load original value from file
                 with open(self.session.scenario_path, 'r') as f:
                     original_scenario = json.load(f)
                 
-                # Get original value
                 original_value = self._get_nested_value(original_scenario, param_path)
-                
-                # Set it back
                 self._set_nested_value_direct(self.session.scenario_data, param_path, original_value)
                 
                 print(f"✓ Reset {param_path} to default: {original_value}")
@@ -592,6 +645,8 @@ class LoRaWANShell(cmd.Cmd):
         final_key = keys[-1]
         current[final_key] = value
     
+    # ── validate ─────────────────────────────────────────────────────────────
+
     def do_validate(self, args: str) -> None:
         """Validate the current scenario configuration.
         
@@ -604,23 +659,18 @@ class LoRaWANShell(cmd.Cmd):
         
         print("Validating scenario configuration...")
         
-        # Import validation lazily to avoid loading dependencies
         try:
             from lora_attack_toolkit.core.loader import load_attack_scenario
             import tempfile
-            import json as json_module
             
-            # Write current scenario to temp file
             with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-                json_module.dump(self.session.scenario_data, f, indent=2)
+                json.dump(self.session.scenario_data, f, indent=2)
                 temp_path = f.name
             
             try:
-                # Try to load and validate
-                attack_scenario = load_attack_scenario(temp_path)
+                load_attack_scenario(temp_path)
                 print("✓ Scenario configuration is valid")
                 
-                # Show summary
                 print(f"\nValidation Summary:")
                 print(f"  Schema: {self.session.scenario_data.get('schema_version', 'unknown')}")
                 print(f"  Category: {self.session.scenario_data['scenario']['category']}")
@@ -628,13 +678,11 @@ class LoRaWANShell(cmd.Cmd):
                 print(f"  Target: {self.session.scenario_data['target']['host']}:{self.session.scenario_data['target']['port']}")
                 
             finally:
-                # Clean up temp file
                 import os
                 os.unlink(temp_path)
                 
         except ImportError as e:
             print(f"✗ Validation failed: Missing dependencies ({e})")
-            print("  Run 'pip install -e .' to install required packages")
         except ValueError as e:
             print(f"✗ Validation failed: {e}")
         except KeyError as e:
@@ -642,17 +690,20 @@ class LoRaWANShell(cmd.Cmd):
         except Exception as e:
             print(f"✗ Validation error: {e}")
     
+    # ── run ──────────────────────────────────────────────────────────────────
+
     def do_run(self, args: str) -> None:
         """Execute the currently loaded attack scenario.
         
         Usage:
             run
+        
+        Press Ctrl+C to interrupt a running attack and return to the prompt.
         """
         if not self.session.is_scenario_loaded():
             print("No scenario loaded. Use 'use <scenario>' first.")
             return
         
-        # Validate scenario before execution
         print("Validating scenario...")
         import tempfile
         
@@ -674,14 +725,20 @@ class LoRaWANShell(cmd.Cmd):
         
         print("✓ Validation passed\n")
         
-        # Execute attack
         print("=" * 60)
         print(f"Executing: {self.session.scenario_data.get('scenario', {}).get('title', self.session.scenario_name)}")
         print("=" * 60)
         
+        # Set up cooperative cancellation
+        cancel_event = threading.Event()
+        old_sigint = signal.getsignal(signal.SIGINT)
+
+        def _sigint_handler(signum, frame):
+            if not cancel_event.is_set():
+                print("\n\n⚠️  Ctrl+C received — stopping attack gracefully...")
+                cancel_event.set()
+
         try:
-            # Apply scenario log level with scenario precedence so a CLI override
-            # (set logging.level debug) is not overwritten.
             from lora_attack_toolkit.logging.logging import reconfigure_level
 
             log_config = self.session.scenario_data.get("logging", {})
@@ -690,32 +747,91 @@ class LoRaWANShell(cmd.Cmd):
 
             logger = logging.getLogger("lora_attack_toolkit")
             
-            # Import and run attack
             from lora_attack_toolkit.app.runner import AttackRunner
             
             runner = AttackRunner(logger=logger)
             print(f"\n🚀 Starting attack execution...\n")
+            print("   Press Ctrl+C to interrupt.\n")
             
-            results = runner.run(scenario)
+            signal.signal(signal.SIGINT, _sigint_handler)
+            results = runner.run(scenario, cancel_event=cancel_event)
             
-            # Display results
+            if results.get("interrupted"):
+                print("\n⚠️  Attack was interrupted by user.")
+                print("   Gateway stopped. You can modify parameters and run again.")
+            
             self._display_results(results)
-            
-            # Save results to file
             self._save_results(results)
             
-            print("\n✓ Attack execution complete")
-            
-        except KeyboardInterrupt:
-            print("\n\n⚠️  Execution interrupted by user (Ctrl+C)")
-            print("Cleaning up resources...")
+            if not results.get("interrupted"):
+                print("\n✓ Attack execution complete")
             
         except Exception as e:
             print(f"\n❌ Attack execution failed: {e}")
             import traceback
-            print("\nStack trace:")
             traceback.print_exc()
+        finally:
+            signal.signal(signal.SIGINT, old_sigint)
     
+    # ── help override ────────────────────────────────────────────────────────
+
+    def do_help(self, args: str) -> None:
+        """Show help for commands or parameter metadata.
+        
+        Usage:
+            help                        - List all commands
+            help <command>              - Show help for a command
+            help <parameter.path>       - Show metadata for a parameter
+        """
+        if args and "." in args:
+            self._show_param_help(args.strip())
+        else:
+            super().do_help(args)
+
+    def _show_param_help(self, path: str) -> None:
+        """Display metadata for a registered parameter path."""
+        from lora_attack_toolkit.app.params import get_param
+
+        meta = get_param(path)
+        if meta is None:
+            print(f"Unknown parameter: {path}")
+            print("Use 'show options verbose' to list all known parameters.")
+            return
+
+        current = "(not loaded)"
+        if self.session.is_scenario_loaded():
+            try:
+                current = str(self._get_nested_value(self.session.scenario_data, path))
+            except (KeyError, TypeError):
+                current = "(not set)"
+
+        try:
+            from rich.console import Console
+            from rich.panel import Panel
+            from rich import box
+
+            console = Console()
+            lines = [
+                f"[bold]Path:[/bold]          {meta.path}",
+                f"[bold]Type:[/bold]          {meta.type_str}",
+                f"[bold]Current value:[/bold] {current}",
+                f"[bold]Default:[/bold]       {meta.default}",
+                f"[bold]Description:[/bold]   {meta.description}",
+            ]
+            if meta.allowed_values:
+                lines.append(f"[bold]Allowed:[/bold]       {', '.join(meta.allowed_values)}")
+            console.print(Panel("\n".join(lines), title=f"Parameter: {path}", box=box.ROUNDED))
+        except ImportError:
+            print(f"\nParameter: {path}")
+            print(f"  Type:          {meta.type_str}")
+            print(f"  Current value: {current}")
+            print(f"  Default:       {meta.default}")
+            print(f"  Description:   {meta.description}")
+            if meta.allowed_values:
+                print(f"  Allowed:       {', '.join(meta.allowed_values)}")
+
+    # ── metrics display ──────────────────────────────────────────────────────
+
     # Keys shown in summary mode per attack type
     _SUMMARY_METRICS: dict[str, list[str]] = {
         "join_devnonce": [
@@ -741,13 +857,11 @@ class LoRaWANShell(cmd.Cmd):
         print("ATTACK RESULTS")
         print("=" * 60)
         
-        # Success status
         success = results.get('success', False)
         status_symbol = "✓" if success else "✗"
         print(f"\nStatus: {status_symbol} {'SUCCESS' if success else 'FAILED'}")
         print(f"Message: {results.get('message', 'No message')}")
         
-        # Metrics (controlled by output.metrics setting)
         metrics = results.get('metrics', {})
         metrics_mode = self.session.output_metrics
 
@@ -768,20 +882,17 @@ class LoRaWANShell(cmd.Cmd):
             if metrics_mode == "summary" and len(metrics) > len(visible):
                 print(f"  (use 'set output.metrics full' to see all {len(metrics)} fields)")
         
-        # Expected behavior (v1.0 scenarios)
         expected_behavior = results.get('expected_behavior')
         if expected_behavior:
             print(f"\n{'Expected Behavior':-^60}")
             print(f"  {expected_behavior}")
         
-        # Success criteria (v1.0 scenarios)
         success_criteria = results.get('success_criteria')
         if success_criteria:
             print(f"\n{'Success Criteria':-^60}")
             for criterion in success_criteria:
                 print(f"  • {criterion}")
         
-        # Captured packets summary
         captured = results.get('captured_packets', {})
         if captured:
             if isinstance(captured, dict):
@@ -801,16 +912,10 @@ class LoRaWANShell(cmd.Cmd):
         if not self.session.scenario_path:
             return
         
-        from pathlib import Path
-        
-        # Use session ID from Session object
         session_id = self.session.session_id or "default"
-        
-        # Create results directory structure: results/<session-id>/
         results_dir = Path("results") / session_id
         results_dir.mkdir(parents=True, exist_ok=True)
         
-        # Use scenario filename as base
         scenario_name = self.session.scenario_path.stem
         results_path = results_dir / f"{scenario_name}.results.json"
         
@@ -821,6 +926,8 @@ class LoRaWANShell(cmd.Cmd):
         except Exception as e:
             print(f"\n⚠️  Failed to save results: {e}")
     
+    # ── misc commands ────────────────────────────────────────────────────────
+
     def do_clear(self, args: str) -> None:
         """Clear the current scenario session.
         
@@ -846,12 +953,13 @@ class LoRaWANShell(cmd.Cmd):
     do_quit = do_exit
     do_q = do_exit
     do_EOF = do_exit
-    do_r = do_run  # Alias for run
-    
-    def default(self, line: str) -> None:
+    do_r = do_run
+
+    def default(self, statement) -> None:
         """Handle unrecognised commands with a helpful hint."""
+        # cmd2 passes a Statement object; get raw string
+        line = str(statement)
         parts = line.split(maxsplit=1)
-        # Looks like a bare 'key value' — the user probably forgot 'set'.
         if len(parts) == 2 and "." in parts[0]:
             print(f"Unknown command. Did you mean:  set {line}")
         else:
@@ -875,3 +983,4 @@ def start_shell() -> None:
 
 if __name__ == "__main__":
     start_shell()
+

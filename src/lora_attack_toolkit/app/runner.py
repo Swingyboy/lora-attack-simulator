@@ -34,22 +34,20 @@ class AttackRunner:
         import uuid
         return str(uuid.uuid4())[:8]
     
-    def run(self, scenario: AttackScenarioV1) -> dict[str, Any]:
+    def run(self, scenario: AttackScenarioV1, cancel_event=None) -> dict[str, Any]:
         """
         Run an attack scenario (v1.0 format only).
         
         Args:
             scenario: The attack scenario to execute (v1.0)
+            cancel_event: Optional threading.Event; set it to request cooperative cancellation.
             
         Returns:
             Attack results including analysis and metrics
-        
-        Note:
-            Legacy v0.9 format support removed
         """
-        return self._run_v1(scenario)
+        return self._run_v1(scenario, cancel_event=cancel_event)
     
-    def _run_v1(self, scenario: AttackScenarioV1) -> dict[str, Any]:
+    def _run_v1(self, scenario: AttackScenarioV1, cancel_event=None) -> dict[str, Any]:
         """Run v1.0 format scenario with new attack API."""
         self.logger.info(f"Starting attack scenario (v1.0): {scenario.scenario.title}")
         self.logger.info(f"Attack type: {scenario.attack.type}")
@@ -80,6 +78,7 @@ class AttackRunner:
                 gateway,
                 radio,
                 typed_config,
+                cancel_event=cancel_event,
             )
             attack = spec.attack_class()
             
@@ -111,6 +110,7 @@ class AttackRunner:
         gateway: Any,
         radio: RadioMetadata,
         typed_config: Any,
+        cancel_event=None,
     ) -> Any:
         """
         Create AttackContext with services and typed configuration.
@@ -148,9 +148,11 @@ class AttackRunner:
         )
         
         # Create and return context
+        import threading
         return AttackContext(
             services=services,
             input=attack_input,
+            cancel_event=cancel_event if cancel_event is not None else threading.Event(),
         )
     
     def run_from_file(self, scenario_path: str) -> dict[str, Any]:

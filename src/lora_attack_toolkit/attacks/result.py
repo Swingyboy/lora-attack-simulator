@@ -31,6 +31,7 @@ class AttackResult:
     validation_summary: str | None = None
     criteria_met: dict[str, bool] | None = None
     error: str | None = None
+    interrupted: bool = False
     
     # Metadata
     duration_sec: float | None = None
@@ -61,6 +62,9 @@ class AttackResult:
         if self.error:
             result["error"] = self.error
         
+        if self.interrupted:
+            result["interrupted"] = True
+        
         if self.duration_sec is not None:
             result["duration_sec"] = self.duration_sec
         
@@ -82,6 +86,7 @@ class AttackResult:
             validation_summary=data.get("validation_summary"),
             criteria_met=data.get("criteria_met"),
             error=data.get("error"),
+            interrupted=data.get("interrupted", False),
             duration_sec=data.get("duration_sec"),
             timestamp=data.get("timestamp"),
         )

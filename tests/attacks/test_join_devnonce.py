@@ -152,22 +152,24 @@ class TestJoinDevNonceAttack(unittest.TestCase):
         cache.store(_step(b"\x01\x00", accepted=True, ts=1.0))
         cache.store(_step(b"\x02\x00", accepted=True, ts=2.0))
 
-        same_as_last = attack._select_final_devnonce(
+        same_as_last, _ = attack._select_final_devnonce(
             replace(self.config, final_check="same_as_last"),
             cache,
         )
-        replay_first = attack._select_final_devnonce(
+        replay_first, _ = attack._select_final_devnonce(
             replace(self.config, final_check="replay_first"),
             cache,
         )
-        lower_than_last = attack._select_final_devnonce(
+        # last=2, candidate 1 already used, candidate 0 is unused
+        lower_than_last, ltl_meta = attack._select_final_devnonce(
             replace(self.config, final_check="lower_than_last"),
             cache,
         )
 
         self.assertEqual(same_as_last, b"\x02\x00")
         self.assertEqual(replay_first, b"\x01\x00")
-        self.assertEqual(lower_than_last, b"\x01\x00")
+        self.assertEqual(lower_than_last, b"\x00\x00")
+        self.assertEqual(ltl_meta["lower_than_last_candidate_search_attempts"], 2)
 
     def test_run_exact_replay_uses_last_devnonce(self) -> None:
         attack = JoinDevNonceAttack()
@@ -600,6 +602,137 @@ class TestDevNonceGeneration(unittest.TestCase):
 
         self.assertEqual(result.metrics["resolved_devnonce_start"], expected_start)
         self.assertEqual(result.metrics["devnonce_seed"], 42)
+
+
+
+class TestLowerThanLastSelection(unittest.TestCase):
+    """Tests for lower_than_last DevNonce selection logic."""
+
+    def setUp(self) -> None:
+        self.attack = JoinDevNonceAttack()
+        self.config = parse_join_devnonce_config(
+            {
+                "valid_join_count": 5,
+                "valid_devnonce_start": 10,
+                "valid_devnonce_step": 2,
+                "final_check": "lower_than_last",
+                "result_cache_size": 10,
+                "timing": {
+                    "join_accept_timeout_sec": 3.0,
+                    "rx1_delay_sec": 1.0,
+                    "rx1_window_sec": 1.0,
+                    "rx2_delay_sec": 2.0,
+                    "rx2_window_sec": 1.0,
+                },
+            }
+        )
+
+    def _make_cache(self, *nonces: int) -> DevNonceResultCache:
+        cache = DevNonceResultCache(max_size=20)
+        for n in nonces:
+            cache.store(_step(n.to_bytes(2, "little"), accepted=True))
+        return cache
+
+    def test_step2_finds_unused_lower_value(self) -> None:
+        # Generation: 10, 12, 14, 16, 18 → last=18, candidate 17 unused
+        cache = self._make_cache(10, 12, 14, 16, 18)
+        devnonce, meta = self.attack._select_final_devnonce(self.config, cache)
+        self.assertEqual(int.from_bytes(devnonce, "little"), 17)
+        self.assertEqual(meta["lower_than_last_candidate_search_attempts"], 1)
+
+    def test_step1_skips_used_candidates(self) -> None:
+        # Generation: 5, 6 → last=6, candidate 5 used, candidate 4 unused
+        config = replace(self.config, valid_devnonce_step=1)
+        cache = self._make_cache(5, 6)
+        devnonce, meta = self.attack._select_final_devnonce(config, cache)
+        self.assertEqual(int.from_bytes(devnonce, "little"), 4)
+        self.assertEqual(meta["lower_than_last_candidate_search_attempts"], 2)
+
+    def test_single_candidate_unused(self) -> None:
+        # Only last accepted is 5; candidate 4 is unused → 1 attempt
+        cache = self._make_cache(5)
+        devnonce, meta = self.attack._select_final_devnonce(self.config, cache)
+        self.assertEqual(int.from_bytes(devnonce, "little"), 4)
+        self.assertEqual(meta["lower_than_last_candidate_search_attempts"], 1)
+
+    def test_final_devnonce_not_in_accepted_set(self) -> None:
+        # Ensure chosen DevNonce is not in the accepted set
+        cache = self._make_cache(10, 12, 14, 16, 18)
+        devnonce, _ = self.attack._select_final_devnonce(self.config, cache)
+        self.assertNotIn(devnonce, cache.all_accepted_devnonces)
+
+    def test_continuous_sequence_from_zero_raises(self) -> None:
+        # 0..4 used, last=4, candidates 3..0 all used → error
+        cache = self._make_cache(0, 1, 2, 3, 4)
+        with self.assertRaises(ValueError) as ctx:
+            self.attack._select_final_devnonce(self.config, cache)
+        self.assertIn("unused lower-than-last", str(ctx.exception))
+
+    def test_last_devnonce_zero_raises(self) -> None:
+        cache = self._make_cache(0)
+        with self.assertRaises(ValueError) as ctx:
+            self.attack._select_final_devnonce(self.config, cache)
+        self.assertIn("lower DevNonce than 0", str(ctx.exception))
+
+    def test_metrics_include_search_attempts(self) -> None:
+        cache = self._make_cache(10, 12, 14, 16, 18)
+        _, meta = self.attack._select_final_devnonce(self.config, cache)
+        self.assertIn("lower_than_last_candidate_search_attempts", meta)
+
+    def test_replay_first_unaffected(self) -> None:
+        config = replace(self.config, final_check="replay_first")
+        cache = self._make_cache(5, 7)
+        devnonce, meta = self.attack._select_final_devnonce(config, cache)
+        self.assertEqual(int.from_bytes(devnonce, "little"), 5)
+        self.assertEqual(meta, {})
+
+    def test_same_as_last_unaffected(self) -> None:
+        config = replace(self.config, final_check="same_as_last")
+        cache = self._make_cache(5, 7)
+        devnonce, meta = self.attack._select_final_devnonce(config, cache)
+        self.assertEqual(int.from_bytes(devnonce, "little"), 7)
+        self.assertEqual(meta, {})
+
+    def test_build_metrics_includes_final_devnonce_was_previously_used(self) -> None:
+        attack = JoinDevNonceAttack()
+        config = parse_join_devnonce_config({
+            "valid_join_count": 2,
+            "valid_devnonce_start": 10,
+            "valid_devnonce_step": 2,
+            "final_check": "lower_than_last",
+            "timing": {
+                "join_accept_timeout_sec": 3.0,
+                "rx1_delay_sec": 1.0,
+                "rx1_window_sec": 1.0,
+                "rx2_delay_sec": 2.0,
+                "rx2_window_sec": 1.0,
+            },
+        })
+
+        def fake_generation(ctx, cfg, timing, cache):
+            cache.store(_step(b"\x0a\x00", accepted=True))  # 10
+            cache.store(_step(b"\x0c\x00", accepted=True))  # 12
+
+        attack._execute_generation_phase = Mock(side_effect=fake_generation)
+        attack._execute_join_step = Mock(
+            return_value=_step(b"\x0b\x00", accepted=False)  # 11 (lower, unused)
+        )
+
+        logger = getLogger("test")
+        device = MagicMock(spec=SimulatedDevice)
+        gateway = MagicMock()
+        capture = PacketCapture(logger=logger)
+        radio = RadioMetadata(frequency=868100000, data_rate="SF7BW125", rssi=-60, snr=7.5)
+        ctx = AttackContext(
+            services=AttackServices(device=device, gateway=gateway, logger=logger, capture=capture, metrics=None),
+            input=AttackInput(typed_config=config, expected_behavior=None, radio=radio, timeout_sec=30.0),
+        )
+
+        result = attack.run(ctx)
+        self.assertIn("final_devnonce_was_previously_used", result.metrics)
+        self.assertFalse(result.metrics["final_devnonce_was_previously_used"])
+        self.assertEqual(result.metrics["final_devnonce_relation"], "lower_than_last")
+        self.assertIn("lower_than_last_candidate_search_attempts", result.metrics)
 
 
 if __name__ == "__main__":

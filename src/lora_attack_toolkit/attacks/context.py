@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from logging import Logger
 from typing import TYPE_CHECKING, Any
@@ -94,7 +95,8 @@ class AttackContext:
     
     services: AttackServices
     input: AttackInput
-    state: dict[str, Any] = field(default_factory=dict)  # Mutable execution state
+    state: dict[str, Any] = field(default_factory=dict)
+    cancel_event: threading.Event = field(default_factory=threading.Event)
     
     # Convenience accessors for common needs
     @property

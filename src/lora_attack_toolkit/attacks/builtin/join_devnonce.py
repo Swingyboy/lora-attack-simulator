@@ -42,6 +42,7 @@ class DevNonceResultCache:
     accepted_count: int = 0
     attempt_count: int = 0
     recent_accepted_devnonces: deque[bytes] = field(init=False)
+    all_accepted_devnonces: set[bytes] = field(default_factory=set)
 
     def __post_init__(self) -> None:
         self.recent_accepted_devnonces = deque(maxlen=max(1, self.max_size))
@@ -58,6 +59,7 @@ class DevNonceResultCache:
         self.last_accepted_devnonce = result.dev_nonce
         self.accepted_count += 1
         self.recent_accepted_devnonces.append(result.dev_nonce)
+        self.all_accepted_devnonces.add(result.dev_nonce)
 
 
 class JoinDevNonceAnalyzer(AttackAnalyzer):
@@ -115,6 +117,23 @@ class JoinDevNonceAttack(BaseAttack):
             generation_cache = DevNonceResultCache(config.result_cache_size)
             resolved_start = self._execute_generation_phase(ctx, config, timing, generation_cache)
 
+            if ctx.cancel_event.is_set():
+                metrics = self._build_metrics(
+                    config=config, timing=timing,
+                    generation_cache=generation_cache,
+                    final_devnonce=None, final_result=None,
+                    generation_complete=False, generation_partial=generation_cache.accepted_count > 0,
+                    final_check_executed=False, resolved_devnonce_start=resolved_start,
+                )
+                ctx.capture.metadata["devnonce_validation"] = metrics
+                return AttackResult(
+                    attack_name=self.name, attack_type=self.name,
+                    success=False, interrupted=True,
+                    message="Attack interrupted by user",
+                    metrics=metrics,
+                    captured_packets=len(ctx.capture.uplinks) + len(ctx.capture.downlinks),
+                )
+
             generation_complete = generation_cache.accepted_count >= config.valid_join_count
             generation_partial = 0 < generation_cache.accepted_count < config.valid_join_count
 
@@ -143,7 +162,7 @@ class JoinDevNonceAttack(BaseAttack):
                     captured_packets=len(ctx.capture.uplinks) + len(ctx.capture.downlinks),
                 )
 
-            final_devnonce = self._select_final_devnonce(config, generation_cache)
+            final_devnonce, selection_meta = self._select_final_devnonce(config, generation_cache)
             final_result = self._execute_join_step(
                 ctx=ctx,
                 config=config,
@@ -152,6 +171,24 @@ class JoinDevNonceAttack(BaseAttack):
                 attempt_index=config.valid_join_count + 1,
                 phase="final",
             )
+
+            if ctx.cancel_event.is_set():
+                metrics = self._build_metrics(
+                    config=config, timing=timing,
+                    generation_cache=generation_cache,
+                    final_devnonce=final_devnonce, final_result=None,
+                    generation_complete=generation_complete, generation_partial=generation_partial,
+                    final_check_executed=False, resolved_devnonce_start=resolved_start,
+                    selection_meta=selection_meta,
+                )
+                ctx.capture.metadata["devnonce_validation"] = metrics
+                return AttackResult(
+                    attack_name=self.name, attack_type=self.name,
+                    success=False, interrupted=True,
+                    message="Attack interrupted by user",
+                    metrics=metrics,
+                    captured_packets=len(ctx.capture.uplinks) + len(ctx.capture.downlinks),
+                )
 
             metrics = self._build_metrics(
                 config=config,
@@ -163,6 +200,7 @@ class JoinDevNonceAttack(BaseAttack):
                 generation_partial=generation_partial,
                 final_check_executed=True,
                 resolved_devnonce_start=resolved_start,
+                selection_meta=selection_meta,
             )
             ctx.capture.metadata["devnonce_validation"] = metrics
 
@@ -260,6 +298,9 @@ class JoinDevNonceAttack(BaseAttack):
         ctx.logger.info("Resolved DevNonce start: %d", resolved_start)
 
         for index in range(config.valid_join_count):
+            if ctx.cancel_event.is_set():
+                ctx.logger.info("Attack cancelled during generation phase.")
+                break
             dev_nonce = self._generate_devnonce(config, index, resolved_start)
             result = self._execute_join_step(
                 ctx=ctx,
@@ -344,17 +385,22 @@ class JoinDevNonceAttack(BaseAttack):
         )
 
         for window_name, window_start_offset, window_size in windows:
-            self._sleep_until(start + window_start_offset)
+            if ctx.cancel_event.is_set():
+                return False
+            if not self._sleep_until(start + window_start_offset, ctx.cancel_event):
+                return False
             window_deadline = start + window_start_offset + window_size
 
             ctx.logger.debug(f"Opening window {window_name}")
 
             while time.monotonic() < window_deadline:
+                if ctx.cancel_event.is_set():
+                    return False
                 remaining = window_deadline - time.monotonic()
                 if remaining <= 0:
                     break
 
-                downlink = ctx.gateway.await_downlink(timeout_sec=remaining)
+                downlink = ctx.gateway.await_downlink(timeout_sec=min(remaining, 0.1))
                 if downlink is None:
                     continue
                 try:
@@ -384,11 +430,12 @@ class JoinDevNonceAttack(BaseAttack):
 
     def _select_final_devnonce(
         self, config: "JoinDevNonceConfigV1", cache: DevNonceResultCache
-    ) -> bytes:
+    ) -> tuple[bytes, dict[str, Any]]:
+        """Select the final DevNonce and return (devnonce, extra_metrics)."""
         if config.final_check == "same_as_last":
             if cache.last_accepted_devnonce is None:
                 raise ValueError("No accepted DevNonce available for final_check='same_as_last'")
-            return cache.last_accepted_devnonce
+            return cache.last_accepted_devnonce, {}
 
         if config.final_check == "lower_than_last":
             if cache.last_accepted_devnonce is None:
@@ -398,17 +445,32 @@ class JoinDevNonceAttack(BaseAttack):
             last_value = int.from_bytes(cache.last_accepted_devnonce, "little")
             if last_value == 0:
                 raise ValueError("Cannot generate a lower DevNonce than 0")
-            return (last_value - 1).to_bytes(2, "little")
+
+            candidate = last_value - 1
+            attempts = 0
+            while candidate >= 0:
+                candidate_bytes = candidate.to_bytes(2, "little")
+                attempts += 1
+                if candidate_bytes not in cache.all_accepted_devnonces:
+                    return candidate_bytes, {
+                        "lower_than_last_candidate_search_attempts": attempts,
+                    }
+                candidate -= 1
+
+            raise ValueError(
+                "Cannot select unused lower-than-last DevNonce. "
+                "Increase valid_devnonce_step or valid_devnonce_start."
+            )
 
         if config.final_check == "replay_first":
             if cache.first_accepted_devnonce is None:
                 raise ValueError("No accepted DevNonce available for final_check='replay_first'")
-            return cache.first_accepted_devnonce
+            return cache.first_accepted_devnonce, {}
 
         if config.final_check == "custom":
             if config.final_devnonce is None:
                 raise ValueError("final_devnonce is required when final_check='custom'")
-            return self._devnonce_to_bytes(int(config.final_devnonce))
+            return self._devnonce_to_bytes(int(config.final_devnonce)), {}
 
         raise ValueError(f"Unsupported final_check: {config.final_check}")
 
@@ -433,10 +495,16 @@ class JoinDevNonceAttack(BaseAttack):
             raise ValueError(f"DevNonce must fit in 16 bits: {value}")
         return value.to_bytes(2, "little")
 
-    def _sleep_until(self, deadline: float) -> None:
-        remaining = deadline - time.monotonic()
-        if remaining > 0:
-            time.sleep(remaining)
+    def _sleep_until(self, deadline: float, cancel_event=None) -> bool:
+        """Sleep in short increments until deadline. Returns False if cancelled."""
+        while time.monotonic() < deadline:
+            if cancel_event is not None and cancel_event.is_set():
+                return False
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(0.05, remaining))
+        return True
 
     def _build_metrics(
         self,
@@ -449,6 +517,7 @@ class JoinDevNonceAttack(BaseAttack):
         generation_partial: bool,
         final_check_executed: bool,
         resolved_devnonce_start: int | None = None,
+        selection_meta: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         metrics: dict[str, Any] = {
             "attack_type": self.name,
@@ -490,6 +559,10 @@ class JoinDevNonceAttack(BaseAttack):
         if final_devnonce is not None:
             metrics["final_devnonce"] = final_devnonce.hex()
             metrics["final_devnonce_int"] = int.from_bytes(final_devnonce, "little")
+            metrics["final_devnonce_was_previously_used"] = (
+                final_devnonce in generation_cache.all_accepted_devnonces
+            )
+            metrics["final_devnonce_relation"] = config.final_check
 
         if final_result is not None:
             metrics["final_result_known"] = True
@@ -497,5 +570,8 @@ class JoinDevNonceAttack(BaseAttack):
             metrics["final_join_timestamp"] = final_result.timestamp
         else:
             metrics["final_result_known"] = False
+
+        if selection_meta:
+            metrics.update(selection_meta)
 
         return metrics
