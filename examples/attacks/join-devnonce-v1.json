@@ -1,0 +1,70 @@
+{
+  "schema_version": "1.0",
+  "scenario": {
+    "id": "join-devnonce-v1",
+    "title": "Join DevNonce Validation",
+    "description": "Validate DevNonce replay, lower-than-last, and retention behavior",
+    "category": "join_devnonce",
+    "type": "join_devnonce",
+    "timeout_sec": 30.0
+  },
+  "target": {
+    "name": "chirpstack-local",
+    "transport": "semtech_udp",
+    "host": "127.0.0.1",
+    "port": 1700
+  },
+  "gateway": {
+    "gateway_eui": "0102030405060708",
+    "pull_data_interval_sec": 5,
+    "radio": {
+      "region": "EU868",
+      "frequency_hz": 868100000,
+      "data_rate": "SF7BW125",
+      "rssi": -60,
+      "snr": 7.5
+    }
+  },
+  "device": {
+    "name": "attack-device-join-devnonce-v1",
+    "lorawan_version": "1.0.3",
+    "region": "EU868",
+    "class": "A",
+    "activation": {
+      "mode": "OTAA",
+      "dev_eui": "0011223344556677",
+      "join_eui": "0011223344556677",
+      "app_key": "00112233445566770011223344556677"
+    }
+  },
+  "attack": {
+    "type": "join_devnonce",
+    "config": {
+      "valid_join_count": 50,
+      "valid_devnonce_start": 0,
+      "valid_devnonce_step": 1,
+      "final_check": "replay_first",
+      "result_cache_size": 10,
+      "timing": {
+        "join_accept_timeout_sec": 7.0,
+        "rx1_delay_sec": 5.0,
+        "rx1_window_sec": 1.0,
+        "rx2_delay_sec": 6.0,
+        "rx2_window_sec": 1.0
+      }
+    }
+  },
+  "expected": {
+    "secure_behavior": "ns_remembers_all_historical_devnonces",
+    "security_criteria": [
+      "first_join_request_is_accepted",
+      "replayed_join_requests_with_same_devnonce_are_rejected",
+      "ns_maintains_devnonce_history"
+    ]
+  },
+  "logging": {
+    "level": "info",
+    "log_phy_payload": true,
+    "log_semtech_udp": true
+  }
+}
