@@ -29,6 +29,7 @@ from lora_attack_toolkit.lorawan.protocol.mac_commands import (
 
 if TYPE_CHECKING:
     from lora_attack_toolkit.lorawan.channel_plan import RegionChannelPlan
+    from lora_attack_toolkit.radio.radio import Radio
 
 
 @dataclass
@@ -71,8 +72,9 @@ class DeviceRuntime:
     app_s_key: bytes = b""
     fcnt_up: int = 0
     fcnt_down: int = 0           # Track downlink frame counter
-    radio: DeviceRadioState = field(default_factory=DeviceRadioState)  # Radio state
-    channel_plan: RegionChannelPlan | None = None  # Region channel plan (set by factory)
+    adr: DeviceRadioState = field(default_factory=DeviceRadioState)  # ADR / MAC-command state
+    radio: "Radio | None" = None  # Radio abstraction (channel plan + CFList + DR/power)
+    channel_plan: "RegionChannelPlan | None" = None  # Region channel plan (set by factory)
     join_attempt_index: int = 0   # Incremented on each JoinRequest, drives channel rotation
     uplink_index: int = 0         # Incremented on each uplink, drives channel rotation
 
@@ -121,15 +123,23 @@ class SimulatedDevice:
         self.runtime.fcnt_up = 0
         self.runtime.fcnt_down = 0
 
-        # Apply CFList channel updates if channel plan is configured
-        if self.runtime.channel_plan is not None and parsed.cflist is not None:
-            self.runtime.channel_plan.apply_cflist(parsed.cflist)
-            if self._logger:
-                channels = self.runtime.channel_plan.get_uplink_channels()
-                self._logger.info(
-                    "Applied CFList; active uplink channels: %s",
-                    [c.frequency_hz for c in channels],
-                )
+        # Apply CFList channel updates
+        if parsed.cflist is not None:
+            if self.runtime.radio is not None:
+                self.runtime.radio.apply_cflist(parsed.cflist)
+                if self._logger:
+                    self._logger.info(
+                        "Applied CFList; active uplink channels: %s",
+                        self.runtime.radio.get_active_uplink_channels(),
+                    )
+            elif self.runtime.channel_plan is not None:
+                self.runtime.channel_plan.apply_cflist(parsed.cflist)
+                if self._logger:
+                    channels = self.runtime.channel_plan.get_uplink_channels()
+                    self._logger.info(
+                        "Applied CFList; active uplink channels: %s",
+                        [c.frequency_hz for c in channels],
+                    )
 
     def build_data_uplink(self, payload: bytes, f_port: int, confirmed: bool) -> bytes:
         if not self.runtime.joined:
@@ -342,17 +352,17 @@ class SimulatedDevice:
         nb_trans = redundancy & 0x0F
         
         # Update device state
-        old_state = self.runtime.radio.to_dict()
-        self.runtime.radio.data_rate = data_rate
-        self.runtime.radio.tx_power = tx_power
-        self.runtime.radio.ch_mask = ch_mask
-        self.runtime.radio.nb_trans = nb_trans
+        old_state = self.runtime.adr.to_dict()
+        self.runtime.adr.data_rate = data_rate
+        self.runtime.adr.tx_power = tx_power
+        self.runtime.adr.ch_mask = ch_mask
+        self.runtime.adr.nb_trans = nb_trans
         
         if self._logger:
             self._logger.info(
                 f"Applied LinkADRReq: DR={data_rate}, TXPower={tx_power}, "
                 f"ChMask=0x{ch_mask:04x}, NbTrans={nb_trans}",
-                extra={"old_radio_state": old_state, "new_radio_state": self.runtime.radio.to_dict()}
+                extra={"old_radio_state": old_state, "new_radio_state": self.runtime.adr.to_dict()}
             )
         
         # LinkADRAns: 1 byte status (bit 0: power ACK, bit 1: data rate ACK, bit 2: channel mask ACK)
@@ -372,8 +382,8 @@ class SimulatedDevice:
         frequency = int.from_bytes(cmd.payload[1:4], byteorder="little")
         
         # Update device state
-        self.runtime.radio.rx1_dr_offset = rx1_dr_offset
-        self.runtime.radio.rx2_data_rate = rx2_data_rate
+        self.runtime.adr.rx1_dr_offset = rx1_dr_offset
+        self.runtime.adr.rx2_data_rate = rx2_data_rate
         
         if self._logger:
             self._logger.info(
@@ -415,7 +425,7 @@ class SimulatedDevice:
             return MACCommand(cid=CID_DUTY_CYCLE_ANS, payload=b"")
         
         max_duty_cycle = cmd.payload[0]
-        self.runtime.radio.duty_cycle = max_duty_cycle
+        self.runtime.adr.duty_cycle = max_duty_cycle
         
         if self._logger:
             self._logger.info(f"Applied DutyCycleReq: MaxDCycle={max_duty_cycle}")
@@ -428,9 +438,9 @@ class SimulatedDevice:
             return MACCommand(cid=CID_RX_TIMING_SETUP_ANS, payload=b"")
         
         delay = cmd.payload[0] & 0x0F
-        self.runtime.radio.rx1_delay = delay if delay > 0 else 1  # 0 means 1 second
+        self.runtime.adr.rx1_delay = delay if delay > 0 else 1  # 0 means 1 second
         
         if self._logger:
-            self._logger.info(f"Applied RXTimingSetupReq: RX1Delay={self.runtime.radio.rx1_delay}s")
+            self._logger.info(f"Applied RXTimingSetupReq: RX1Delay={self.runtime.adr.rx1_delay}s")
         
         return MACCommand(cid=CID_RX_TIMING_SETUP_ANS, payload=b"")

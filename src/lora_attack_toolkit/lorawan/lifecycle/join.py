@@ -9,6 +9,7 @@ from lora_attack_toolkit.device.model import SimulatedDevice
 from lora_attack_toolkit.gateway.model import GatewaySimulator
 from lora_attack_toolkit.core.schema import RadioMetadata
 from lora_attack_toolkit.lorawan.channel_plan import AirtimeCalculator
+from lora_attack_toolkit.radio.radio import Radio
 
 
 def perform_otaa_join(
@@ -301,7 +302,24 @@ def send_periodic_uplinks(
 
 
 def _select_uplink_radio(device: SimulatedDevice, base_radio: RadioMetadata, now: float | None = None) -> RadioMetadata:
-    """Return RadioMetadata for the next uplink, using the channel plan when available."""
+    """Return RadioMetadata for the next uplink.
+
+    Priority:
+    1. ``device.runtime.radio`` (new :class:`~lora_attack_toolkit.radio.radio.Radio`
+       abstraction) — simple round-robin, no duty-cycle enforcement yet.
+    2. ``device.runtime.channel_plan`` — legacy path with duty-cycle enforcement.
+    3. ``base_radio`` — unchanged fallback when no channel plan is configured.
+    """
+    radio = device.runtime.radio
+    if isinstance(radio, Radio):
+        freq = radio.get_next_uplink_channel()
+        return RadioMetadata(
+            frequency=freq,
+            data_rate=radio.get_current_data_rate(),
+            rssi=base_radio.rssi,
+            snr=base_radio.snr,
+        )
+
     channel_plan = device.runtime.channel_plan
     if channel_plan is not None:
         channel = channel_plan.select_uplink_channel(device.runtime.uplink_index, now=now)

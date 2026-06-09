@@ -209,7 +209,8 @@ class EU868ChannelPlan(RegionChannelPlan):
         self._data_rate = data_rate
         self._duty_cycle_enforcement = duty_cycle_enforcement
         self._logger = logger
-        self._uplink_frequencies_hz: list[int] = list(_EU868_DEFAULT_UPLINK_FREQUENCIES_HZ)
+        self._base_uplink_frequencies_hz: list[int] = list(_EU868_DEFAULT_UPLINK_FREQUENCIES_HZ)
+        self._cflist_uplink_frequencies_hz: list[int] = []
         # Per-channel availability: freq_hz → earliest next-TX epoch timestamp
         self._channel_available_after: dict[int, float] = {}
 
@@ -260,7 +261,8 @@ class EU868ChannelPlan(RegionChannelPlan):
         return [Channel(f, self._data_rate) for f in _EU868_JOIN_FREQUENCIES_HZ]
 
     def get_uplink_channels(self) -> list[Channel]:
-        return [Channel(f, self._data_rate) for f in self._uplink_frequencies_hz]
+        combined = self._base_uplink_frequencies_hz + self._cflist_uplink_frequencies_hz
+        return [Channel(f, self._data_rate) for f in combined]
 
     def select_join_channel(self, attempt_index: int, now: float | None = None) -> Channel:
         """Return the channel for the given JoinRequest attempt.
@@ -359,7 +361,7 @@ class EU868ChannelPlan(RegionChannelPlan):
     # --- CFList ---
 
     def apply_cflist(self, cflist: bytes | None) -> None:
-        """Parse EU868 CFList type 0 and add channels to the uplink plan.
+        """Parse EU868 CFList type 0 and replace CFList-derived channels.
 
         CFList layout (16 bytes):
           bytes  0-2:  freq[0]  (3 bytes, little-endian, unit = 100 Hz)
@@ -368,28 +370,34 @@ class EU868ChannelPlan(RegionChannelPlan):
           bytes  9-11: freq[3]
           bytes 12-14: freq[4]
           byte  15:    CFListType (0 = frequencies)
+
+        Valid Type 0 CFList channels *replace* any previously learned
+        CFList channels — they are never accumulated across calls.
+        Base channels (868.1 / 868.3 / 868.5 MHz) are always preserved.
         """
         if not cflist or len(cflist) != 16:
             return
         cflist_type = cflist[15]
         if cflist_type != 0:
-            # Type 1 (channel masks) and others are not handled here.
             return
-        added: list[int] = []
+
+        base = set(self._base_uplink_frequencies_hz)
+        seen: set[int] = set()
+        new_cflist: list[int] = []
+
         for i in range(5):
-            raw = cflist[i * 3: i * 3 + 3]
+            raw = cflist[i * 3 : i * 3 + 3]
             value = int.from_bytes(raw, "little")
             if value == 0:
                 continue  # unused slot
             freq_hz = value * 100
-            added.append(freq_hz)
+            if freq_hz in base or freq_hz in seen:
+                continue
+            new_cflist.append(freq_hz)
+            seen.add(freq_hz)
 
-        if added:
-            existing = set(self._uplink_frequencies_hz)
-            for f in added:
-                if f not in existing:
-                    self._uplink_frequencies_hz.append(f)
-                    existing.add(f)
+        # Replace (not append) previous CFList-derived channels.
+        self._cflist_uplink_frequencies_hz = new_cflist
 
 
 # ─── Passthrough (unknown region) ────────────────────────────────────────────
