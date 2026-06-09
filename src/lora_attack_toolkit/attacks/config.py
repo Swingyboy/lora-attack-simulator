@@ -12,7 +12,7 @@ class AttackConfig:
     
     This is the minimal config needed for attack orchestration.
     Attack-specific configuration should use typed dataclasses
-    from schema_v1.py (ReplayConfigV1, JoinReplayConfigV1, etc.)
+    from schema_v1.py (ReplayConfigV1, JoinDevNonceConfigV1, etc.)
     """
     
     name: str

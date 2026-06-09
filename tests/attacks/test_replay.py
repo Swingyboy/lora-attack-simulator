@@ -7,8 +7,8 @@ from unittest.mock import MagicMock
 from lora_attack_toolkit.attacks.base import AttackConfig
 from lora_attack_toolkit.attacks.packet_capture import CapturedPacket, PacketCapture
 from lora_attack_toolkit.attacks.builtin.replay import ReplayAnalyzer, ReplayAttack
-from lora_attack_toolkit.device.model import SimulatedDevice
-from lora_attack_toolkit.gateway.model import GatewaySimulator
+from lora_attack_toolkit.runtime.device import SimulatedDevice
+from lora_attack_toolkit.runtime.gateway import GatewaySimulator
 from lora_attack_toolkit.core.schema import RadioMetadata
 
 

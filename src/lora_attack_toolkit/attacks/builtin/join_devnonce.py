@@ -13,7 +13,7 @@ from lora_attack_toolkit.attacks.base import BaseAttack
 from lora_attack_toolkit.attacks.packet_capture import PacketCapture
 from lora_attack_toolkit.attacks.result import AttackResult
 from lora_attack_toolkit.attacks.validation import validate_criteria
-from lora_attack_toolkit.lorawan.protocol.frames import build_join_request
+from lora_attack_toolkit.lorawan.frames import build_join_request
 
 if TYPE_CHECKING:
     from logging import Logger

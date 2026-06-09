@@ -10,7 +10,7 @@ from lora_attack_toolkit.attacks.result import AttackResult
 from lora_attack_toolkit.attacks.analyzer import AttackAnalyzer
 from lora_attack_toolkit.attacks.packet_capture import PacketCapture
 from lora_attack_toolkit.attacks.validation import validate_criteria
-from lora_attack_toolkit.lorawan.lifecycle.join import perform_otaa_join
+from lora_attack_toolkit.lorawan.join import perform_otaa_join
 
 if TYPE_CHECKING:
     from lora_attack_toolkit.attacks.context import AttackContext

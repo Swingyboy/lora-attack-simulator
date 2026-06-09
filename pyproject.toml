@@ -19,7 +19,7 @@ dependencies = [
 dev = []
 
 [project.scripts]
-lorat = "lora_attack_toolkit.app.cli:main"
+lorat = "lora_attack_toolkit.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

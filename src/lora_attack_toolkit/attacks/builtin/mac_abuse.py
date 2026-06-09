@@ -10,8 +10,8 @@ from lora_attack_toolkit.attacks.result import AttackResult
 from lora_attack_toolkit.attacks.analyzer import AttackAnalyzer
 from lora_attack_toolkit.attacks.packet_capture import PacketCapture
 from lora_attack_toolkit.attacks.validation import validate_criteria
-from lora_attack_toolkit.lorawan.lifecycle.join import perform_otaa_join
-from lora_attack_toolkit.lorawan.protocol.mac_commands import (
+from lora_attack_toolkit.lorawan.join import perform_otaa_join
+from lora_attack_toolkit.lorawan.mac_commands import (
     CID_DEV_STATUS_REQ,
     CID_LINK_ADR_REQ,
     CID_NEW_CHANNEL_REQ,

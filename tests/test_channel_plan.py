@@ -175,7 +175,7 @@ class TestJoinDevNonceAttackChannelRotation(unittest.TestCase):
         from lora_attack_toolkit.attacks.packet_capture import PacketCapture
         from lora_attack_toolkit.core.schema import RadioMetadata
         from lora_attack_toolkit.core.schema_v1 import parse_join_devnonce_config
-        from lora_attack_toolkit.device.model import SimulatedDevice
+        from lora_attack_toolkit.runtime.device import SimulatedDevice
         from lora_attack_toolkit.lorawan.radio import EU868RegionProfile, Radio
 
         self.attack = JoinDevNonceAttack()
@@ -263,7 +263,7 @@ class TestSendPeriodicUplinksChannelRotation(unittest.TestCase):
 
     def _make_device(self, radio=None):
         from unittest.mock import MagicMock
-        from lora_attack_toolkit.device.model import SimulatedDevice, DeviceRuntime
+        from lora_attack_toolkit.runtime.device import SimulatedDevice, DeviceRuntime
 
         device = MagicMock(spec=SimulatedDevice)
         device.runtime = MagicMock(spec=DeviceRuntime)
@@ -284,7 +284,7 @@ class TestSendPeriodicUplinksChannelRotation(unittest.TestCase):
     def test_uplinks_rotate_through_eu868_channels(self) -> None:
         """send_periodic_uplinks should rotate 868.1 / 868.3 / 868.5 for EU868."""
         from unittest.mock import patch, MagicMock
-        from lora_attack_toolkit.lorawan.lifecycle.join import send_periodic_uplinks
+        from lora_attack_toolkit.lorawan.join import send_periodic_uplinks
 
         device = self._make_device(radio=self._eu868_radio())
         gateway = MagicMock()
@@ -295,7 +295,7 @@ class TestSendPeriodicUplinksChannelRotation(unittest.TestCase):
 
         gateway.forward_uplink.side_effect = capture_freq
 
-        with patch("lora_attack_toolkit.lorawan.lifecycle.join.time.sleep"):
+        with patch("lora_attack_toolkit.lorawan.join.time.sleep"):
             send_periodic_uplinks(device, gateway, self._base_radio(), count=6, interval_sec=0)
 
         self.assertEqual(len(recorded_freqs), 6)
@@ -305,12 +305,12 @@ class TestSendPeriodicUplinksChannelRotation(unittest.TestCase):
     def test_uplink_index_incremented_per_uplink(self) -> None:
         """runtime.uplink_index should advance by 1 for each uplink sent."""
         from unittest.mock import patch, MagicMock
-        from lora_attack_toolkit.lorawan.lifecycle.join import send_periodic_uplinks
+        from lora_attack_toolkit.lorawan.join import send_periodic_uplinks
 
         device = self._make_device(radio=self._eu868_radio())
         gateway = MagicMock()
 
-        with patch("lora_attack_toolkit.lorawan.lifecycle.join.time.sleep"):
+        with patch("lora_attack_toolkit.lorawan.join.time.sleep"):
             send_periodic_uplinks(device, gateway, self._base_radio(), count=4, interval_sec=0)
 
         self.assertEqual(device.runtime.uplink_index, 4)
@@ -318,7 +318,7 @@ class TestSendPeriodicUplinksChannelRotation(unittest.TestCase):
     def test_no_radio_uses_base_radio_frequency(self) -> None:
         """When radio is None, base radio frequency is used unchanged."""
         from unittest.mock import patch, MagicMock
-        from lora_attack_toolkit.lorawan.lifecycle.join import send_periodic_uplinks
+        from lora_attack_toolkit.lorawan.join import send_periodic_uplinks
 
         device = self._make_device(radio=None)
         gateway = MagicMock()
@@ -329,7 +329,7 @@ class TestSendPeriodicUplinksChannelRotation(unittest.TestCase):
 
         gateway.forward_uplink.side_effect = capture_freq
 
-        with patch("lora_attack_toolkit.lorawan.lifecycle.join.time.sleep"):
+        with patch("lora_attack_toolkit.lorawan.join.time.sleep"):
             send_periodic_uplinks(device, gateway, self._base_radio(), count=3, interval_sec=0)
 
         self.assertTrue(all(f == 868_100_000 for f in recorded_freqs))
@@ -337,7 +337,7 @@ class TestSendPeriodicUplinksChannelRotation(unittest.TestCase):
     def test_uplink_after_cflist_uses_extended_channels(self) -> None:
         """After apply_cflist, uplinks should rotate over the extended channel list."""
         from unittest.mock import patch, MagicMock
-        from lora_attack_toolkit.lorawan.lifecycle.join import send_periodic_uplinks
+        from lora_attack_toolkit.lorawan.join import send_periodic_uplinks
 
         radio = self._eu868_radio()
         cflist = bytearray(16)
@@ -355,7 +355,7 @@ class TestSendPeriodicUplinksChannelRotation(unittest.TestCase):
 
         gateway.forward_uplink.side_effect = capture_freq
 
-        with patch("lora_attack_toolkit.lorawan.lifecycle.join.time.sleep"):
+        with patch("lora_attack_toolkit.lorawan.join.time.sleep"):
             send_periodic_uplinks(device, gateway, self._base_radio(), count=4, interval_sec=0)
 
         # After CFList: [868.1, 868.3, 868.5, 867.1] → 4 uplinks cover all

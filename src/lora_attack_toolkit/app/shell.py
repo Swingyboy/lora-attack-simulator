@@ -17,7 +17,7 @@ from typing import Any
 
 import cmd2
 
-from lora_attack_toolkit.app.session import Session
+from lora_attack_toolkit.runtime.session import Session
 
 
 @dataclass
@@ -763,7 +763,7 @@ class LoRaWANShell(cmd2.Cmd):
 
             logger = logging.getLogger("lora_attack_toolkit")
             
-            from lora_attack_toolkit.app.runner import AttackRunner
+            from lora_attack_toolkit.runner import AttackRunner
             
             runner = AttackRunner(logger=logger)
             print(f"\n🚀 Starting attack execution...\n")

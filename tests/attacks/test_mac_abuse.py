@@ -9,8 +9,8 @@ from unittest.mock import MagicMock
 from lora_attack_toolkit.attacks.context import AttackContext, AttackInput, AttackServices
 from lora_attack_toolkit.attacks.builtin.mac_abuse import MACCommandAbuse, MACCommandAnalyzer
 from lora_attack_toolkit.attacks.packet_capture import PacketCapture
-from lora_attack_toolkit.device.model import SimulatedDevice
-from lora_attack_toolkit.gateway.model import GatewaySimulator
+from lora_attack_toolkit.runtime.device import SimulatedDevice
+from lora_attack_toolkit.runtime.gateway import GatewaySimulator
 from lora_attack_toolkit.core.schema import RadioMetadata
 from lora_attack_toolkit.core.schema_v1 import MACCommandConfigV1
 

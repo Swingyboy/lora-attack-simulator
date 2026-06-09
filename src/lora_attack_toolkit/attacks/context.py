@@ -8,8 +8,8 @@ from logging import Logger
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from lora_attack_toolkit.device.model import SimulatedDevice
-    from lora_attack_toolkit.gateway.model import GatewaySimulator
+    from lora_attack_toolkit.runtime.device import SimulatedDevice
+    from lora_attack_toolkit.runtime.gateway import GatewaySimulator
     from lora_attack_toolkit.core.schema import RadioMetadata
     from lora_attack_toolkit.core.schema_v1 import ExpectedBehavior
     from lora_attack_toolkit.attacks.packet_capture import PacketCapture
@@ -46,8 +46,7 @@ class AttackInput:
     
     The typed_config field should hold one of:
     - ReplayConfigV1 (for uplink replay attacks)
-    - JoinReplayConfigV1 (for join replay attacks)
-    - JoinFloodConfigV1 (for join flood attacks)
+    - JoinDevNonceConfigV1 (for join devnonce attacks)
     - MACCommandConfigV1 (for MAC command attacks)
     - Any custom typed config for custom attacks
     
@@ -58,7 +57,7 @@ class AttackInput:
     """
     
     # Typed attack configuration (from schema_v1.py parsers)
-    typed_config: Any  # ReplayConfigV1, JoinReplayConfigV1, etc
+    typed_config: Any  # ReplayConfigV1, JoinDevNonceConfigV1, etc
     
     # Expected behavior / security criteria
     expected_behavior: ExpectedBehavior | None
@@ -129,7 +128,7 @@ class AttackContext:
         """
         Shortcut to typed attack config (preferred).
         
-        Returns the typed config object (ReplayConfigV1, JoinReplayConfigV1, etc).
+        Returns the typed config object (ReplayConfigV1, JoinDevNonceConfigV1, etc).
         Falls back to raw dict if typed_config is not available.
         """
         return self.input.typed_config if self.input.typed_config is not None else self.input.attack_config

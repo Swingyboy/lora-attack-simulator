@@ -9,8 +9,8 @@ from unittest.mock import patch
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 from lora_attack_toolkit.transport.in_memory import InMemoryTransport
-from lora_attack_toolkit.device.model import SimulatedDevice
-from lora_attack_toolkit.gateway.model import GatewaySimulator
+from lora_attack_toolkit.runtime.device import SimulatedDevice
+from lora_attack_toolkit.runtime.gateway import GatewaySimulator
 from lora_attack_toolkit.core.schema import RadioMetadata
 
 
@@ -23,7 +23,7 @@ def _build_join_accept(app_key_hex: str, dev_addr_hex: str) -> bytes:
     rx_delay = bytes([0x01])
     plain_wo_mic = app_nonce + net_id + dev_addr_le + dl_settings + rx_delay
 
-    from lora_attack_toolkit.lorawan.protocol.crypto_v103 import aes_cmac_4
+    from lora_attack_toolkit.lorawan.crypto import aes_cmac_4
 
     mhdr = bytes([0x20])
     mic = aes_cmac_4(app_key, mhdr + plain_wo_mic)
@@ -116,7 +116,7 @@ class DeviceCryptoFlowTests(unittest.TestCase):
             snr=7.5,
         )
         with patch(
-            "lora_attack_toolkit.gateway.model.time.monotonic",
+            "lora_attack_toolkit.runtime.gateway.time.monotonic",
             side_effect=[0.0, 0.2, 1.1, 1.1],
         ):
             gateway.start()

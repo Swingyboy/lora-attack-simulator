@@ -19,8 +19,8 @@ from lora_attack_toolkit.attacks.registry import AttackRegistry
 from lora_attack_toolkit.attacks.bootstrap import register_builtin_attacks
 from lora_attack_toolkit.core.schema import RadioMetadata
 from lora_attack_toolkit.core.schema_v1 import JoinDevNonceConfigV1, parse_join_devnonce_config
-from lora_attack_toolkit.device.model import SimulatedDevice
-from lora_attack_toolkit.gateway.model import GatewaySimulator
+from lora_attack_toolkit.runtime.device import SimulatedDevice
+from lora_attack_toolkit.runtime.gateway import GatewaySimulator
 
 
 def _step(dev_nonce: bytes, *, accepted: bool, ts: float = 0.0) -> JoinStepResult:
@@ -350,7 +350,7 @@ class TestJoinDevNonceAttack(unittest.TestCase):
 
     def test_execute_join_step_sets_runtime_dev_nonce(self) -> None:
         """runtime.dev_nonce must be set before apply_join_accept is called."""
-        from lora_attack_toolkit.device.model import DeviceRuntime
+        from lora_attack_toolkit.runtime.device import DeviceRuntime
 
         attack = JoinDevNonceAttack()
         dev_nonce = b"\x05\x00"
