@@ -202,38 +202,6 @@ class TestRadioChannelSelection(unittest.TestCase):
 # ─── EU868ChannelPlan — CFList accumulation fix ───────────────────────────────
 
 
-class TestEU868ChannelPlanCFListFix(unittest.TestCase):
-    """Verify the same replacement semantics in EU868ChannelPlan itself."""
-
-    def _plan(self):
-        from lora_attack_toolkit.lorawan.channel_plan import EU868ChannelPlan
-        return EU868ChannelPlan()
-
-    def _cflist(self, freqs: list[int]) -> bytes:
-        return _cflist(freqs)
-
-    def test_cflist_replaces_previous(self) -> None:
-        plan = self._plan()
-        plan.apply_cflist(self._cflist([867_100_000]))
-        plan.apply_cflist(self._cflist([867_300_000]))
-        freqs = [c.frequency_hz for c in plan.get_uplink_channels()]
-        self.assertNotIn(867_100_000, freqs)
-        self.assertIn(867_300_000, freqs)
-
-    def test_base_channels_preserved(self) -> None:
-        plan = self._plan()
-        plan.apply_cflist(self._cflist([867_100_000]))
-        freqs = [c.frequency_hz for c in plan.get_uplink_channels()]
-        for ch in EU868_BASE:
-            self.assertIn(ch, freqs)
-
-    def test_no_infinite_growth(self) -> None:
-        plan = self._plan()
-        for seed in range(10):
-            plan.apply_cflist(self._cflist([867_100_000 + seed * 200_000]))
-        self.assertLessEqual(len(plan.get_uplink_channels()), 8)
-
-
 # ─── Integration — device apply_join_accept updates Radio ────────────────────
 
 

@@ -24,6 +24,8 @@ Typical usage::
 from __future__ import annotations
 
 import logging
+import math
+import re
 import time as _time
 from abc import ABC
 from dataclasses import dataclass
@@ -32,6 +34,45 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from lora_attack_toolkit.lorawan.mac_commands import MACCommand
+
+
+# ─── On-air time calculator ───────────────────────────────────────────────────
+
+
+class AirtimeCalculator:
+    """LoRa on-air time calculator (Semtech AN1200.13 formula)."""
+
+    @staticmethod
+    def calculate(data_rate: str, payload_size_bytes: int) -> float:
+        """Calculate LoRa packet airtime in seconds.
+
+        Args:
+            data_rate: Data rate string (e.g., "SF7BW125").
+            payload_size_bytes: Full PHYPayload size in bytes.
+
+        Returns:
+            Estimated on-air time in seconds.
+        """
+        m = re.match(r"SF(\d+)BW(\d+)", data_rate.upper())
+        if not m:
+            return 0.1  # conservative fallback for unknown formats
+
+        sf = int(m.group(1))
+        bw_hz = int(m.group(2)) * 1_000  # kHz → Hz
+
+        t_sym = (2 ** sf) / bw_hz
+        t_preamble = (8 + 4.25) * t_sym
+
+        de = 1 if t_sym >= 0.016 else 0
+        cr = 1
+        ih = 0
+        pl = payload_size_bytes
+
+        num = max(8 * pl - 4 * sf + 28 + 16 - 20 * ih, 0)
+        den = 4 * (sf - 2 * de)
+        payload_symb_nb = 8 + math.ceil(num / den) * (cr + 4)
+
+        return t_preamble + payload_symb_nb * t_sym
 
 
 # ─── Region profiles ──────────────────────────────────────────────────────────
@@ -417,8 +458,6 @@ class Radio:
 
     def _reserve(self, freq_hz: int, payload_size: int, now: float) -> None:
         """Record a conservative transmission reservation for duty-cycle tracking."""
-        from lora_attack_toolkit.lorawan.channel_plan import AirtimeCalculator
-
         airtime = AirtimeCalculator.calculate(self._data_rate, payload_size)
         self.record_transmission(freq_hz, airtime, now)
 

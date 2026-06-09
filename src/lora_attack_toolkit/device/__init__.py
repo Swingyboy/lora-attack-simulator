@@ -1,3 +1,0 @@
-"""
-LoRaWAN device simulation.
-"""
