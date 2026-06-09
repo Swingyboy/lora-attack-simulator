@@ -48,6 +48,8 @@ def parse_custom_attack_config(raw: dict[str, Any]) -> CustomAttackConfig:
 class CustomAttack(BaseAttack):
     """Example attack: sends a configurable burst of data uplinks."""
 
+    name = "custom_uplink_burst"
+
     def run(self, ctx: AttackContext) -> AttackResult:
         """Execute the attack.
 
@@ -60,26 +62,38 @@ class CustomAttack(BaseAttack):
         logger.info("Custom attack: performing OTAA join")
         from lora_attack_toolkit.lorawan.join import perform_otaa_join
 
-        join_result = perform_otaa_join(
+        joined = perform_otaa_join(
             device=ctx.device,
             gateway=ctx.gateway,
             radio=ctx.radio,
+            timeout_sec=10.0,
             logger=logger,
-            join_accept_timeout_sec=10.0,
         )
-        if not join_result.success:
-            return AttackResult(success=False, message=f"OTAA join failed: {join_result.message}")
+        if not joined:
+            return AttackResult(
+                attack_name=self.name,
+                attack_type=self.name,
+                success=False,
+                message="OTAA join failed",
+            )
 
         logger.info("OTAA join successful; sending %d uplinks", cfg.burst_size)
         for i in range(cfg.burst_size):
             payload = f"uplink-{i}".encode()
-            uplink_frame = ctx.device.build_data_uplink(payload=payload, fport=1, confirmed=False)
+            uplink_frame = ctx.device.build_data_uplink(
+                payload=payload, f_port=1, confirmed=False
+            )
             ctx.gateway.forward_uplink(uplink_frame, ctx.radio)
             if i < cfg.burst_size - 1:
                 time.sleep(cfg.interval_sec)
 
         logger.info("Burst complete: %d uplinks sent", cfg.burst_size)
-        return AttackResult(success=True, message=f"Sent {cfg.burst_size} uplinks")
+        return AttackResult(
+            attack_name=self.name,
+            attack_type=self.name,
+            success=True,
+            message=f"Sent {cfg.burst_size} uplinks",
+        )
 
 
 # ─── Step 3: Register the attack ─────────────────────────────────────────────
@@ -87,10 +101,10 @@ class CustomAttack(BaseAttack):
 
 AttackRegistry.register(
     AttackSpec(
-        id="custom_uplink_burst",
+        name="custom_uplink_burst",
         title="Custom Uplink Burst",
         category="custom",
-        attack_type="custom_uplink_burst",
+        description="Send a configurable burst of uplinks to test rate limiting",
         attack_class=CustomAttack,
         config_parser=parse_custom_attack_config,
     )
