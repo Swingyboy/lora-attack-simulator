@@ -176,6 +176,7 @@ class TestJoinDevNonceAttackChannelRotation(unittest.TestCase):
         from lora_attack_toolkit.core.schema import RadioMetadata
         from lora_attack_toolkit.core.schema_v1 import parse_join_devnonce_config
         from lora_attack_toolkit.device.model import SimulatedDevice
+        from lora_attack_toolkit.lorawan.radio import EU868RegionProfile, Radio
 
         self.attack = JoinDevNonceAttack()
         self.config = parse_join_devnonce_config({
@@ -194,7 +195,7 @@ class TestJoinDevNonceAttackChannelRotation(unittest.TestCase):
         logger = getLogger("test")
         device = MagicMock(spec=SimulatedDevice)
         device.runtime = MagicMock()
-        device.runtime.channel_plan = EU868ChannelPlan()
+        device.runtime.radio = Radio(EU868RegionProfile(), duty_cycle_enforcement=False)
         device._join_eui = b"\x00" * 8
         device._dev_eui = b"\x00" * 8
         device._app_key = b"\x00" * 16
@@ -235,9 +236,9 @@ class TestJoinDevNonceAttackChannelRotation(unittest.TestCase):
         self.assertEqual(recorded_freqs[1], 868_300_000)
         self.assertEqual(recorded_freqs[2], 868_500_000)
 
-    def test_no_channel_plan_falls_back_to_ctx_radio(self) -> None:
-        """When channel_plan is None, ctx.radio frequency is used unchanged."""
-        self.ctx.device.runtime.channel_plan = None
+    def test_no_radio_falls_back_to_ctx_radio(self) -> None:
+        """When radio is None, ctx.radio frequency is used unchanged."""
+        self.ctx.device.runtime.radio = None
         recorded_freqs = []
 
         def capture_freq(payload, radio):
@@ -260,13 +261,13 @@ class TestJoinDevNonceAttackChannelRotation(unittest.TestCase):
 class TestSendPeriodicUplinksChannelRotation(unittest.TestCase):
     """Tests for uplink channel selection in send_periodic_uplinks."""
 
-    def _make_device(self, channel_plan=None):
+    def _make_device(self, radio=None):
         from unittest.mock import MagicMock
         from lora_attack_toolkit.device.model import SimulatedDevice, DeviceRuntime
 
         device = MagicMock(spec=SimulatedDevice)
         device.runtime = MagicMock(spec=DeviceRuntime)
-        device.runtime.channel_plan = channel_plan
+        device.runtime.radio = radio
         device.runtime.uplink_index = 0
         device.runtime.fcnt_up = 1
         device.build_data_uplink.return_value = b"\x00" * 12
@@ -276,12 +277,16 @@ class TestSendPeriodicUplinksChannelRotation(unittest.TestCase):
         from lora_attack_toolkit.core.schema import RadioMetadata
         return RadioMetadata(frequency=868_100_000, data_rate="SF7BW125", rssi=-70, snr=6.0)
 
+    def _eu868_radio(self, **kwargs) -> "Radio":
+        from lora_attack_toolkit.lorawan.radio import EU868RegionProfile, Radio
+        return Radio(EU868RegionProfile(), duty_cycle_enforcement=False, **kwargs)
+
     def test_uplinks_rotate_through_eu868_channels(self) -> None:
         """send_periodic_uplinks should rotate 868.1 / 868.3 / 868.5 for EU868."""
         from unittest.mock import patch, MagicMock
         from lora_attack_toolkit.lorawan.lifecycle.join import send_periodic_uplinks
 
-        device = self._make_device(channel_plan=EU868ChannelPlan())
+        device = self._make_device(radio=self._eu868_radio())
         gateway = MagicMock()
         recorded_freqs = []
 
@@ -302,7 +307,7 @@ class TestSendPeriodicUplinksChannelRotation(unittest.TestCase):
         from unittest.mock import patch, MagicMock
         from lora_attack_toolkit.lorawan.lifecycle.join import send_periodic_uplinks
 
-        device = self._make_device(channel_plan=EU868ChannelPlan())
+        device = self._make_device(radio=self._eu868_radio())
         gateway = MagicMock()
 
         with patch("lora_attack_toolkit.lorawan.lifecycle.join.time.sleep"):
@@ -310,12 +315,12 @@ class TestSendPeriodicUplinksChannelRotation(unittest.TestCase):
 
         self.assertEqual(device.runtime.uplink_index, 4)
 
-    def test_no_channel_plan_uses_base_radio_frequency(self) -> None:
-        """When channel_plan is None, base radio frequency is used unchanged."""
+    def test_no_radio_uses_base_radio_frequency(self) -> None:
+        """When radio is None, base radio frequency is used unchanged."""
         from unittest.mock import patch, MagicMock
         from lora_attack_toolkit.lorawan.lifecycle.join import send_periodic_uplinks
 
-        device = self._make_device(channel_plan=None)
+        device = self._make_device(radio=None)
         gateway = MagicMock()
         recorded_freqs = []
 
@@ -334,20 +339,19 @@ class TestSendPeriodicUplinksChannelRotation(unittest.TestCase):
         from unittest.mock import patch, MagicMock
         from lora_attack_toolkit.lorawan.lifecycle.join import send_periodic_uplinks
 
-        plan = EU868ChannelPlan()
-        # Add one extra channel via CFList
+        radio = self._eu868_radio()
         cflist = bytearray(16)
         freq_raw = (867_100_000 // 100).to_bytes(3, "little")
         cflist[0:3] = freq_raw
         cflist[15] = 0
-        plan.apply_cflist(bytes(cflist))
+        radio.apply_cflist(bytes(cflist))
 
-        device = self._make_device(channel_plan=plan)
+        device = self._make_device(radio=radio)
         gateway = MagicMock()
         recorded_freqs = []
 
-        def capture_freq(payload, radio):
-            recorded_freqs.append(radio.frequency)
+        def capture_freq(payload, radio_meta):
+            recorded_freqs.append(radio_meta.frequency)
 
         gateway.forward_uplink.side_effect = capture_freq
 

@@ -367,10 +367,10 @@ class JoinDevNonceAttack(BaseAttack):
         )
 
         ctx.logger.debug(
-            "JoinRequest #%d frequency=%d (channel plan: %s)",
+            "JoinRequest #%d frequency=%d (region: %s)",
             attempt_index,
             radio.frequency,
-            getattr(ctx.device.runtime.channel_plan, "region", "none"),
+            getattr(ctx.device.runtime.radio, "region_name", "none"),
         )
 
         ctx.gateway.forward_uplink(join_request, radio)
@@ -407,15 +407,16 @@ class JoinDevNonceAttack(BaseAttack):
         )
 
     def _select_join_radio(self, ctx: "AttackContext", attempt_index: int) -> Any:
-        """Return RadioMetadata for this JoinRequest, using channel plan when available."""
+        """Return RadioMetadata for this JoinRequest, using Radio when available."""
         from lora_attack_toolkit.core.schema import RadioMetadata
+        from lora_attack_toolkit.lorawan.radio import Radio
 
-        channel_plan = ctx.device.runtime.channel_plan
-        if channel_plan is not None:
-            channel = channel_plan.select_join_channel(attempt_index - 1, now=time.time())
+        radio = ctx.device.runtime.radio
+        if isinstance(radio, Radio):
+            tx = radio.select_join_channel(attempt_index - 1, now=time.time())
             return RadioMetadata(
-                frequency=channel.frequency_hz,
-                data_rate=channel.data_rate,
+                frequency=tx.frequency_hz,
+                data_rate=tx.data_rate,
                 rssi=ctx.radio.rssi,
                 snr=ctx.radio.snr,
             )

@@ -28,8 +28,7 @@ from lora_attack_toolkit.lorawan.protocol.mac_commands import (
 )
 
 if TYPE_CHECKING:
-    from lora_attack_toolkit.lorawan.channel_plan import RegionChannelPlan
-    from lora_attack_toolkit.radio.radio import Radio
+    from lora_attack_toolkit.lorawan.radio import Radio
 
 
 @dataclass
@@ -71,12 +70,11 @@ class DeviceRuntime:
     nwk_s_key: bytes = b""
     app_s_key: bytes = b""
     fcnt_up: int = 0
-    fcnt_down: int = 0           # Track downlink frame counter
-    adr: DeviceRadioState = field(default_factory=DeviceRadioState)  # ADR / MAC-command state
-    radio: "Radio | None" = None  # Radio abstraction (channel plan + CFList + DR/power)
-    channel_plan: "RegionChannelPlan | None" = None  # Region channel plan (set by factory)
-    join_attempt_index: int = 0   # Incremented on each JoinRequest, drives channel rotation
-    uplink_index: int = 0         # Incremented on each uplink, drives channel rotation
+    fcnt_down: int = 0
+    adr: DeviceRadioState = field(default_factory=DeviceRadioState)
+    radio: "Radio | None" = None  # Owns channel selection, CFList, duty-cycle, DR/power
+    join_attempt_index: int = 0
+    uplink_index: int = 0
 
     @property
     def dev_addr_hex(self) -> str:
@@ -123,23 +121,14 @@ class SimulatedDevice:
         self.runtime.fcnt_up = 0
         self.runtime.fcnt_down = 0
 
-        # Apply CFList channel updates
-        if parsed.cflist is not None:
-            if self.runtime.radio is not None:
-                self.runtime.radio.apply_cflist(parsed.cflist)
-                if self._logger:
-                    self._logger.info(
-                        "Applied CFList; active uplink channels: %s",
-                        self.runtime.radio.get_active_uplink_channels(),
-                    )
-            elif self.runtime.channel_plan is not None:
-                self.runtime.channel_plan.apply_cflist(parsed.cflist)
-                if self._logger:
-                    channels = self.runtime.channel_plan.get_uplink_channels()
-                    self._logger.info(
-                        "Applied CFList; active uplink channels: %s",
-                        [c.frequency_hz for c in channels],
-                    )
+        # Apply CFList channel updates via Radio
+        if parsed.cflist is not None and self.runtime.radio is not None:
+            self.runtime.radio.apply_cflist(parsed.cflist)
+            if self._logger:
+                self._logger.info(
+                    "Applied CFList; active uplink channels: %s",
+                    self.runtime.radio.get_active_uplink_channels(),
+                )
 
     def build_data_uplink(self, payload: bytes, f_port: int, confirmed: bool) -> bytes:
         if not self.runtime.joined:

@@ -9,7 +9,7 @@ from lora_attack_toolkit.device.model import SimulatedDevice
 from lora_attack_toolkit.gateway.model import GatewaySimulator
 from lora_attack_toolkit.core.schema import RadioMetadata
 from lora_attack_toolkit.lorawan.channel_plan import AirtimeCalculator
-from lora_attack_toolkit.radio.radio import Radio
+from lora_attack_toolkit.lorawan.radio import Radio
 
 
 def perform_otaa_join(
@@ -261,7 +261,6 @@ def send_periodic_uplinks(
             now = time.time()
             uplink_radio = _select_uplink_radio(device, radio, now=now)
 
-            # Build data uplink with simple incrementing payload
             payload = bytes([i % 256])
             uplink = device.build_data_uplink(
                 payload=payload,
@@ -271,13 +270,10 @@ def send_periodic_uplinks(
 
             gateway.forward_uplink(uplink, uplink_radio)
 
-            # Record actual airtime for Duty Cycle bookkeeping
-            channel_plan = device.runtime.channel_plan
-            if channel_plan is not None and channel_plan.supports_duty_cycle():
-                channels = channel_plan.get_uplink_channels()
-                ch = channels[device.runtime.uplink_index % len(channels)]
+            # Record actual airtime so Radio can enforce duty-cycle correctly.
+            if isinstance(device.runtime.radio, Radio) and device.runtime.radio.supports_duty_cycle():
                 airtime = AirtimeCalculator.calculate(uplink_radio.data_rate, len(uplink))
-                channel_plan.record_transmission(ch, airtime, now)
+                device.runtime.radio.record_transmission(uplink_radio.frequency, airtime, now)
 
             device.runtime.uplink_index += 1
             sent_count += 1
@@ -304,28 +300,15 @@ def send_periodic_uplinks(
 def _select_uplink_radio(device: SimulatedDevice, base_radio: RadioMetadata, now: float | None = None) -> RadioMetadata:
     """Return RadioMetadata for the next uplink.
 
-    Priority:
-    1. ``device.runtime.radio`` (new :class:`~lora_attack_toolkit.radio.radio.Radio`
-       abstraction) — simple round-robin, no duty-cycle enforcement yet.
-    2. ``device.runtime.channel_plan`` — legacy path with duty-cycle enforcement.
-    3. ``base_radio`` — unchanged fallback when no channel plan is configured.
+    Uses ``device.runtime.radio`` (the :class:`~lora_attack_toolkit.lorawan.radio.Radio`
+    abstraction) when available, otherwise falls back to *base_radio*.
     """
     radio = device.runtime.radio
     if isinstance(radio, Radio):
-        freq = radio.get_next_uplink_channel()
+        tx = radio.select_uplink_channel(device.runtime.uplink_index, now=now)
         return RadioMetadata(
-            frequency=freq,
-            data_rate=radio.get_current_data_rate(),
-            rssi=base_radio.rssi,
-            snr=base_radio.snr,
-        )
-
-    channel_plan = device.runtime.channel_plan
-    if channel_plan is not None:
-        channel = channel_plan.select_uplink_channel(device.runtime.uplink_index, now=now)
-        return RadioMetadata(
-            frequency=channel.frequency_hz,
-            data_rate=channel.data_rate,
+            frequency=tx.frequency_hz,
+            data_rate=tx.data_rate,
             rssi=base_radio.rssi,
             snr=base_radio.snr,
         )

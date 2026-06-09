@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import unittest
 
-from lora_attack_toolkit.radio.eu868 import EU868RegionProfile
-from lora_attack_toolkit.radio.radio import Radio
+from lora_attack_toolkit.lorawan.radio import EU868RegionProfile
+from lora_attack_toolkit.lorawan.radio import Radio
 
 
 EU868_BASE = [868_100_000, 868_300_000, 868_500_000]
@@ -240,7 +240,7 @@ class TestEU868ChannelPlanCFListFix(unittest.TestCase):
 class TestDeviceRadioIntegration(unittest.TestCase):
     def _make_device(self) -> object:
         from lora_attack_toolkit.device.model import SimulatedDevice
-        from lora_attack_toolkit.radio import EU868RegionProfile, Radio
+        from lora_attack_toolkit.lorawan.radio import EU868RegionProfile, Radio
 
         device = SimulatedDevice(
             dev_eui="0011223344556677",

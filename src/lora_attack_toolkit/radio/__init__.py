@@ -1,18 +1,14 @@
-"""Radio abstraction layer.
+"""Re-exports from ``lora_attack_toolkit.lorawan.radio``.
 
-Provides a device-facing API for managing simulated radio state:
-channel selection, CFList processing, data-rate / TX-power state, and
-future MAC-command / ADR integration.
-
-Public API
-----------
-* :class:`~lora_attack_toolkit.radio.radio.Radio` — stateful radio instance
-* :class:`~lora_attack_toolkit.radio.regions.RegionProfile` — abstract region base
-* :class:`~lora_attack_toolkit.radio.eu868.EU868RegionProfile` — EU868 parameters
+.. deprecated::
+    Import directly from :mod:`lora_attack_toolkit.lorawan.radio` instead.
 """
 
-from lora_attack_toolkit.radio.eu868 import EU868RegionProfile
-from lora_attack_toolkit.radio.radio import Radio
-from lora_attack_toolkit.radio.regions import RegionProfile
+from lora_attack_toolkit.lorawan.radio import (  # noqa: F401
+    EU868RegionProfile,
+    Radio,
+    RadioTxParams,
+    RegionProfile,
+)
 
-__all__ = ["Radio", "RegionProfile", "EU868RegionProfile"]
+__all__ = ["Radio", "RegionProfile", "EU868RegionProfile", "RadioTxParams"]
