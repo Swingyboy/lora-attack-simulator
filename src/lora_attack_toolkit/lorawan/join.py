@@ -7,7 +7,7 @@ from logging import Logger
 
 from lora_attack_toolkit.runtime.device import SimulatedDevice
 from lora_attack_toolkit.runtime.gateway import GatewaySimulator
-from lora_attack_toolkit.core.schema import RadioMetadata
+from lora_attack_toolkit.config import RadioMetadata
 from lora_attack_toolkit.lorawan.channel_plan import AirtimeCalculator
 from lora_attack_toolkit.lorawan.radio import Radio
 

@@ -11,7 +11,7 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from lora_attack_toolkit.transport.in_memory import InMemoryTransport
 from lora_attack_toolkit.runtime.device import SimulatedDevice
 from lora_attack_toolkit.runtime.gateway import GatewaySimulator
-from lora_attack_toolkit.core.schema import RadioMetadata
+from lora_attack_toolkit.config import RadioMetadata
 
 
 def _build_join_accept(app_key_hex: str, dev_addr_hex: str) -> bytes:

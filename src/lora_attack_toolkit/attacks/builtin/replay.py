@@ -14,7 +14,7 @@ from lora_attack_toolkit.lorawan.join import perform_otaa_join
 
 if TYPE_CHECKING:
     from lora_attack_toolkit.attacks.context import AttackContext
-    from lora_attack_toolkit.core.schema_v1 import ExpectedBehavior, ReplayConfigV1
+    from lora_attack_toolkit.config import ExpectedBehavior, ReplayConfigV1
 
 
 class ReplayAnalyzer(AttackAnalyzer):

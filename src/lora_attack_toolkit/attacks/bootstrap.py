@@ -12,7 +12,7 @@ from lora_attack_toolkit.attacks.builtin.join_devnonce import JoinDevNonceAttack
 from lora_attack_toolkit.attacks.builtin.mac_abuse import MACCommandAbuse
 from lora_attack_toolkit.attacks.registry import AttackRegistry, AttackSpec
 from lora_attack_toolkit.attacks.builtin.replay import UplinkReplayAttack
-from lora_attack_toolkit.core.schema_v1 import (
+from lora_attack_toolkit.config import (
     parse_join_devnonce_config,
     parse_mac_command_config,
     parse_replay_config,

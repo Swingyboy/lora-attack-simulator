@@ -8,7 +8,7 @@ from lora_attack_toolkit.transport.transport import TransportClient
 from lora_attack_toolkit.transport.resilient import ResilientTransport
 from lora_attack_toolkit.transport.retry import RetryPolicy
 from lora_attack_toolkit.transport.udp import UdpTransport
-from lora_attack_toolkit.core.schema import RadioMetadata, GatewayConfig
+from lora_attack_toolkit.config import RadioMetadata, GatewayConfig
 from lora_attack_toolkit.lorawan.semtech_udp import (
     PULL_ACK,
     PULL_RESP,
@@ -141,7 +141,7 @@ class GatewaySimulator:
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from lora_attack_toolkit.core.schema_v1 import GatewayConfigV1, TargetConfig
+    from lora_attack_toolkit.config import GatewayConfigV1, TargetConfig
 
 
 def create_gateway(

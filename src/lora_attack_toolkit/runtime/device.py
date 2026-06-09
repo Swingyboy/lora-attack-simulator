@@ -28,7 +28,7 @@ from lora_attack_toolkit.lorawan.mac_commands import (
 )
 
 from lora_attack_toolkit.lorawan.radio import EU868RegionProfile, Radio, RegionProfile
-from lora_attack_toolkit.core.schema import DeviceConfig
+from lora_attack_toolkit.config import DeviceConfig
 
 
 @dataclass

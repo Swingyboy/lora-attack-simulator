@@ -673,7 +673,7 @@ class LoRaWANConsole(cmd2.Cmd):
         print("Validating scenario configuration...")
         
         try:
-            from lora_attack_toolkit.core.loader import load_attack_scenario
+            from lora_attack_toolkit.config import load_attack_scenario
             import tempfile
             
             with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
@@ -725,7 +725,7 @@ class LoRaWANConsole(cmd2.Cmd):
                 json.dump(self.session.scenario_data, tmp, indent=2)
                 tmp_path = tmp.name
             
-            from lora_attack_toolkit.core.loader import load_attack_scenario
+            from lora_attack_toolkit.config import load_attack_scenario
             scenario = load_attack_scenario(tmp_path)
             
         except Exception as e:

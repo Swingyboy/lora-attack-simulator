@@ -26,9 +26,9 @@ from lora_attack_toolkit.lorawan.mac_commands import (
 
 if TYPE_CHECKING:
     from lora_attack_toolkit.attacks.context import AttackContext
-    from lora_attack_toolkit.core.schema_v1 import ExpectedBehavior, MACCommandConfigV1
+    from lora_attack_toolkit.config import ExpectedBehavior, MACCommandConfigV1
 
-from lora_attack_toolkit.core.schema_v1 import MACCommandConfigV1
+from lora_attack_toolkit.config import MACCommandConfigV1
 
 
 class MACCommandAnalyzer(AttackAnalyzer):

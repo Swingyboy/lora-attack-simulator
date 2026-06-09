@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from lora_attack_toolkit.runtime.device import SimulatedDevice
     from lora_attack_toolkit.runtime.gateway import GatewaySimulator
-    from lora_attack_toolkit.core.schema import RadioMetadata
-    from lora_attack_toolkit.core.schema_v1 import ExpectedBehavior
+    from lora_attack_toolkit.config import RadioMetadata
+    from lora_attack_toolkit.config import ExpectedBehavior
     from lora_attack_toolkit.attacks.packet_capture import PacketCapture
 
 

@@ -33,46 +33,25 @@ lorat --help
 
 ## Quick Start
 
-### 1. Interactive Shell Mode
+### 1. Interactive Mode
 
 ```bash
 lorat
 ```
 
 ```
-LoRAT v0.2.0 - LoRa Attack Toolkit
-Type 'help' for available commands.
-
-lorat > load scenarios/join-devnonce-v1.json
-✓ Loaded scenario: Join DevNonce Validation
-
-lorat > set logging.level debug
-✓ Log level changed to: DEBUG
-
+lorat > show scenarios
+lorat > use join-devnonce-v1
+lorat > set target.host 192.168.1.10
+lorat > show options
 lorat > run
-🚀 Starting attack execution...
-[INFO] Starting attack: join-rollback-v1
-...
-✓ Attack completed successfully
-
-lorat > show results
-Attack: join_devnonce
-Status: SECURE
-Message: NS correctly rejected invalid DevNonces
-...
 ```
 
-### 2. Command-Line Mode
+### 2. Single Command Mode
 
 ```bash
-# Run attack scenario
-lorat run scenarios/join-devnonce-v1.json
-
-# Validate scenario file
-lorat validate scenarios/custom-attack.json
-
-# Get help
-lorat --help
+# Execute one console command and exit
+lorat "use join-devnonce-v1"
 ```
 
 ## Attack Types
@@ -241,7 +220,37 @@ AttackRegistry.register(
 ```json
 {
   "scenario": {
-    "timeout_sec": 30
+    "description": "Custom attack scenario",
+    "timeout_sec": 30.0
+  },
+  "target": {
+    "name": "chirpstack-local",
+    "transport": "semtech_udp",
+    "host": "127.0.0.1",
+    "port": 1700
+  },
+  "gateway": {
+    "gateway_eui": "0102030405060708",
+    "pull_data_interval_sec": 5,
+    "radio": {
+      "region": "EU868",
+      "frequency_hz": 868100000,
+      "data_rate": "SF7BW125",
+      "rssi": -60,
+      "snr": 7.5
+    }
+  },
+  "device": {
+    "name": "test-device",
+    "lorawan_version": "1.0.3",
+    "region": "EU868",
+    "class": "A",
+    "activation": {
+      "mode": "OTAA",
+      "dev_eui": "0011223344556677",
+      "join_eui": "0011223344556677",
+      "app_key": "00112233445566770011223344556677"
+    }
   },
   "attack": {
     "type": "custom_attack",
@@ -251,6 +260,11 @@ AttackRegistry.register(
   },
   "expected": {
     "profile": "lorawan_1_0_3_devnonce_validation"
+  },
+  "logging": {
+    "level": "INFO",
+    "log_phy_payload": true,
+    "log_semtech_udp": true
   }
 }
 ```
@@ -329,21 +343,32 @@ Built-in profiles:
 
 ```
 src/lora_attack_toolkit/
-├── app/                 # CLI and shell interface
-│   ├── cli.py
-│   ├── runner.py
-│   └── shell.py
-├── attacks/            # Attack plugin system
-│   ├── base.py         # BaseAttack interface
-│   ├── context.py      # AttackContext
-│   ├── registry.py     # AttackRegistry
-│   └── builtin/        # Built-in attacks
-├── core/               # Configuration and schemas
-├── lorawan/            # LoRaWAN protocol implementation
-├── device/             # Device simulation
-├── gateway/            # Gateway simulation
-├── transport/          # Network transport
-└── metrics/            # Metrics and analysis
+├── main.py              # Entry point: argparse, bootstrap, session, logging
+├── runner.py            # Attack scenario runner
+├── config.py            # All configuration types and scenario loader
+├── app/
+│   ├── console.py       # Interactive command loop (LoRaWANConsole)
+│   └── params.py        # Parameter metadata for autocomplete/help
+├── attacks/             # Attack plugin system
+│   ├── base.py          # BaseAttack interface
+│   ├── context.py       # AttackContext
+│   ├── registry.py      # AttackRegistry + AttackSpec
+│   └── builtin/         # Built-in attack implementations
+├── lorawan/             # LoRaWAN protocol implementation
+│   ├── radio.py         # Radio abstraction (channels, CFList, duty-cycle)
+│   ├── frames.py        # PHY frame building and parsing
+│   ├── crypto.py        # AES-CMAC, session key derivation
+│   ├── mac_commands.py  # MAC command types and parsing
+│   ├── join.py          # OTAA join lifecycle helpers
+│   └── semtech_udp.py   # Semtech UDP packet encoding/decoding
+├── runtime/             # Runtime simulation objects
+│   ├── device.py        # SimulatedDevice + DeviceRuntime + create_device()
+│   ├── gateway.py       # GatewaySimulator + create_gateway()
+│   └── session.py       # CLI session state
+└── transport/           # Network transport layer
+    ├── udp.py           # UDP socket transport
+    ├── resilient.py     # Retry + reconnect wrapper
+    └── errors.py        # Transport exception hierarchy
 ```
 
 ## Architecture

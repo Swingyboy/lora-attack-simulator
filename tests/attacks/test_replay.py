@@ -9,7 +9,7 @@ from lora_attack_toolkit.attacks.packet_capture import CapturedPacket, PacketCap
 from lora_attack_toolkit.attacks.builtin.replay import ReplayAnalyzer, ReplayAttack
 from lora_attack_toolkit.runtime.device import SimulatedDevice
 from lora_attack_toolkit.runtime.gateway import GatewaySimulator
-from lora_attack_toolkit.core.schema import RadioMetadata
+from lora_attack_toolkit.config import RadioMetadata
 
 
 class TestReplayAnalyzer(unittest.TestCase):

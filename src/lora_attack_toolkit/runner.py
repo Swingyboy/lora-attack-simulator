@@ -8,10 +8,10 @@ from pathlib import Path
 from typing import Any
 
 from lora_attack_toolkit.attacks.registry import AttackRegistry
-from lora_attack_toolkit.core.schema_v1 import AttackScenarioV1
+from lora_attack_toolkit.config import AttackScenarioV1
 from lora_attack_toolkit.runtime.device import create_device
 from lora_attack_toolkit.runtime.gateway import create_gateway
-from lora_attack_toolkit.core.schema import RadioMetadata
+from lora_attack_toolkit.config import RadioMetadata
 
 
 class AttackRunner:
@@ -177,7 +177,7 @@ class AttackRunner:
         Returns:
             Attack results
         """
-        from lora_attack_toolkit.core.loader import load_attack_scenario
+        from lora_attack_toolkit.config import load_attack_scenario
         
         scenario = load_attack_scenario(scenario_path)
         results = self.run(scenario)

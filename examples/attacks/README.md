@@ -1,92 +1,111 @@
-# Attack Scenario Format v1.0 Examples
+# Attack Scenario Examples
 
-This directory contains example attack scenarios using the **v1.0 unified format** introduced in Phase 1 of the scenario format migration.
+This directory contains ready-to-run attack scenarios for LoRAT.
 
-## Format Differences from v0.9
+## Scenario Format
 
-### Structural Changes
+A scenario file describes everything needed to execute one attack:
 
-1. **Schema Version Field**: All v1.0 scenarios include `"schema_version": "1.0"` at the top level
-2. **Unified Attack Config**: Attack-specific config nested under `attack.config` instead of top-level blocks
-3. **Target Abstraction**: Network Server connection separated from gateway via `target` section
-4. **Expected Behavior**: New `expected` section defines security testing criteria
-
-### Example Comparison
-
-**v1.0 format** (new):
 ```json
 {
-  "schema_version": "1.0",  // Version indicator
   "scenario": {
-    "id": "...",
-    "title": "...",
-    "category": "join_devnonce",
-    "type": "join_devnonce"
+    "description": "Human-readable description (optional)",
+    "timeout_sec": 30.0
   },
-  "target": {               // NEW: NS connection abstraction
+  "target": {
     "name": "chirpstack-local",
     "transport": "semtech_udp",
     "host": "127.0.0.1",
     "port": 1700
   },
-  "gateway": {...},
-  "device": {...},
-  "attack": {               // Unified attack section
-    "type": "join_devnonce",
-    "config": {             // Nested config
-      "valid_join_count": 1,
-      "final_check": "same_as_last"
+  "gateway": {
+    "gateway_eui": "0102030405060708",
+    "pull_data_interval_sec": 5,
+    "radio": {
+      "region": "EU868",
+      "frequency_hz": 868100000,
+      "data_rate": "SF7BW125",
+      "rssi": -60,
+      "snr": 7.5
     }
   },
-  "expected": {             // NEW: Security criteria
-    "secure_behavior": "ns_rejects_invalid_devnonce",
-    "success_criteria": [...]
+  "device": {
+    "name": "test-device",
+    "lorawan_version": "1.0.3",
+    "region": "EU868",
+    "class": "A",
+    "activation": {
+      "mode": "OTAA",
+      "dev_eui": "0011223344556677",
+      "join_eui": "0011223344556677",
+      "app_key": "00112233445566770011223344556677"
+    }
   },
-  "logging": {...}
+  "attack": {
+    "type": "<attack_type>",
+    "config": { ... }
+  },
+  "expected": {
+    "profile": "<validation_profile>"
+  },
+  "logging": {
+    "level": "INFO",
+    "log_phy_payload": true,
+    "log_semtech_udp": true
+  }
 }
 ```
+
+**`scenario.timeout_sec`** is the only pacing parameter.  
+It controls the wait interval between consecutive messages (JoinRequest→JoinRequest, JoinAccept→Uplink, Uplink→Uplink).
+
+Attack metadata (id, title, category) is resolved internally from the registry — it does not belong in the scenario file.
+
+---
 
 ## Available Examples
 
 ### join-devnonce-v1.json
-- **Category**: `join_devnonce`
-- **Type**: `join_devnonce`
-- **Description**: Tests Network Server DevNonce validation through replay, rollback, and retention checks
-- **Expected**: NS should reject invalid or reused DevNonce values
+- **Attack type**: `join_devnonce`
+- **Validation profile**: `lorawan_1_0_3_devnonce_validation`
+- **Description**: Validates DevNonce replay and rollback protection.  
+  Sends N valid JoinRequests then attempts a disallowed final DevNonce.
 
 ### uplink-replay-v1.json
-- **Category**: `replay`
-- **Type**: `uplink_replay`
-- **Description**: Tests uplink replay protection by replaying data frames
-- **Expected**: NS should reject replayed uplinks with same FCnt
+- **Attack type**: `uplink_replay`
+- **Validation profile**: `lorawan_uplink_replay_protection`
+- **Description**: Captures a legitimate uplink then replays it to test frame counter validation.
 
 ### mac-link-adr-v1.json
-- **Category**: `mac_abuse`
-- **Type**: `mac_command_injection`
-- **Description**: Tests MAC command handling with LinkADRReq injection
-- **Expected**: NS should validate and safely apply ADR parameters
+- **Attack type**: `mac_command_injection`
+- **Validation profile**: `lorawan_mac_command_validation`
+- **Description**: Injects a LinkADRReq MAC command to test ADR parameter handling.
 
-## Running v1.0 Scenarios
+---
+
+## Running Scenarios
+
+### Interactive mode (recommended)
 
 ```bash
-# Interactive mode
-python -m lora_attack_toolkit.app.cli
-# Then: use join-devnonce-v1
-
-# Command-line mode
-python -m lora_attack_toolkit.app.cli use join-devnonce-v1 run
-
-# After pip install -e .
-lorat use join-devnonce-v1 run
+lorat
+lorat > use join-devnonce-v1
+lorat > set target.host 192.168.1.10
+lorat > run
 ```
 
-✅ **Complete**: Attack Plugin API with registry-based dispatch.
+### Module invocation
 
-## Migration Status
+```bash
+python -m lora_attack_toolkit.main
+```
 
-- ✅ **Plugin Architecture**: Registry-based attack system complete
-- ✅ **Directory Structure**: Organized modular package layout
-- ✅ **Project Rename**: LoRAT (LoRa Attack Toolkit)
-- ✅ **Security Criteria**: Renamed from success_criteria
+---
 
-See `Attack_Scenario_Format_Specification.md` (project root) for full specification and `~/.copilot/session-state/.../files/scenario_format_analysis.md` for implementation plan.
+## Validation Profiles
+
+| Profile | Description |
+|---------|-------------|
+| `lorawan_1_0_3_devnonce_validation` | NS must reject reused or rolled-back DevNonces |
+| `lorawan_uplink_replay_protection` | NS must reject replayed uplinks with same FCnt |
+| `lorawan_mac_command_validation` | NS must validate MAC command parameters safely |

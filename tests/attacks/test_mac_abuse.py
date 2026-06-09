@@ -11,8 +11,8 @@ from lora_attack_toolkit.attacks.builtin.mac_abuse import MACCommandAbuse, MACCo
 from lora_attack_toolkit.attacks.packet_capture import PacketCapture
 from lora_attack_toolkit.runtime.device import SimulatedDevice
 from lora_attack_toolkit.runtime.gateway import GatewaySimulator
-from lora_attack_toolkit.core.schema import RadioMetadata
-from lora_attack_toolkit.core.schema_v1 import MACCommandConfigV1
+from lora_attack_toolkit.config import RadioMetadata
+from lora_attack_toolkit.config import MACCommandConfigV1
 
 
 class TestMACCommandAnalyzer(unittest.TestCase):

@@ -19,8 +19,8 @@ if TYPE_CHECKING:
     from logging import Logger
 
     from lora_attack_toolkit.attacks.context import AttackContext
-    from lora_attack_toolkit.core.schema_v1 import ExpectedBehavior, JoinDevNonceConfigV1
-    from lora_attack_toolkit.core.schema_v1 import AttackTiming
+    from lora_attack_toolkit.config import ExpectedBehavior, JoinDevNonceConfigV1
+    from lora_attack_toolkit.config import AttackTiming
 
 
 @dataclass(frozen=True)
@@ -291,7 +291,7 @@ class JoinDevNonceAttack(BaseAttack):
         return False, f"unsupported final_check: {config.final_check}"
 
     def _resolve_timing(self, config: "JoinDevNonceConfigV1") -> "AttackTiming":
-        from lora_attack_toolkit.core.schema_v1 import AttackTiming
+        from lora_attack_toolkit.config import AttackTiming
 
         if config.timing is not None:
             return config.timing
@@ -408,7 +408,7 @@ class JoinDevNonceAttack(BaseAttack):
 
     def _select_join_radio(self, ctx: "AttackContext", attempt_index: int) -> Any:
         """Return RadioMetadata for this JoinRequest, using Radio when available."""
-        from lora_attack_toolkit.core.schema import RadioMetadata
+        from lora_attack_toolkit.config import RadioMetadata
         from lora_attack_toolkit.lorawan.radio import Radio
 
         radio = ctx.device.runtime.radio

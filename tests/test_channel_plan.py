@@ -173,8 +173,8 @@ class TestJoinDevNonceAttackChannelRotation(unittest.TestCase):
         from lora_attack_toolkit.attacks.builtin.join_devnonce import JoinDevNonceAttack
         from lora_attack_toolkit.attacks.context import AttackContext, AttackInput, AttackServices
         from lora_attack_toolkit.attacks.packet_capture import PacketCapture
-        from lora_attack_toolkit.core.schema import RadioMetadata
-        from lora_attack_toolkit.core.schema_v1 import parse_join_devnonce_config
+        from lora_attack_toolkit.config import RadioMetadata
+        from lora_attack_toolkit.config import parse_join_devnonce_config
         from lora_attack_toolkit.runtime.device import SimulatedDevice
         from lora_attack_toolkit.lorawan.radio import EU868RegionProfile, Radio
 
@@ -274,7 +274,7 @@ class TestSendPeriodicUplinksChannelRotation(unittest.TestCase):
         return device
 
     def _base_radio(self):
-        from lora_attack_toolkit.core.schema import RadioMetadata
+        from lora_attack_toolkit.config import RadioMetadata
         return RadioMetadata(frequency=868_100_000, data_rate="SF7BW125", rssi=-70, snr=6.0)
 
     def _eu868_radio(self, **kwargs) -> "Radio":
