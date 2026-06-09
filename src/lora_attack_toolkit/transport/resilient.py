@@ -61,7 +61,7 @@ class ResilientTransport(TransportClient):
 
     def connect(self) -> None:
         """Connect, retrying on transient failures."""
-        self._with_retry("connect", lambda: self._inner.connect())
+        self._with_retry(lambda: self._inner.connect())
 
     def disconnect(self) -> None:
         """Disconnect once (no retry)."""
@@ -69,11 +69,11 @@ class ResilientTransport(TransportClient):
 
     def reconnect(self) -> None:
         """Reconnect, retrying on transient failures."""
-        self._with_retry("reconnect", lambda: self._inner.reconnect())
+        self._with_retry(lambda: self._inner.reconnect())
 
     def send(self, payload: bytes) -> None:
         """Send *payload*, retrying on transient failures."""
-        self._with_retry("send", lambda: self._inner.send(payload))
+        self._with_retry(lambda: self._inner.send(payload))
 
     def receive(self, timeout_sec: float) -> bytes | None:
         """Receive one packet.
@@ -102,7 +102,7 @@ class ResilientTransport(TransportClient):
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _with_retry(self, operation: str, fn: Callable[[], Any]) -> None:
+    def _with_retry(self, fn: Callable[[], Any]) -> None:
         """Execute *fn*, retrying up to ``policy.max_attempts`` times.
 
         Retry schedule (with ``max_attempts=3``)::
