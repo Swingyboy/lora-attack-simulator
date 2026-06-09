@@ -1,11 +1,6 @@
 {
-  "schema_version": "1.0",
   "scenario": {
-    "id": "mac-link-adr-v1",
-    "title": "MAC Command LinkADRReq Injection (v1.0)",
     "description": "Test NS handling of LinkADRReq MAC commands to manipulate ADR state",
-    "category": "mac_abuse",
-    "type": "mac_command_injection",
     "timeout_sec": 30.0
   },
   "target": {
@@ -51,11 +46,7 @@
     }
   },
   "expected": {
-    "secure_behavior": "ns_validates_mac_commands_and_maintains_secure_adr_state",
-    "security_criteria": [
-      "ns_validates_mac_command_syntax",
-      "ns_maintains_secure_adr_state"
-    ]
+    "profile": "lorawan_mac_command_validation"
   },
   "logging": {
     "level": "info",

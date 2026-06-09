@@ -49,13 +49,26 @@ class AttackRunner:
     
     def _run_v1(self, scenario: AttackScenarioV1, cancel_event=None) -> dict[str, Any]:
         """Run v1.0 format scenario with new attack API."""
-        self.logger.info(f"Starting attack scenario (v1.0): {scenario.scenario.title}")
-        self.logger.info(f"Attack type: {scenario.attack.type}")
+        # Resolve attack metadata from registry
+        try:
+            spec = AttackRegistry.get_spec(scenario.attack.type)
+        except ValueError as exc:
+            return {
+                "success": False,
+                "message": str(exc),
+                "metrics": {},
+                "error": str(exc),
+            }
+
+        title = spec.title or spec.name
+        category = spec.category or spec.name
+        self.logger.info(f"Starting attack scenario: {title}")
+        self.logger.info(f"Attack type: {scenario.attack.type}  Category: {category}")
         self.logger.info(f"Description: {scenario.scenario.description}")
         self.logger.info(f"Target: {scenario.target.name} @ {scenario.target.host}:{scenario.target.port}")
         
         # Build device and gateway from config
-        device = create_device(scenario.device)
+        device = create_device(scenario.device, logger=self.logger)
         
         # Create gateway with v1.0 config
         gateway = create_gateway((scenario.gateway, scenario.target), self.logger)
@@ -70,7 +83,6 @@ class AttackRunner:
         # Create attack context with services and typed config
         try:
             self.logger.info("Executing attack...")
-            spec = AttackRegistry.get_spec(scenario.attack.type)
             typed_config = spec.config_parser(scenario.attack.config)
             ctx = self._create_attack_context(
                 scenario,

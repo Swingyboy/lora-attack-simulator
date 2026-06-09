@@ -5,6 +5,58 @@ from __future__ import annotations
 from typing import Any
 
 
+# Registry mapping user-facing profile names to internal validation parameters.
+# Users specify a profile name in their scenario file; the framework resolves
+# the corresponding secure_behavior description and list of security criteria.
+VALIDATION_PROFILES: dict[str, dict[str, Any]] = {
+    "lorawan_1_0_3_devnonce_validation": {
+        "secure_behavior": "ns_remembers_all_historical_devnonces",
+        "security_criteria": [
+            "first_join_request_is_accepted",
+            "replayed_join_requests_with_same_devnonce_are_rejected",
+            "ns_maintains_devnonce_history",
+        ],
+    },
+    "lorawan_uplink_replay_protection": {
+        "secure_behavior": "ns_rejects_replayed_uplinks_with_same_fcnt",
+        "security_criteria": [
+            "first_uplink_is_sent",
+            "replayed_uplinks_with_same_fcnt_are_rejected",
+            "ns_maintains_fcnt_validation",
+        ],
+    },
+    "lorawan_mac_command_validation": {
+        "secure_behavior": "ns_validates_mac_commands_and_maintains_secure_adr_state",
+        "security_criteria": [
+            "ns_validates_mac_command_syntax",
+            "ns_maintains_secure_adr_state",
+        ],
+    },
+}
+
+
+def resolve_profile(profile: str) -> dict[str, Any]:
+    """Resolve a validation profile name to its internal parameters.
+
+    Args:
+        profile: Profile name (e.g., "lorawan_1_0_3_devnonce_validation")
+
+    Returns:
+        Dict with "secure_behavior" and "security_criteria" keys.
+
+    Raises:
+        ValueError: If profile is not registered.
+    """
+    prof = VALIDATION_PROFILES.get(profile)
+    if prof is None:
+        available = ", ".join(sorted(VALIDATION_PROFILES))
+        raise ValueError(
+            f"Unknown validation profile: {profile!r}. "
+            f"Available profiles: {available}"
+        )
+    return prof
+
+
 class CriterionResult:
     """Result of evaluating a single success criterion."""
     

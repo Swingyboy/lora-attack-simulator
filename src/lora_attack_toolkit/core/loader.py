@@ -1,7 +1,8 @@
 """Attack scenario loader.
 
-Supports both v0.9 (legacy) and v1.0 (current) scenario formats.
-Version detection based on schema_version field.
+Loads v1.0 scenario files. Schema version and scenario metadata fields
+(id, title, category, type) are no longer required in the user-facing file;
+they are resolved internally from the attack registry.
 """
 
 from __future__ import annotations
@@ -99,19 +100,20 @@ def _load_mac_command_config(data: dict[str, Any]) -> MACCommandConfig:
 
 def load_attack_scenario(path: str) -> AttackScenarioV1:
     """
-    Load attack scenario from JSON file (v1.0 format only).
-    
+    Load attack scenario from JSON file.
+
+    Accepts the simplified v1.0 format where ``schema_version`` and scenario
+    metadata fields (``id``, ``title``, ``category``, ``type``) are optional
+    and ignored — the framework resolves them from the attack registry.
+
     Args:
         path: Path to attack scenario JSON file
-    
+
     Returns:
         AttackScenarioV1 instance
-    
+
     Raises:
-        ValueError: If scenario is invalid or version unsupported
-    
-    Note:
-        Legacy v0.9 format support removed. All scenarios must use schema_version: "1.0"
+        ValueError: If scenario is invalid
     """
     try:
         raw = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -119,31 +121,19 @@ def load_attack_scenario(path: str) -> AttackScenarioV1:
         raise ValueError(f"attack scenario file not found: {path}") from exc
     except json.JSONDecodeError as exc:
         raise ValueError(f"invalid JSON: {exc}") from exc
-    
-    # Check schema version
-    schema_version = raw.get("schema_version")
-    
-    if schema_version != "1.0":
-        raise ValueError(
-            f"Unsupported or missing schema version: {schema_version}. "
-            f"Only v1.0 is supported. Legacy v0.9 scenarios must be migrated."
-        )
-    
+
     return _load_v1_format(raw)
 
 
 def _load_v1_format(raw: dict[str, Any]) -> AttackScenarioV1:
     """
     Load attack scenario in v1.0 format.
-    
-    v1.0 format features:
-    - Unified structure with all attack configs under attack.config
-    - Target section (NS connection separate from gateway)
-    - Expected section (security validation criteria)
-    - Consistent naming (snake_case, unit suffixes)
+
+    Scenario metadata (id, title, category, type) and schema_version are
+    optional and silently ignored when present — they are resolved from the
+    attack registry at runtime.
     """
     try:
-        scenario_data = raw["scenario"]
         target_data = raw["target"]
         gateway_data = raw["gateway"]
         device_data = raw["device"]
@@ -151,18 +141,15 @@ def _load_v1_format(raw: dict[str, Any]) -> AttackScenarioV1:
         expected_data = raw["expected"]
         logging_data = raw["logging"]
     except KeyError as exc:
-        raise ValueError(f"v1.0 format: missing required section: {exc.args[0]}") from exc
-    
-    # Load scenario metadata
+        raise ValueError(f"missing required section: {exc.args[0]}") from exc
+
+    # Load scenario execution parameters (description and timeout_sec only)
+    scenario_data = raw.get("scenario", {})
     scenario = ScenarioMeta(
-        id=_expect_str("scenario.id", scenario_data["id"]),
-        title=_expect_str("scenario.title", scenario_data["title"]),
-        description=_expect_str("scenario.description", scenario_data["description"]),
-        category=_expect_str("scenario.category", scenario_data["category"]),
-        type=_expect_str("scenario.type", scenario_data["type"]),
-        timeout_sec=float(scenario_data.get("timeout_sec", 60.0)),
+        description=scenario_data.get("description", ""),
+        timeout_sec=float(scenario_data.get("timeout_sec", 30.0)),
     )
-    
+
     # Load target (Network Server connection)
     target = TargetConfig(
         name=_expect_str("target.name", target_data["name"]),
@@ -192,7 +179,7 @@ def _load_v1_format(raw: dict[str, Any]) -> AttackScenarioV1:
         ),
     )
     
-    # Load device (reuse existing parser logic)
+    # Load device
     activation = device_data["activation"]
     if activation["mode"] != "OTAA":
         raise ValueError("device.activation.mode must be OTAA")
@@ -210,27 +197,42 @@ def _load_v1_format(raw: dict[str, Any]) -> AttackScenarioV1:
         region=_expect_str("device.region", device_data["region"]),
         device_class=_expect_str("device.class", device_data.get("class", device_data.get("device_class", "A"))),
         activation=ActivationConfig(mode="OTAA", dev_eui=dev_eui, join_eui=join_eui, app_key=app_key),
+        duty_cycle_enforcement=bool(device_data.get("duty_cycle_enforcement", True)),
     )
     
-    # Load attack config (flexible dict, no parsing yet)
+    # Load attack config (flexible dict, parsed by attack-specific parser)
     attack = AttackConfigV1(
         type=_expect_str("attack.type", attack_data["type"]),
         config=attack_data.get("config", {}),
     )
-    
-    # Load expected behavior (support both field names)
-    security_criteria = expected_data.get("security_criteria")
-    success_criteria = expected_data.get("success_criteria")
-    
-    # Use security_criteria if present, otherwise fall back to success_criteria
-    criteria = security_criteria if security_criteria is not None else success_criteria
-    if criteria is None:
-        criteria = []
-    
-    expected = ExpectedBehavior(
-        secure_behavior=_expect_str("expected.secure_behavior", expected_data["secure_behavior"]),
-        security_criteria=criteria,
-    )
+
+    # Load expected behavior — profile-based (simplified) or legacy inline fields
+    if "profile" in expected_data:
+        # New simplified format: user specifies only a profile name
+        expected = ExpectedBehavior(
+            profile=_expect_str("expected.profile", expected_data["profile"]),
+        )
+    elif "secure_behavior" in expected_data:
+        # Legacy format: inline secure_behavior and security_criteria.
+        # Convert to a custom profile stored under the secure_behavior name.
+        secure_behavior = _expect_str("expected.secure_behavior", expected_data["secure_behavior"])
+        security_criteria = expected_data.get(
+            "security_criteria",
+            expected_data.get("success_criteria", []),
+        )
+        # Register the ad-hoc profile so resolution works transparently.
+        from lora_attack_toolkit.attacks.validation import VALIDATION_PROFILES
+        if secure_behavior not in VALIDATION_PROFILES:
+            VALIDATION_PROFILES[secure_behavior] = {
+                "secure_behavior": secure_behavior,
+                "security_criteria": security_criteria,
+            }
+        expected = ExpectedBehavior(profile=secure_behavior)
+    else:
+        raise ValueError(
+            "expected section must contain 'profile' "
+            "(e.g. \"lorawan_1_0_3_devnonce_validation\")"
+        )
     
     # Load logging
     logging = LoggingConfig(
@@ -240,7 +242,6 @@ def _load_v1_format(raw: dict[str, Any]) -> AttackScenarioV1:
     )
     
     scenario_v1 = AttackScenarioV1(
-        schema_version="1.0",
         scenario=scenario,
         target=target,
         gateway=gateway,

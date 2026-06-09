@@ -15,6 +15,7 @@ class JoinAcceptData:
     app_nonce: bytes
     net_id: bytes
     dev_addr_le: bytes
+    cflist: bytes | None = None  # 16 bytes if present, None otherwise
 
 
 def build_join_request(join_eui: bytes, dev_eui: bytes, dev_nonce: bytes, app_key: bytes) -> bytes:
@@ -41,12 +42,17 @@ def decode_join_accept(phy_payload: bytes, app_key: bytes) -> JoinAcceptData:
     app_nonce = plain[0:3]
     net_id = plain[3:6]
     dev_addr_le = plain[6:10]
+    # plain[10] = DLSettings, plain[11] = RxDelay
+    # CFList is at plain[12:28] when total decrypted length is 32 bytes
+    cflist: bytes | None = None
+    if len(plain) >= 32:
+        cflist = plain[12:28]
     mic = plain[-4:]
     signed = bytes([MHDR_JOIN_ACCEPT]) + plain[:-4]
     expected_mic = aes_cmac_4(app_key, signed)
     if mic != expected_mic:
         raise ValueError("join-accept MIC mismatch")
-    return JoinAcceptData(app_nonce=app_nonce, net_id=net_id, dev_addr_le=dev_addr_le)
+    return JoinAcceptData(app_nonce=app_nonce, net_id=net_id, dev_addr_le=dev_addr_le, cflist=cflist)
 
 
 def build_unconfirmed_data_up(

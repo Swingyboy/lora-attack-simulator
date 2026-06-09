@@ -83,8 +83,9 @@ Tests DevNonce replay protection:
 
 ```json
 {
-  "schema_version": "1.0",
-  "scenario_id": "join-replay-test",
+  "scenario": {
+    "timeout_sec": 30
+  },
   "attack": {
     "type": "join_devnonce",
     "config": {
@@ -94,15 +95,36 @@ Tests DevNonce replay protection:
       "final_check": "replay_first",
       "result_cache_size": 10
     }
+  },
+  "expected": {
+    "profile": "lorawan_1_0_3_devnonce_validation"
   }
 }
 ```
 
-**Modes:**
+**Modes (`final_check`):**
 - `same_as_last`: Replay the last accepted DevNonce
 - `lower_than_last`: Send a lower DevNonce than the last accepted one
 - `replay_first`: Replay the first accepted DevNonce after N valid joins
 - `custom`: Use an explicitly configured final DevNonce
+
+**Optional timing override** (`attack.config.timing`):
+
+```json
+{
+  "attack": {
+    "config": {
+      "timing": {
+        "join_accept_timeout_sec": 7.0
+      }
+    }
+  }
+}
+```
+
+`join_accept_timeout_sec` controls how long to wait for a JoinAccept before
+considering the attempt failed. RX1/RX2 window values follow LoRaWAN 1.0.3
+defaults and are not user-configurable.
 
 ### Uplink Replay Attack
 
@@ -110,12 +132,28 @@ Tests frame counter validation:
 
 ```json
 {
+  "scenario": {
+    "timeout_sec": 30
+  },
   "attack": {
     "type": "uplink_replay",
-    "replay_phase": {
-      "count": 3,
-      "delay_sec": 1.0
+    "config": {
+      "capture_phase": {
+        "perform_join": true,
+        "send_baseline_uplink": true,
+        "payload_hex": "01020304"
+      },
+      "replay_phase": {
+        "mode": "immediate",
+        "count": 3,
+        "delay_sec": 0.1
+      },
+      "fcnt_strategy": "reuse_original",
+      "mic_strategy": "reuse_original"
     }
+  },
+  "expected": {
+    "profile": "lorawan_uplink_replay_protection"
   }
 }
 ```
@@ -126,14 +164,22 @@ Tests MAC command handling:
 
 ```json
 {
+  "scenario": {
+    "timeout_sec": 30
+  },
   "attack": {
     "type": "mac_command_injection",
-    "command_type": "LinkADRReq",
-    "malformed": false,
-    "parameters": {
-      "data_rate": 5,
-      "tx_power": 2
+    "config": {
+      "command_type": "LinkADRReq",
+      "malformed": false,
+      "parameters": {
+        "data_rate": 5,
+        "tx_power": 2
+      }
     }
+  },
+  "expected": {
+    "profile": "lorawan_mac_command_validation"
   }
 }
 ```
@@ -153,24 +199,17 @@ class CustomAttack(BaseAttack):
     
     def run(self, ctx):
         """Execute attack using context services."""
-        # Access typed configuration
         config = ctx.config
         
-        # Use framework services
         ctx.gateway.start()
         ctx.logger.info("Starting custom attack")
         
-        # Build and send attack traffic
         uplink = ctx.device.build_data_uplink(...)
         ctx.gateway.forward_uplink(uplink, ctx.radio)
-        
-        # Capture packets
         ctx.capture.capture_uplink(uplink, ...)
         
-        # Stop gateway
         ctx.gateway.stop()
         
-        # Return result
         return AttackResult(
             attack_name=self.name,
             attack_type="custom",
@@ -190,7 +229,8 @@ AttackRegistry.register(
         name="custom_attack",
         attack_class=CustomAttack,
         config_parser=parse_custom_config,
-        aliases=[],
+        title="Custom Attack",
+        category="custom",
         description="Custom attack description",
     )
 )
@@ -200,24 +240,61 @@ AttackRegistry.register(
 
 ```json
 {
-  "schema_version": "1.0",
+  "scenario": {
+    "timeout_sec": 30
+  },
   "attack": {
     "type": "custom_attack",
-    "custom_param": "value"
+    "config": {
+      "custom_param": "value"
+    }
+  },
+  "expected": {
+    "profile": "lorawan_1_0_3_devnonce_validation"
   }
 }
 ```
 
 ## Configuration
 
+### Scenario Parameters
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `scenario.timeout_sec` | float | Inter-message pacing interval in seconds (default: 30.0) |
+| `scenario.description` | string | Optional human-readable description |
+
+`timeout_sec` controls the wait interval between consecutive messages:
+- JoinRequest → JoinRequest
+- JoinRequest → Uplink  
+- Uplink → Uplink
+
+### Validation Profiles
+
+The `expected.profile` field selects a named security validation profile.
+Built-in profiles:
+
+| Profile | Description |
+|---------|-------------|
+| `lorawan_1_0_3_devnonce_validation` | LoRaWAN 1.0.3 DevNonce replay protection |
+| `lorawan_uplink_replay_protection` | Uplink frame counter replay protection |
+| `lorawan_mac_command_validation` | MAC command syntax and ADR state validation |
+
 ### Device Configuration
 
 ```json
 {
   "device": {
-    "dev_eui": "0123456789abcdef",
-    "app_eui": "fedcba9876543210",
-    "app_key": "00112233445566778899aabbccddeeff"
+    "name": "test-device",
+    "lorawan_version": "1.0.3",
+    "region": "EU868",
+    "class": "A",
+    "activation": {
+      "mode": "OTAA",
+      "dev_eui": "0123456789abcdef",
+      "join_eui": "fedcba9876543210",
+      "app_key": "00112233445566778899aabbccddeeff"
+    }
   }
 }
 ```
@@ -228,26 +305,9 @@ AttackRegistry.register(
 {
   "target": {
     "name": "chirpstack-local",
-    "network_server": {
-      "host": "127.0.0.1",
-      "port": 1700
-    }
-  }
-}
-```
-
-### Security Criteria
-
-```json
-{
-  "expected_behavior": {
-    "security_criteria": [
-      {
-        "criterion": "replayed_join_requests_with_same_devnonce_are_rejected",
-        "description": "NS must reject duplicate DevNonce"
-      }
-    ],
-    "secure_behavior": "reject_replayed_devnonce"
+    "transport": "semtech_udp",
+    "host": "127.0.0.1",
+    "port": 1700
   }
 }
 ```

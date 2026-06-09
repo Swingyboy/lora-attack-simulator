@@ -1,11 +1,6 @@
 {
-  "schema_version": "1.0",
   "scenario": {
-    "id": "join-devnonce-v1",
-    "title": "Join DevNonce Validation",
     "description": "Validate DevNonce replay, lower-than-last, and retention behavior",
-    "category": "join_devnonce",
-    "type": "join_devnonce",
     "timeout_sec": 30.0
   },
   "target": {
@@ -46,21 +41,12 @@
       "final_check": "replay_first",
       "result_cache_size": 10,
       "timing": {
-        "join_accept_timeout_sec": 7.0,
-        "rx1_delay_sec": 5.0,
-        "rx1_window_sec": 1.0,
-        "rx2_delay_sec": 6.0,
-        "rx2_window_sec": 1.0
+        "join_accept_timeout_sec": 7.0
       }
     }
   },
   "expected": {
-    "secure_behavior": "ns_remembers_all_historical_devnonces",
-    "security_criteria": [
-      "first_join_request_is_accepted",
-      "replayed_join_requests_with_same_devnonce_are_rejected",
-      "ns_maintains_devnonce_history"
-    ]
+    "profile": "lorawan_1_0_3_devnonce_validation"
   },
   "logging": {
     "level": "info",

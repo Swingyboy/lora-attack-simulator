@@ -22,29 +22,45 @@ from lora_attack_toolkit.app.session import Session
 
 @dataclass
 class ScenarioMetadata:
-    """Metadata extracted from scenario file."""
+    """Metadata extracted from a scenario file, enriched from the attack registry."""
     name: str
     path: Path
     title: str
     description: str
     category: str
     scenario_type: str
-    
+
     @classmethod
     def from_file(cls, path: Path) -> ScenarioMetadata | None:
-        """Extract metadata from scenario JSON file."""
+        """Extract metadata from scenario JSON file, resolving title/category from registry."""
         try:
             with open(path, 'r') as f:
                 data = json.load(f)
-            
+
             scenario = data.get('scenario', {})
+            attack_type = data.get('attack', {}).get('type', '')
+            description = scenario.get('description', 'No description')
+
+            # Resolve title and category from the attack registry when available.
+            title = path.stem
+            category = 'unknown'
+            if attack_type:
+                try:
+                    from lora_attack_toolkit.attacks.registry import AttackRegistry
+                    spec = AttackRegistry.get_spec(attack_type)
+                    title = spec.title or attack_type
+                    category = spec.category or attack_type
+                except (ValueError, ImportError):
+                    title = attack_type
+                    category = attack_type
+
             return cls(
                 name=path.stem,
                 path=path,
-                title=scenario.get('title', path.stem),
-                description=scenario.get('description', 'No description'),
-                category=scenario.get('category', 'unknown'),
-                scenario_type=scenario.get('type', 'unknown')
+                title=title,
+                description=description,
+                category=category,
+                scenario_type=attack_type,
             )
         except (json.JSONDecodeError, IOError):
             return None

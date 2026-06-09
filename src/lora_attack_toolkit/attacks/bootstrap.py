@@ -57,6 +57,9 @@ def register_builtin_attacks() -> None:
             attack_class=UplinkReplayAttack,
             config_parser=parse_replay_config,
             aliases=[],
+            title="Uplink Replay Attack",
+            category="replay",
+            attack_id="uplink-replay-v1",
             description="Replay captured uplink frames to test frame counter validation",
         )
     )
@@ -67,6 +70,9 @@ def register_builtin_attacks() -> None:
             name="join_devnonce",
             attack_class=JoinDevNonceAttack,
             config_parser=parse_join_devnonce_config,
+            title="Join DevNonce Validation",
+            category="join_devnonce",
+            attack_id="join-devnonce-v1",
             description="Test DevNonce replay protection with unified validation modes",
         )
     )
@@ -78,6 +84,9 @@ def register_builtin_attacks() -> None:
             attack_class=MACCommandAbuse,
             config_parser=parse_mac_command_config,
             aliases=["mac_malformed"],
+            title="MAC Command Injection",
+            category="mac_abuse",
+            attack_id="mac-command-injection-v1",
             description="Inject legitimate or malformed MAC commands",
         )
     )

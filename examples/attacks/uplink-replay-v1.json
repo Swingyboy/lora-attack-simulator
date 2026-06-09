@@ -1,11 +1,6 @@
 {
-  "schema_version": "1.0",
   "scenario": {
-    "id": "uplink-replay-immediate-v1",
-    "title": "Immediate Uplink Replay (v1.0 format)",
     "description": "Capture and immediately replay uplink packets to test NS replay protection",
-    "category": "replay",
-    "type": "uplink_replay",
     "timeout_sec": 30.0
   },
   "target": {
@@ -55,12 +50,7 @@
     }
   },
   "expected": {
-    "secure_behavior": "ns_rejects_replayed_uplinks_with_same_fcnt",
-    "security_criteria": [
-      "first_uplink_is_sent",
-      "replayed_uplinks_with_same_fcnt_are_rejected",
-      "ns_maintains_fcnt_validation"
-    ]
+    "profile": "lorawan_uplink_replay_protection"
   },
   "logging": {
     "level": "info",

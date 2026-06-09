@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import time
 from logging import Logger
 
 from lora_attack_toolkit.device.model import SimulatedDevice
 from lora_attack_toolkit.gateway.model import GatewaySimulator
 from lora_attack_toolkit.core.schema import RadioMetadata
+from lora_attack_toolkit.lorawan.channel_plan import AirtimeCalculator
 
 
 def perform_otaa_join(
@@ -233,49 +235,83 @@ def send_periodic_uplinks(
 ) -> int:
     """
     Send periodic uplinks with specified interval.
-    
+
+    The radio frequency for each uplink is selected from the device's active
+    channel plan (if configured) via round-robin rotation, falling back to the
+    provided ``radio`` metadata when no channel plan is set.
+
     Args:
         device: Device to send uplinks from
         gateway: Gateway to forward packets through
-        radio: Radio metadata for uplinks
+        radio: Base radio metadata (rssi/snr reused; frequency overridden by channel plan)
         count: Number of uplinks to send
         interval_sec: Time to wait between uplinks
         f_port: FPort for data uplinks
         confirmed: Whether to request confirmation
         logger: Optional logger for diagnostics
-        
+
     Returns:
         Number of uplinks successfully sent
     """
-    import time
-    
     sent_count = 0
-    
+
     for i in range(count):
         try:
+            now = time.time()
+            uplink_radio = _select_uplink_radio(device, radio, now=now)
+
             # Build data uplink with simple incrementing payload
             payload = bytes([i % 256])
             uplink = device.build_data_uplink(
                 payload=payload,
                 f_port=f_port,
-                confirmed=confirmed
+                confirmed=confirmed,
             )
-            
-            gateway.forward_uplink(uplink, radio)
+
+            gateway.forward_uplink(uplink, uplink_radio)
+
+            # Record actual airtime for Duty Cycle bookkeeping
+            channel_plan = device.runtime.channel_plan
+            if channel_plan is not None and channel_plan.supports_duty_cycle():
+                channels = channel_plan.get_uplink_channels()
+                ch = channels[device.runtime.uplink_index % len(channels)]
+                airtime = AirtimeCalculator.calculate(uplink_radio.data_rate, len(uplink))
+                channel_plan.record_transmission(ch, airtime, now)
+
+            device.runtime.uplink_index += 1
             sent_count += 1
-            
+
             if logger:
-                logger.info(f"Sent uplink {i+1}/{count} with FCnt={device.runtime.fcnt_up - 1}")
-            
-            # Wait before next uplink (except after last one)
+                logger.info(
+                    "Sent uplink %d/%d FCnt=%d frequency=%d",
+                    i + 1,
+                    count,
+                    device.runtime.fcnt_up - 1,
+                    uplink_radio.frequency,
+                )
+
             if i < count - 1:
                 time.sleep(interval_sec)
-                
+
         except Exception as e:
             if logger:
                 logger.error(f"Failed to send uplink {i+1}: {e}")
-    
+
     return sent_count
+
+
+def _select_uplink_radio(device: SimulatedDevice, base_radio: RadioMetadata, now: float | None = None) -> RadioMetadata:
+    """Return RadioMetadata for the next uplink, using the channel plan when available."""
+    channel_plan = device.runtime.channel_plan
+    if channel_plan is not None:
+        channel = channel_plan.select_uplink_channel(device.runtime.uplink_index, now=now)
+        return RadioMetadata(
+            frequency=channel.frequency_hz,
+            data_rate=channel.data_rate,
+            rssi=base_radio.rssi,
+            snr=base_radio.snr,
+        )
+    return base_radio
 
 
 def wait_for_rx_windows(
@@ -303,8 +339,6 @@ def wait_for_rx_windows(
     Returns:
         List of downlink PHYPayload bytes received during windows
     """
-    import time
-    
     downlinks = []
     
     if logger:
@@ -369,8 +403,6 @@ def capture_downlinks(
     Returns:
         List of captured PHYPayload bytes
     """
-    import time
-    
     captured = []
     start_time = time.time()
     

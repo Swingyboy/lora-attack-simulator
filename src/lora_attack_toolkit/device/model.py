@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import secrets
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from logging import Logger
 
 from lora_attack_toolkit.lorawan.protocol.frames import (
@@ -26,6 +26,9 @@ from lora_attack_toolkit.lorawan.protocol.mac_commands import (
     CID_RX_TIMING_SETUP_ANS,
     MACCommand,
 )
+
+if TYPE_CHECKING:
+    from lora_attack_toolkit.lorawan.channel_plan import RegionChannelPlan
 
 
 @dataclass
@@ -69,6 +72,9 @@ class DeviceRuntime:
     fcnt_up: int = 0
     fcnt_down: int = 0           # Track downlink frame counter
     radio: DeviceRadioState = field(default_factory=DeviceRadioState)  # Radio state
+    channel_plan: RegionChannelPlan | None = None  # Region channel plan (set by factory)
+    join_attempt_index: int = 0   # Incremented on each JoinRequest, drives channel rotation
+    uplink_index: int = 0         # Incremented on each uplink, drives channel rotation
 
     @property
     def dev_addr_hex(self) -> str:
@@ -114,6 +120,16 @@ class SimulatedDevice:
         self.runtime.joined = True
         self.runtime.fcnt_up = 0
         self.runtime.fcnt_down = 0
+
+        # Apply CFList channel updates if channel plan is configured
+        if self.runtime.channel_plan is not None and parsed.cflist is not None:
+            self.runtime.channel_plan.apply_cflist(parsed.cflist)
+            if self._logger:
+                channels = self.runtime.channel_plan.get_uplink_channels()
+                self._logger.info(
+                    "Applied CFList; active uplink channels: %s",
+                    [c.frequency_hz for c in channels],
+                )
 
     def build_data_uplink(self, payload: bytes, f_port: int, confirmed: bool) -> bytes:
         if not self.runtime.joined:

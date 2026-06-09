@@ -52,6 +52,7 @@ class DeviceConfig:
     region: str
     device_class: str
     activation: ActivationConfig
+    duty_cycle_enforcement: bool = True  # Enable/disable EU868 Duty Cycle enforcement
 
 
 @dataclass(frozen=True)

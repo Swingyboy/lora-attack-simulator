@@ -38,10 +38,6 @@ class TestJoinDevNonceConfigParser(unittest.TestCase):
                 "result_cache_size": 10,
                 "timing": {
                     "join_accept_timeout_sec": 7.0,
-                    "rx1_delay_sec": 5.0,
-                    "rx1_window_sec": 1.0,
-                    "rx2_delay_sec": 6.0,
-                    "rx2_window_sec": 1.0,
                 },
             }
         )
@@ -52,21 +48,36 @@ class TestJoinDevNonceConfigParser(unittest.TestCase):
         self.assertEqual(config.final_check, "replay_first")
         self.assertEqual(config.result_cache_size, 10)
         self.assertIsNotNone(config.timing)
+        self.assertEqual(config.timing.join_accept_timeout_sec, 7.0)
+        # RX1/RX2 values are internal defaults, not user-configurable
         self.assertEqual(config.timing.rx1_window_sec, 1.0)
         self.assertEqual(config.timing.rx2_window_sec, 1.0)
 
+    def test_rx1_rx2_params_are_silently_ignored(self) -> None:
+        """rx1/rx2 params in timing dict must be silently ignored (not user-configurable)."""
+        config = parse_join_devnonce_config(
+            {
+                "final_check": "same_as_last",
+                "timing": {
+                    "join_accept_timeout_sec": 7.0,
+                    "rx1_delay_sec": 99.0,
+                    "rx2_delay_sec": 99.0,
+                },
+            }
+        )
+        # The parser must ignore rx1/rx2 values and use internal defaults
+        self.assertEqual(config.timing.rx1_delay_sec, 1.0)
+        self.assertEqual(config.timing.rx2_delay_sec, 2.0)
+
     def test_rejects_short_join_accept_timeout(self) -> None:
+        """join_accept_timeout_sec must be >= internal rx2_delay + rx2_window (= 3.0)."""
         with self.assertRaises(ValueError):
             parse_join_devnonce_config(
                 {
                     "valid_join_count": 1,
                     "final_check": "same_as_last",
                     "timing": {
-                        "join_accept_timeout_sec": 6.0,
-                        "rx1_delay_sec": 5.0,
-                        "rx1_window_sec": 1.0,
-                        "rx2_delay_sec": 6.0,
-                        "rx2_window_sec": 1.0,
+                        "join_accept_timeout_sec": 2.0,
                     },
                 }
             )
@@ -123,10 +134,6 @@ class TestJoinDevNonceAttack(unittest.TestCase):
                 "result_cache_size": 10,
                 "timing": {
                     "join_accept_timeout_sec": 7.0,
-                    "rx1_delay_sec": 5.0,
-                    "rx1_window_sec": 1.0,
-                    "rx2_delay_sec": 6.0,
-                    "rx2_window_sec": 1.0,
                 },
             }
         )
@@ -142,7 +149,7 @@ class TestJoinDevNonceAttack(unittest.TestCase):
                 typed_config=self.config,
                 expected_behavior=None,
                 radio=self.radio,
-                timeout_sec=30.0,
+                timeout_sec=0.0,  # No inter-message delay in unit tests
             ),
         )
 
@@ -389,7 +396,14 @@ class TestJoinDevNonceAttack(unittest.TestCase):
             state=dict(self.ctx.state),
         )
 
-        times = chain([0.0, 0.0, 5.0, 5.0, 5.0, 6.0, 6.0, 6.0, 6.5], repeat(6.5))
+        # Time sequence matched to default RX windows:
+        # rx1_delay=1.0, rx1_window=1.0, rx2_delay=2.0, rx2_window=1.0
+        # start=0.0, _sleep_until(1.0): 0.0<1.0→sleep, remaining=1.0-1.0=0→break
+        # RX1 inner while: 1.0<2.0→enter, remaining=2.0-1.0=1.0, await→None
+        #   back: 2.0→not<2.0→exit
+        # _sleep_until(2.0): 2.0→not<2.0→skip
+        # RX2 inner while: 2.0<3.0→enter, remaining=3.0-2.0=1.0, await→accept
+        times = chain([0.0, 0.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 2.0], repeat(2.0))
 
         with patch("lora_attack_toolkit.attacks.builtin.join_devnonce.time.monotonic", side_effect=lambda: next(times)), patch(
             "lora_attack_toolkit.attacks.builtin.join_devnonce.time.sleep"
@@ -432,10 +446,6 @@ class TestDevNonceGeneration(unittest.TestCase):
                 "result_cache_size": 10,
                 "timing": {
                     "join_accept_timeout_sec": 3.0,
-                    "rx1_delay_sec": 1.0,
-                    "rx1_window_sec": 1.0,
-                    "rx2_delay_sec": 2.0,
-                    "rx2_window_sec": 1.0,
                 },
             }
         )

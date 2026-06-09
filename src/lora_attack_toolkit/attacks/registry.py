@@ -16,6 +16,7 @@ class AttackSpec:
     Owns all attack-type-specific logic:
     - Config parsing/validation
     - Aliases for backwards compatibility
+    - Metadata (title, category, id) resolved from the spec
     
     This removes hardcoded logic from runner - each plugin is self-contained.
     
@@ -24,6 +25,8 @@ class AttackSpec:
             name="join_devnonce",
             attack_class=JoinDevNonceAttack,
             config_parser=parse_join_devnonce_config,
+            title="Join DevNonce Validation",
+            category="join_devnonce",
             description="Test DevNonce replay protection",
         )
         
@@ -36,6 +39,9 @@ class AttackSpec:
     aliases: list[str] = field(default_factory=list)
     description: str = ""
     version: str = "1.0"
+    title: str = ""      # Human-readable display name
+    category: str = ""   # Attack category (e.g., "join_devnonce", "replay", "mac_abuse")
+    attack_id: str = ""  # Canonical attack identifier (defaults to name if empty)
 
 
 class AttackRegistry:
@@ -149,11 +155,14 @@ class AttackRegistry:
         """Get info about an attack type.
         
         Returns:
-            Dict with name, description, aliases, version
+            Dict with name, title, category, description, aliases, version
         """
         spec = cls.get_spec(name_or_alias)
         return {
             "name": spec.name,
+            "title": spec.title or spec.name,
+            "category": spec.category or spec.name,
+            "attack_id": spec.attack_id or spec.name,
             "description": spec.description,
             "aliases": spec.aliases,
             "version": spec.version,

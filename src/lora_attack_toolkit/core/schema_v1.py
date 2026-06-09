@@ -1,10 +1,10 @@
 """Attack scenario schema v1.0 definitions.
 
-This module defines the v1.0 scenario format with improved structure:
-- Unified attack.config nesting (no top-level attack blocks)
-- Target abstraction (NS connection separate from gateway)
-- Expected behavior section (security validation criteria)
-- Consistent naming conventions (snake_case, unit suffixes)
+This module defines the v1.0 scenario format with a user-facing simplified structure:
+- Scenario section contains only execution-relevant parameters (timeout_sec)
+- Attack metadata (id, title, category) is resolved internally from the registry
+- Expected behavior is expressed as a named validation profile
+- Protocol timing details (RX1/RX2 windows) are internal constants
 """
 
 from __future__ import annotations
@@ -54,57 +54,70 @@ class GatewayConfigV1:
 
 @dataclass(frozen=True)
 class ScenarioMeta:
-    """Scenario metadata and classification."""
-    
-    id: str  # Unique scenario identifier (e.g., "join-replay-basic")
-    title: str  # Human-readable title
-    description: str  # Short description
-    category: str  # High-level category ("replay", "join_devnonce", "mac_abuse")
-    type: str  # Specific attack type ("uplink_replay", "join_devnonce", etc.)
-    timeout_sec: float  # Maximum execution time
+    """Scenario execution parameters.
+
+    Only contains parameters that directly influence execution.
+    Attack metadata (id, title, category, type) is resolved from the registry.
+    """
+
+    description: str = ""  # Human-readable description (optional, informational only)
+    timeout_sec: float = 30.0  # Inter-message pacing interval in seconds
 
 
 @dataclass(frozen=True)
 class ExpectedBehavior:
-    """Expected secure behavior and validation criteria.
-    
-    Defines what secure Network Server behavior should be.
-    Used by analyzers to assess security posture.
-    
-    Supports both field names for backwards compatibility:
-    - success_criteria (legacy)
-    - security_criteria (preferred)
-    
-    Both fields are normalized to security_criteria internally.
+    """Expected security validation profile.
+
+    Users specify a named profile; the framework resolves it to detailed
+    validation criteria internally.
+
+    Example profiles:
+    - "lorawan_1_0_3_devnonce_validation"
+    - "lorawan_uplink_replay_protection"
+    - "lorawan_mac_command_validation"
     """
-    
-    secure_behavior: str  # Human-readable description of secure behavior
-    security_criteria: list[str]  # List of criteria that must be met (preferred name)
-    
-    # Legacy field for backwards compatibility
+
+    profile: str  # Validation profile name
+
+    @property
+    def secure_behavior(self) -> str:
+        """Resolve the secure behavior description from the profile registry."""
+        from lora_attack_toolkit.attacks.validation import VALIDATION_PROFILES
+        prof = VALIDATION_PROFILES.get(self.profile)
+        return prof["secure_behavior"] if prof else self.profile
+
+    @property
+    def security_criteria(self) -> list[str]:
+        """Resolve the security criteria list from the profile registry."""
+        from lora_attack_toolkit.attacks.validation import VALIDATION_PROFILES
+        prof = VALIDATION_PROFILES.get(self.profile)
+        return prof["security_criteria"] if prof else []
+
     @property
     def success_criteria(self) -> list[str]:
         """Alias for security_criteria (backwards compatibility)."""
         return self.security_criteria
 
 
-# --- Typed Attack Configuration Classes (Phase 2) ---
+# --- Typed Attack Configuration Classes ---
 
 @dataclass(frozen=True)
 class AttackTiming:
-    """Timing configuration for attacks following LoRaWAN specification.
-    
-    Default values follow LoRaWAN 1.0.3 timing specification:
-    - RX1 window opens after rx1_delay_sec and stays open for rx1_window_sec
-    - RX2 window opens after rx2_delay_sec and stays open for rx2_window_sec
+    """Timing configuration for attacks.
+
+    Only join_accept_timeout_sec is user-configurable.
+    RX1/RX2 window parameters follow LoRaWAN 1.0.3 specification defaults
+    and are not exposed to users.
     """
-    
-    join_accept_timeout_sec: float = 30.0  # Max wait for JoinAccept response
-    rx1_delay_sec: float = 1.0  # LoRaWAN RX1 window delay
-    rx1_window_sec: float = 1.0  # LoRaWAN RX1 window duration
-    rx2_delay_sec: float = 2.0  # LoRaWAN RX2 window delay (total from uplink)
-    rx2_window_sec: float = 1.0  # LoRaWAN RX2 window duration
-    inter_message_delay_sec: float = 30.0  # Delay between consecutive messages
+
+    join_accept_timeout_sec: float = 7.0  # Max wait for JoinAccept response
+
+    # Internal protocol constants (LoRaWAN 1.0.3 specification defaults)
+    # These are not user-configurable; they are derived from the regional profile.
+    rx1_delay_sec: float = 1.0    # LoRaWAN RX1 window delay
+    rx1_window_sec: float = 1.0   # LoRaWAN RX1 window duration
+    rx2_delay_sec: float = 2.0    # LoRaWAN RX2 window delay (total from uplink)
+    rx2_window_sec: float = 1.0   # LoRaWAN RX2 window duration
 
 
 @dataclass(frozen=True)
@@ -183,15 +196,16 @@ class AttackScenarioV1:
     """Complete attack scenario configuration (v1.0 format).
     
     This is the unified structure for all attack scenarios.
+    Schema version and scenario metadata are not stored here — they are
+    resolved internally from the attack registry.
     """
     
-    schema_version: str  # Always "1.0" for v1 scenarios
-    scenario: ScenarioMeta  # Metadata and classification
+    scenario: ScenarioMeta  # Execution parameters (timeout_sec, description)
     target: TargetConfig  # Network Server connection
     gateway: GatewayConfigV1  # Gateway simulator config
     device: DeviceConfig  # Device config (reuses existing schema)
     attack: AttackConfigV1  # Attack execution config
-    expected: ExpectedBehavior  # Security validation criteria
+    expected: ExpectedBehavior  # Security validation profile
     logging: LoggingConfig  # Logging configuration
     
     def validate(self) -> None:
@@ -200,28 +214,6 @@ class AttackScenarioV1:
         Raises:
             ValueError: If configuration is invalid
         """
-        # Validate schema version
-        if self.schema_version != "1.0":
-            raise ValueError(f"Invalid schema version: {self.schema_version} (expected 1.0)")
-        
-        # Validate attack type matches category
-        valid_types = {
-            "replay": ["uplink_replay", "downlink_replay"],
-            "join_devnonce": ["join_devnonce"],
-            "mac_abuse": ["mac_command_injection", "mac_malformed"],
-        }
-        
-        category = self.scenario.category
-        attack_type = self.attack.type
-        
-        if category in valid_types:
-            if attack_type not in valid_types[category]:
-                raise ValueError(
-                    f"Attack type '{attack_type}' not valid for category '{category}'. "
-                    f"Valid types: {valid_types[category]}"
-                )
-        
-        # Validate transport
         supported_transports = ["semtech_udp"]
         if self.target.transport not in supported_transports:
             raise ValueError(
@@ -257,33 +249,29 @@ def parse_replay_config(config: dict[str, Any]) -> ReplayConfigV1:
 
 
 def parse_join_devnonce_config(config: dict[str, Any]) -> JoinDevNonceConfigV1:
-    """Parse the unified DevNonce validation config from dict."""
-    # Parse timing if present
-    timing = None
+    """Parse the unified DevNonce validation config from dict.
+
+    Only ``join_accept_timeout_sec`` is user-configurable within the timing
+    sub-section.  RX1/RX2 window values are internal protocol constants and
+    are silently ignored if present in the input dict.
+    """
+    timing: AttackTiming | None = None
     if "timing" in config:
         timing_data = config["timing"]
-        rx1_delay_sec = float(timing_data.get("rx1_delay_sec", 1.0))
-        rx1_window_sec = float(timing_data.get("rx1_window_sec", 1.0))
-        rx2_delay_sec = float(timing_data.get("rx2_delay_sec", 2.0))
-        rx2_window_sec = float(timing_data.get("rx2_window_sec", 1.0))
         join_accept_timeout_sec = float(
-            timing_data.get(
-                "join_accept_timeout_sec",
-                rx2_delay_sec + rx2_window_sec,
-            )
+            timing_data.get("join_accept_timeout_sec", AttackTiming.join_accept_timeout_sec)
         )
-        if join_accept_timeout_sec < rx2_delay_sec + rx2_window_sec:
+        # Validate against the internal RX2 window constants.
+        default = AttackTiming()
+        min_timeout = default.rx2_delay_sec + default.rx2_window_sec
+        if join_accept_timeout_sec < min_timeout:
             raise ValueError(
-                "timing.join_accept_timeout_sec must be >= rx2_delay_sec + rx2_window_sec"
+                f"timing.join_accept_timeout_sec must be >= {min_timeout} "
+                f"(rx2_delay_sec + rx2_window_sec)"
             )
-        timing = AttackTiming(
-            join_accept_timeout_sec=join_accept_timeout_sec,
-            rx1_delay_sec=rx1_delay_sec,
-            rx1_window_sec=rx1_window_sec,
-            rx2_delay_sec=rx2_delay_sec,
-            rx2_window_sec=rx2_window_sec,
-            inter_message_delay_sec=float(timing_data.get("inter_message_delay_sec", 30.0)),
-        )
+        # Build timing with user-provided join_accept_timeout_sec; all other
+        # fields use the LoRaWAN 1.0.3 specification defaults.
+        timing = AttackTiming(join_accept_timeout_sec=join_accept_timeout_sec)
 
     valid_join_count = config.get("valid_join_count", 1)
 
