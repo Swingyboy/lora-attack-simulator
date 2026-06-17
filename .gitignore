@@ -23,6 +23,7 @@ logs/
 results/
 *.txt
 
-# Documentation - keep only README.md
+# Documentation - keep only README.md and AGENTS.md
 *.md
 !README.md
+!AGENTS.md
