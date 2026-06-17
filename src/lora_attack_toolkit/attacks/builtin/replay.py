@@ -125,29 +125,7 @@ def _determine_verdict(
 
 # ── Channel selection helper ──────────────────────────────────────────────────
 
-def _select_radio_for_uplink(ctx: "AttackContext", fcnt: int) -> RadioMetadata:
-    """Return RadioMetadata for an uplink, honouring CFList channel rotation.
-
-    When the device has a real :class:`~lora_attack_toolkit.lorawan.radio.Radio`
-    configured (i.e. EU868 or other region-aware device), delegates channel
-    selection to ``radio.select_uplink_channel(fcnt)`` so CFList channels are
-    used in round-robin.  Falls back to ``ctx.radio`` for fixed-frequency
-    scenarios (no Radio configured, legacy configs, or unit-test mocks).
-
-    RSSI and SNR are always taken from ``ctx.radio`` (gateway-side values that
-    are not changed by channel selection).
-    """
-    from lora_attack_toolkit.lorawan.radio import Radio
-    dev_radio = ctx.device.runtime.radio
-    if not isinstance(dev_radio, Radio):
-        return ctx.radio
-    tx = dev_radio.select_uplink_channel(fcnt)
-    return RadioMetadata(
-        frequency=tx.frequency_hz,
-        data_rate=tx.data_rate,
-        rssi=ctx.radio.rssi,
-        snr=ctx.radio.snr,
-    )
+from lora_attack_toolkit.attacks.common.uplink import select_radio_for_uplink as _select_radio_for_uplink  # noqa: E402
 
 
 # ── MAC response helper ───────────────────────────────────────────────────────

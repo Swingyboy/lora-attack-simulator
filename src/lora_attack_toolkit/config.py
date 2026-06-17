@@ -281,6 +281,54 @@ class MACCommandConfigV1:
     malformation_type: str | None = None
 
 
+# ── Supported forgery modes ───────────────────────────────────────────────────
+
+UPLINK_FORGERY_MODES = frozenset({
+    "invalid_mic",
+    "valid_mic_modified_payload",
+    "fcnt_jump_forward",
+    "fcnt_reuse_with_modified_payload",
+    "wrong_devaddr",
+    "mac_command_forgery",
+})
+
+
+@dataclass(frozen=True)
+class UplinkForgeryConfigV1:
+    """Uplink forgery attack configuration (v1.0).
+
+    .. code-block:: json
+
+        {
+            "perform_join": true,
+            "baseline_uplink_count": 5,
+            "uplink_interval_sec": 5.0,
+            "forgery_mode": "invalid_mic",
+            "target_fcnt": null,
+            "fcnt_delta": 10000,
+            "payload_hex": "01020304",
+            "forged_payload_hex": "DEADBEEF",
+            "recalculate_mic": false,
+            "wrong_devaddr": "26000000",
+            "fport": 1,
+            "verification_uplink_count": 3
+        }
+    """
+
+    forgery_mode: str = "invalid_mic"
+    perform_join: bool = True
+    baseline_uplink_count: int = 5
+    uplink_interval_sec: float = 5.0
+    target_fcnt: int | None = None
+    fcnt_delta: int = 10000
+    payload_hex: str = "01020304"
+    forged_payload_hex: str = "DEADBEEF"
+    recalculate_mic: bool = False
+    wrong_devaddr: str = "26000000"
+    fport: int = 1
+    verification_uplink_count: int = 3
+
+
 @dataclass(frozen=True)
 class AttackConfigV1:
     """Unified attack configuration (v1.0)."""
@@ -403,6 +451,34 @@ def parse_mac_command_config(config: dict[str, Any]) -> MACCommandConfigV1:
         malformed=config.get("malformed", False),
         parameters=config.get("parameters"),
         malformation_type=config.get("malformation_type"),
+    )
+
+
+def parse_uplink_forgery_config(config: dict[str, Any]) -> UplinkForgeryConfigV1:
+    """Parse uplink forgery attack config from dict.
+
+    Raises:
+        ValueError: If forgery_mode is not one of the supported modes.
+    """
+    mode = config.get("forgery_mode", "invalid_mic")
+    if mode not in UPLINK_FORGERY_MODES:
+        raise ValueError(
+            f"Unknown forgery_mode: {mode!r}. "
+            f"Supported: {sorted(UPLINK_FORGERY_MODES)}"
+        )
+    return UplinkForgeryConfigV1(
+        forgery_mode=mode,
+        perform_join=bool(config.get("perform_join", True)),
+        baseline_uplink_count=int(config.get("baseline_uplink_count", 5)),
+        uplink_interval_sec=float(config.get("uplink_interval_sec", 5.0)),
+        target_fcnt=config.get("target_fcnt"),
+        fcnt_delta=int(config.get("fcnt_delta", 10000)),
+        payload_hex=str(config.get("payload_hex", "01020304")),
+        forged_payload_hex=str(config.get("forged_payload_hex", "DEADBEEF")),
+        recalculate_mic=bool(config.get("recalculate_mic", False)),
+        wrong_devaddr=str(config.get("wrong_devaddr", "26000000")),
+        fport=int(config.get("fport", 1)),
+        verification_uplink_count=int(config.get("verification_uplink_count", 3)),
     )
 
 

@@ -10,12 +10,14 @@ import logging
 
 from lora_attack_toolkit.attacks.builtin.join_devnonce import JoinDevNonceAttack
 from lora_attack_toolkit.attacks.builtin.mac_abuse import MACCommandAbuse
-from lora_attack_toolkit.attacks.registry import AttackRegistry, AttackSpec
 from lora_attack_toolkit.attacks.builtin.replay import UplinkReplayAttack
+from lora_attack_toolkit.attacks.builtin.uplink_forgery import UplinkForgeryAttack
+from lora_attack_toolkit.attacks.registry import AttackRegistry, AttackSpec
 from lora_attack_toolkit.config import (
     parse_join_devnonce_config,
     parse_mac_command_config,
     parse_replay_config,
+    parse_uplink_forgery_config,
 )
 
 logger = logging.getLogger(__name__)
@@ -90,7 +92,24 @@ def register_builtin_attacks() -> None:
             description="Inject legitimate or malformed MAC commands",
         )
     )
-    
+
+    # Uplink Forgery Attack
+    _register_builtin(
+        AttackSpec(
+            name="uplink_forgery",
+            attack_class=UplinkForgeryAttack,
+            config_parser=parse_uplink_forgery_config,
+            aliases=[],
+            title="Uplink Forgery Attack",
+            category="forgery",
+            attack_id="uplink-forgery-v1",
+            description=(
+                "Construct attacker-controlled uplinks to evaluate Network Server "
+                "MIC validation, FCnt validation, session binding, and DevAddr validation"
+            ),
+        )
+    )
+
     logger.info(
         f"Registered {len(AttackRegistry.list_attacks())} attack types: "
         f"{', '.join(AttackRegistry.list_attacks())}"
