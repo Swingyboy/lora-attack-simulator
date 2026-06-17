@@ -27,7 +27,6 @@ if TYPE_CHECKING:
     from lora_attack_toolkit.attacks.context import AttackContext
     from lora_attack_toolkit.config import ExpectedBehavior, ReplayConfigV1
 
-
 # ── Timing record types ───────────────────────────────────────────────────────
 
 @dataclass
@@ -125,7 +124,9 @@ def _determine_verdict(
 
 # ── Channel selection helper ──────────────────────────────────────────────────
 
-from lora_attack_toolkit.attacks.common.uplink import select_radio_for_uplink as _select_radio_for_uplink  # noqa: E402
+def _select_radio_for_uplink(ctx: "AttackContext", fcnt: int) -> RadioMetadata:
+    """Delegate uplink channel selection to the device layer."""
+    return ctx.device.select_uplink_radio(fcnt, ctx.radio)
 
 
 # ── MAC response helper ───────────────────────────────────────────────────────

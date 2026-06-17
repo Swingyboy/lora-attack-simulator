@@ -32,6 +32,15 @@ VALIDATION_PROFILES: dict[str, dict[str, Any]] = {
             "ns_maintains_secure_adr_state",
         ],
     },
+    "lorawan_uplink_forgery_protection": {
+        "secure_behavior": "ns_rejects_forged_uplinks_with_invalid_mic_or_wrong_devaddr",
+        "security_criteria": [
+            "ns_rejects_uplinks_with_invalid_mic",
+            "ns_rejects_uplinks_with_replayed_fcnt",
+            "ns_rejects_uplinks_with_wrong_devaddr",
+            "ns_accepts_only_authenticated_mac_commands",
+        ],
+    },
 }
 
 

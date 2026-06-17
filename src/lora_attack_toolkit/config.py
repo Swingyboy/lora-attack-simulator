@@ -292,6 +292,15 @@ UPLINK_FORGERY_MODES = frozenset({
     "mac_command_forgery",
 })
 
+#: Accepted values for the ``mac_command`` config field.
+UPLINK_FORGERY_MAC_COMMANDS = frozenset({
+    "DeviceTimeReq",
+    "LinkCheckReq",
+    "LinkADRAns",
+    "DutyCycleAns",
+    "RXParamSetupAns",
+})
+
 
 @dataclass(frozen=True)
 class UplinkForgeryConfigV1:
@@ -309,10 +318,21 @@ class UplinkForgeryConfigV1:
             "payload_hex": "01020304",
             "forged_payload_hex": "DEADBEEF",
             "recalculate_mic": false,
+            "corrupt_mic": true,
             "wrong_devaddr": "26000000",
+            "mac_command": "DeviceTimeReq",
             "fport": 1,
             "verification_uplink_count": 3
         }
+
+    ``recalculate_mic`` and ``corrupt_mic`` are evaluated in order:
+
+    1. If ``recalculate_mic`` is ``true`` the MIC is freshly computed using the
+       known session keys.  The resulting frame is cryptographically valid.
+    2. If ``corrupt_mic`` is ``true`` (and ``recalculate_mic`` is ``false``) the
+       MIC is bit-flipped so the NS should reject the frame.
+    3. If both are ``false`` the MIC produced by the standard frame builder is
+       left unchanged.
     """
 
     forgery_mode: str = "invalid_mic"
@@ -324,7 +344,9 @@ class UplinkForgeryConfigV1:
     payload_hex: str = "01020304"
     forged_payload_hex: str = "DEADBEEF"
     recalculate_mic: bool = False
+    corrupt_mic: bool = True
     wrong_devaddr: str = "26000000"
+    mac_command: str = "DeviceTimeReq"
     fport: int = 1
     verification_uplink_count: int = 3
 
@@ -458,13 +480,19 @@ def parse_uplink_forgery_config(config: dict[str, Any]) -> UplinkForgeryConfigV1
     """Parse uplink forgery attack config from dict.
 
     Raises:
-        ValueError: If forgery_mode is not one of the supported modes.
+        ValueError: If forgery_mode or mac_command is not supported.
     """
     mode = config.get("forgery_mode", "invalid_mic")
     if mode not in UPLINK_FORGERY_MODES:
         raise ValueError(
             f"Unknown forgery_mode: {mode!r}. "
             f"Supported: {sorted(UPLINK_FORGERY_MODES)}"
+        )
+    mac_cmd = config.get("mac_command", "DeviceTimeReq")
+    if mac_cmd not in UPLINK_FORGERY_MAC_COMMANDS:
+        raise ValueError(
+            f"Unknown mac_command: {mac_cmd!r}. "
+            f"Supported: {sorted(UPLINK_FORGERY_MAC_COMMANDS)}"
         )
     return UplinkForgeryConfigV1(
         forgery_mode=mode,
@@ -476,7 +504,9 @@ def parse_uplink_forgery_config(config: dict[str, Any]) -> UplinkForgeryConfigV1
         payload_hex=str(config.get("payload_hex", "01020304")),
         forged_payload_hex=str(config.get("forged_payload_hex", "DEADBEEF")),
         recalculate_mic=bool(config.get("recalculate_mic", False)),
+        corrupt_mic=bool(config.get("corrupt_mic", True)),
         wrong_devaddr=str(config.get("wrong_devaddr", "26000000")),
+        mac_command=mac_cmd,
         fport=int(config.get("fport", 1)),
         verification_uplink_count=int(config.get("verification_uplink_count", 3)),
     )

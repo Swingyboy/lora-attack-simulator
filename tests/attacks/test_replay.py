@@ -765,52 +765,68 @@ class TestProbeUplinkContainsDeviceTimeReq(unittest.TestCase):
 # ─── 14. Channel rotation via _select_radio_for_uplink ───────────────────────
 
 class TestChannelRotation(unittest.TestCase):
-    """Verify _select_radio_for_uplink uses CFList channels when Radio is available."""
+    """Verify _select_radio_for_uplink / device.select_uplink_radio channel behaviour."""
+
+    def _real_device(self) -> "SimulatedDevice":
+        from lora_attack_toolkit.runtime.device import SimulatedDevice
+        return SimulatedDevice(
+            dev_eui="0102030405060708",
+            join_eui="0807060504030201",
+            app_key="2b7e151628aed2a6abf7158809cf4f3c",
+        )
 
     def test_falls_back_to_ctx_radio_when_no_radio_object(self) -> None:
-        """When device.runtime.radio is a MagicMock (not a Radio), ctx.radio is returned."""
+        """When device has no Radio, select_uplink_radio returns the fallback unchanged."""
         from lora_attack_toolkit.attacks.builtin.replay import _select_radio_for_uplink
         cfg = _cfg()
         ctx = _make_ctx(cfg)
-        # MagicMock is truthy but not a Radio instance → must fall back
-        result = _select_radio_for_uplink(ctx, 0)
+        # Replace the MagicMock device with a real one (no Radio configured)
+        dev = self._real_device()
+        ctx.services.device.__class__ = dev.__class__  # type: ignore[attr-defined]
+        # Use the real method directly
+        result = dev.select_uplink_radio(0, ctx.radio)
         self.assertEqual(result.frequency, ctx.radio.frequency)
         self.assertEqual(result.data_rate, ctx.radio.data_rate)
 
     def test_uses_radio_select_uplink_channel_when_real_radio(self) -> None:
-        """When device.runtime.radio is a real Radio, its channel selection is used."""
-        from lora_attack_toolkit.attacks.builtin.replay import _select_radio_for_uplink
+        """When device has a real Radio, select_uplink_radio uses it for channel selection."""
         from lora_attack_toolkit.lorawan.radio import Radio, EU868RegionProfile
+        radio_fallback = _radio()
 
-        cfg = _cfg()
-        ctx = _make_ctx(cfg)
+        dev = self._real_device()
+        dev.runtime.radio = Radio(EU868RegionProfile())
 
-        # Build a real Radio with EU868 base channels (no CFList)
-        radio = Radio(EU868RegionProfile())
-        ctx.device.runtime.radio = radio
+        result = dev.select_uplink_radio(0, radio_fallback)
 
-        result = _select_radio_for_uplink(ctx, 0)
-
-        # Frequency must be one of the EU868 base channels
         eu868_base_hz = {868_100_000, 868_300_000, 868_500_000}
         self.assertIn(result.frequency, eu868_base_hz)
-        # RSSI and SNR always come from ctx.radio
-        self.assertEqual(result.rssi, ctx.radio.rssi)
-        self.assertEqual(result.snr, ctx.radio.snr)
+        # RSSI and SNR come from fallback
+        self.assertEqual(result.rssi, radio_fallback.rssi)
+        self.assertEqual(result.snr, radio_fallback.snr)
 
     def test_channel_rotates_across_calls(self) -> None:
-        """Consecutive FCnt values produce different channels (round-robin)."""
-        from lora_attack_toolkit.attacks.builtin.replay import _select_radio_for_uplink
+        """Consecutive uplink_index values produce round-robin channels."""
         from lora_attack_toolkit.lorawan.radio import Radio, EU868RegionProfile
+        radio_fallback = _radio()
 
+        dev = self._real_device()
+        dev.runtime.radio = Radio(EU868RegionProfile())
+
+        freqs = [dev.select_uplink_radio(i, radio_fallback).frequency for i in range(3)]
+        # 3 EU868 base channels → 3 distinct frequencies for indices 0,1,2
+        self.assertEqual(len(set(freqs)), 3, f"Expected 3 distinct frequencies, got {freqs}")
+
+    def test_replay_select_radio_delegates_to_device(self) -> None:
+        """_select_radio_for_uplink in replay.py must call device.select_uplink_radio."""
+        from lora_attack_toolkit.attacks.builtin.replay import _select_radio_for_uplink
         cfg = _cfg()
         ctx = _make_ctx(cfg)
-        radio = Radio(EU868RegionProfile())
-        ctx.device.runtime.radio = radio
+        radio = _radio()
+        ctx.device.select_uplink_radio.return_value = radio
 
-        freqs = [_select_radio_for_uplink(ctx, i).frequency for i in range(3)]
-        # With 3 base channels and fcnt=0,1,2 we should see 3 distinct frequencies.
-        self.assertEqual(len(set(freqs)), 3, f"Expected 3 distinct frequencies, got {freqs}")
+        result = _select_radio_for_uplink(ctx, 7)
+        ctx.device.select_uplink_radio.assert_called_once_with(7, ctx.radio)
+        self.assertIs(result, radio)
 
 
 # ─── 15. MAC command acknowledgment ──────────────────────────────────────────

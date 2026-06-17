@@ -147,6 +147,42 @@ class SimulatedDevice:
         self.runtime.fcnt_up += 1
         return frame
     
+    def select_uplink_radio(
+        self,
+        uplink_index: int,
+        fallback: "RadioMetadata",
+    ) -> "RadioMetadata":
+        """Return :class:`~lora_attack_toolkit.config.RadioMetadata` for an uplink.
+
+        Delegates channel selection to the device's :class:`Radio` when one is
+        configured (EU868 or other region-aware scenario), so CFList channels
+        are used in round-robin.  Falls back to *fallback* for fixed-frequency
+        scenarios (no Radio configured, legacy configs, or unit-test mocks).
+
+        RSSI and SNR are always taken from *fallback* (gateway-side values).
+
+        Args:
+            uplink_index: Zero-based uplink counter used for round-robin channel
+                selection.  Typically ``device.runtime.fcnt_up`` before the
+                uplink is sent, or any monotonically increasing integer.
+            fallback: Gateway-side :class:`RadioMetadata` used when the device
+                has no radio or as the source of RSSI/SNR.
+
+        Returns:
+            :class:`RadioMetadata` with the selected frequency and data-rate.
+        """
+        from lora_attack_toolkit.config import RadioMetadata as _RadioMetadata
+
+        if self.runtime.radio is None:
+            return fallback
+        tx = self.runtime.radio.select_uplink_channel(uplink_index)
+        return _RadioMetadata(
+            frequency=tx.frequency_hz,
+            data_rate=tx.data_rate,
+            rssi=fallback.rssi,
+            snr=fallback.snr,
+        )
+
     def parse_downlink(self, phy_payload: bytes) -> dict[str, Any]:
         """
         Parse a downlink frame and extract MAC commands.
