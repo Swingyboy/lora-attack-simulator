@@ -63,11 +63,13 @@ def build_unconfirmed_data_up(
     app_s_key: bytes,
     nwk_s_key: bytes,
     confirmed: bool,
+    f_opts: bytes = b"",
 ) -> bytes:
     mhdr = MHDR_CONFIRMED_DATA_UP if confirmed else MHDR_UNCONFIRMED_DATA_UP
-    fctrl = 0x00
+    f_opts_len = len(f_opts) & 0x0F  # FOpts can be 0-15 bytes
+    fctrl = f_opts_len              # upper 4 bits (ADR/ACK/…) left as 0
     fcnt_le = (fcnt_up & 0xFFFF).to_bytes(2, "little")
-    fhdr = dev_addr_le + bytes([fctrl]) + fcnt_le
+    fhdr = dev_addr_le + bytes([fctrl]) + fcnt_le + f_opts
     encrypted = lorawan_payload_cipher(app_s_key, dev_addr_le, fcnt_up, direction=0, payload=frm_payload)
     msg = bytes([mhdr]) + fhdr + bytes([f_port]) + encrypted
     mic = data_mic(nwk_s_key, dev_addr_le, fcnt_up, direction=0, msg=msg)

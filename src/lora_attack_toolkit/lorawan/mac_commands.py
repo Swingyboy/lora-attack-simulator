@@ -20,6 +20,9 @@ CID_NEW_CHANNEL_REQ = 0x07
 CID_NEW_CHANNEL_ANS = 0x07
 CID_RX_TIMING_SETUP_REQ = 0x08
 CID_RX_TIMING_SETUP_ANS = 0x08
+# DeviceTime (LoRaWAN 1.0.3 §5.9): CID shared for both directions
+CID_DEVICE_TIME_REQ = 0x0D  # Uplink: device → NS, no payload
+CID_DEVICE_TIME_ANS = 0x0D  # Downlink: NS → device, 5 bytes
 
 
 @dataclass(frozen=True)
@@ -274,6 +277,42 @@ def build_malformed_mac_command(
     return MACCommand(cid=cid, payload=payload)
 
 
+@dataclass(frozen=True)
+class DeviceTimeAnsData:
+    """Decoded DeviceTimeAns payload (LoRaWAN 1.0.3 §5.9).
+
+    The NS returns the current GPS epoch time and a fractional-second field.
+
+    Attributes:
+        gps_seconds: Seconds since GPS epoch (Jan 6 1980 00:00:00 UTC).
+        fractional: Fractional second in 1/256 increments (0–255).
+    """
+
+    gps_seconds: int
+    fractional: int
+
+
+def build_device_time_req() -> MACCommand:
+    """Build a DeviceTimeReq MAC command (uplink, no payload)."""
+    return MACCommand(cid=CID_DEVICE_TIME_REQ, payload=b"")
+
+
+def decode_device_time_ans(cmd: MACCommand) -> DeviceTimeAnsData | None:
+    """Decode a DeviceTimeAns MAC command payload.
+
+    Args:
+        cmd: MACCommand with CID == CID_DEVICE_TIME_ANS.
+
+    Returns:
+        DeviceTimeAnsData on success, None if payload is too short or CID wrong.
+    """
+    if cmd.cid != CID_DEVICE_TIME_ANS or len(cmd.payload) < 5:
+        return None
+    gps_seconds = int.from_bytes(cmd.payload[0:4], byteorder="little")
+    fractional = cmd.payload[4]
+    return DeviceTimeAnsData(gps_seconds=gps_seconds, fractional=fractional)
+
+
 def encode_mac_commands(commands: list[MACCommand]) -> bytes:
     """
     Encode multiple MAC commands into FOpts field.
@@ -318,6 +357,8 @@ def parse_mac_command(data: bytes) -> tuple[MACCommand | None, int]:
         payload_len = 1
     elif cid == CID_RX_TIMING_SETUP_REQ:
         payload_len = 1
+    elif cid == CID_DEVICE_TIME_ANS:  # 0x0D — downlink DeviceTimeAns has 5 bytes
+        payload_len = 5
     else:
         # Unknown CID, cannot parse
         return None, 1

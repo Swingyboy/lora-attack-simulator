@@ -24,6 +24,7 @@ from lora_attack_toolkit.lorawan.mac_commands import (
     CID_DUTY_CYCLE_ANS,
     CID_RX_TIMING_SETUP_REQ,
     CID_RX_TIMING_SETUP_ANS,
+    CID_DEVICE_TIME_ANS,
     MACCommand,
 )
 
@@ -130,7 +131,7 @@ class SimulatedDevice:
                     self.runtime.radio.get_active_uplink_channels(),
                 )
 
-    def build_data_uplink(self, payload: bytes, f_port: int, confirmed: bool) -> bytes:
+    def build_data_uplink(self, payload: bytes, f_port: int, confirmed: bool, f_opts: bytes = b"") -> bytes:
         if not self.runtime.joined:
             raise RuntimeError("device is not joined")
         frame = build_unconfirmed_data_up(
@@ -141,6 +142,7 @@ class SimulatedDevice:
             app_s_key=self.runtime.app_s_key,
             nwk_s_key=self.runtime.nwk_s_key,
             confirmed=confirmed,
+            f_opts=f_opts,
         )
         self.runtime.fcnt_up += 1
         return frame
@@ -207,7 +209,7 @@ class SimulatedDevice:
             msg=phy_payload[:mic_start],
             direction=1,  # Downlink
             dev_addr_le=self.runtime.dev_addr_le,
-            fcnt=fcnt,
+            fcnt_up=fcnt,
         )
         
         actual_mic = phy_payload[mic_start:]
@@ -226,7 +228,7 @@ class SimulatedDevice:
                 payload=frm_payload,
                 direction=1,  # Downlink
                 dev_addr_le=self.runtime.dev_addr_le,
-                fcnt=fcnt,
+                fcnt_up=fcnt,
             )
             mac_commands_in_payload = self._parse_mac_commands(decrypted)
         
@@ -263,6 +265,7 @@ class SimulatedDevice:
                 CID_DEV_STATUS_REQ: 0,
                 CID_NEW_CHANNEL_REQ: 5,
                 CID_RX_TIMING_SETUP_REQ: 1,
+                CID_DEVICE_TIME_ANS: 5,  # DeviceTimeAns: 4-byte GPS seconds + 1-byte fractional
             }
             
             payload_len = payload_lengths.get(cid, 0)
@@ -318,7 +321,11 @@ class SimulatedDevice:
             elif cmd.cid == CID_RX_TIMING_SETUP_REQ:
                 response = self._apply_rx_timing_setup_req(cmd)
                 responses.append(response)
-                
+
+            elif cmd.cid == CID_DEVICE_TIME_ANS:
+                # DeviceTimeAns is the NS's response to our DeviceTimeReq; no reply needed.
+                pass
+
             else:
                 if self._logger:
                     self._logger.warning(f"Unknown MAC command CID: 0x{cmd.cid:02x}")

@@ -224,6 +224,32 @@ class CapturePhaseConfig:
 
 
 @dataclass(frozen=True)
+class UplinkReplayConfigV1:
+    """Enhanced uplink replay attack configuration.
+
+    Flat format (replaces the old nested capture_phase/replay_phase layout):
+
+    .. code-block:: json
+
+        {
+            "uplink_interval_sec": 5,
+            "capture_fcnt": 5,
+            "replay_attempt_interval_sec": 0.7,
+            "replay_count": 3,
+            "verification_uplink_count": 5,
+            "device_time_gps_tolerance_sec": 2
+        }
+    """
+
+    uplink_interval_sec: float = 30.0
+    capture_fcnt: int = 5
+    replay_attempt_interval_sec: float = 5.0
+    replay_count: int = 3
+    verification_uplink_count: int = 5
+    device_time_gps_tolerance_sec: float = 2.0
+
+
+@dataclass(frozen=True)
 class ReplayConfigV1:
     """Replay attack configuration (v1.0)."""
     capture_phase: CapturePhaseConfig
@@ -284,8 +310,26 @@ class AttackScenarioV1:
 
 # ── Attack-specific config parsers ────────────────────────────────────────────
 
-def parse_replay_config(config: dict[str, Any]) -> ReplayConfigV1:
-    """Parse uplink replay config from dict."""
+def parse_replay_config(config: dict[str, Any]) -> "UplinkReplayConfigV1 | ReplayConfigV1":
+    """Parse uplink replay config from dict.
+
+    Detects format automatically:
+    - New flat format (keys: uplink_interval_sec / capture_fcnt / …) →
+      returns :class:`UplinkReplayConfigV1`.
+    - Legacy nested format (keys: capture_phase / replay_phase) →
+      returns :class:`ReplayConfigV1` for backward compatibility.
+    """
+    _new_keys = {"uplink_interval_sec", "capture_fcnt", "replay_attempt_interval_sec"}
+    if _new_keys.intersection(config.keys()):
+        return UplinkReplayConfigV1(
+            uplink_interval_sec=float(config.get("uplink_interval_sec", 30.0)),
+            capture_fcnt=int(config.get("capture_fcnt", 5)),
+            replay_attempt_interval_sec=float(config.get("replay_attempt_interval_sec", 5.0)),
+            replay_count=int(config.get("replay_count", 3)),
+            verification_uplink_count=int(config.get("verification_uplink_count", 5)),
+            device_time_gps_tolerance_sec=float(config.get("device_time_gps_tolerance_sec", 2.0)),
+        )
+
     capture_data = config.get("capture_phase", {})
     capture = CapturePhaseConfig(
         perform_join=capture_data.get("perform_join", True),
