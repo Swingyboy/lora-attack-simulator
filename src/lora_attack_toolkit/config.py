@@ -76,52 +76,6 @@ class LoggingConfig:
     log_semtech_udp: bool = False
 
 
-# ── Legacy schema types (v0 — kept for internal loader compat) ────────────────
-
-@dataclass(frozen=True)
-class AttackMeta:
-    """Attack scenario metadata."""
-    name: str
-    description: str
-    attack_type: str
-    timeout_sec: float = 60.0
-
-
-@dataclass(frozen=True)
-class ReplayConfig:
-    """Configuration for replay attack."""
-    mode: str
-    delay_sec: float = 0.0
-    burst_count: int = 1
-    burst_interval_sec: float = 0.1
-
-
-@dataclass(frozen=True)
-class MACCommandConfig:
-    """Configuration for MAC command abuse attack."""
-    command_type: str
-    malformed: bool = False
-    parameters: dict[str, Any] | None = None
-
-
-@dataclass(frozen=True)
-class AttackScenarioConfig:
-    """Complete attack scenario configuration (legacy v0 format)."""
-    attack: AttackMeta
-    gateway: GatewayConfig
-    device: DeviceConfig
-    logging: LoggingConfig
-    replay: ReplayConfig | None = None
-    mac_command: MACCommandConfig | None = None
-
-    def validate(self) -> None:
-        attack_configs = [self.replay is not None, self.mac_command is not None]
-        if sum(attack_configs) != 1:
-            raise ValueError("Exactly one attack configuration must be provided")
-        if self.attack.attack_type == "replay" and self.replay is None:
-            raise ValueError("Replay attack requires replay configuration")
-        if self.attack.attack_type == "mac_abuse" and self.mac_command is None:
-            raise ValueError("MAC command abuse attack requires mac_command configuration")
 
 
 # ── Schema v1.0 types ─────────────────────────────────────────────────────────
