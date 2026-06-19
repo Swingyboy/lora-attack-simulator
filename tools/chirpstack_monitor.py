@@ -4,8 +4,7 @@ Streams logs from the ChirpStack Docker container, parses structured entries,
 color-highlights by log level, and reports event statistics on exit.
 
 Usage:
-    python -m lora_attack_toolkit.observability.chirpstack_monitor [options]
-    lorawan-sim monitor [options]          (via console entry point)
+    python tools/chirpstack_monitor.py [options]
 
 ChirpStack log format:
     <ISO8601Z>  <LEVEL> <module::path>: <message>  [key=value ...]
