@@ -116,7 +116,7 @@ class LoRaWANConsole(cmd2.Cmd):
                     if metadata:
                         self.scenario_metadata[metadata.name] = metadata
         
-        print(f"Loaded {len(self.scenario_metadata)} scenarios")
+        self.poutput(f"Loaded {len(self.scenario_metadata)} scenarios")
     
     # ── show ────────────────────────────────────────────────────────────────
 

@@ -43,6 +43,7 @@ class DeviceCryptoFlowTests(unittest.TestCase):
             app_key=app_key,
         )
 
+        device.new_dev_nonce()
         join_req = device.build_join_request()
         self.assertEqual(join_req[0], 0x00)
 

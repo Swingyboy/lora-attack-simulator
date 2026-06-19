@@ -40,8 +40,8 @@ class DeviceRadioState:
     Network Server via MAC commands (LinkADRReq, etc.).
     """
     
-    data_rate: int = 0           # Current data rate (0-15, maps to SF12-SF7)
-    tx_power: int = 14           # Current TX power in dBm (0-15, region-specific)
+    data_rate: int = 5           # DR5 = SF7/BW125 in EU868 (LoRaWAN 1.0.3 Regional Parameters §2.2.3)
+    tx_power: int = 14           # EU868 maximum TX power in dBm (index 0 in the regional power table)
     ch_mask: int = 0x00FF        # Enabled channels (16-bit mask)
     nb_trans: int = 1            # Number of transmissions per uplink
     rx1_dr_offset: int = 0       # RX1 data rate offset
@@ -96,12 +96,26 @@ class SimulatedDevice:
         self._logger = logger
         self.runtime = DeviceRuntime()
 
-    def build_join_request(self) -> bytes:
+    def new_dev_nonce(self) -> bytes:
+        """Generate a fresh DevNonce, store it in runtime state, and return it."""
         self.runtime.dev_nonce = secrets.token_bytes(2)
+        return self.runtime.dev_nonce
+
+    def build_join_request(self, dev_nonce: bytes | None = None) -> bytes:
+        """Build a JoinRequest frame.
+
+        Args:
+            dev_nonce: DevNonce to use.  When ``None`` (the default) the
+                stored ``runtime.dev_nonce`` is used.  Pass an explicit value
+                only when replaying a specific nonce (e.g. in devnonce attacks).
+                Call :meth:`new_dev_nonce` first to generate and store a fresh
+                nonce before calling this method without an argument.
+        """
+        nonce = dev_nonce if dev_nonce is not None else self.runtime.dev_nonce
         return build_join_request(
             join_eui=self._join_eui,
             dev_eui=self._dev_eui,
-            dev_nonce=self.runtime.dev_nonce,
+            dev_nonce=nonce,
             app_key=self._app_key,
         )
 

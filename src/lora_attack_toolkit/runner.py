@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
+import uuid
 from pathlib import Path
 from typing import Any
 
+from lora_attack_toolkit.attacks.context import AttackContext, AttackInput, AttackServices
+from lora_attack_toolkit.attacks.packet_capture import PacketCapture
 from lora_attack_toolkit.attacks.registry import AttackRegistry
-from lora_attack_toolkit.config import AttackScenarioV1
+from lora_attack_toolkit.config import AttackScenarioV1, RadioMetadata
 from lora_attack_toolkit.runtime.device import create_device
 from lora_attack_toolkit.runtime.gateway import create_gateway
-from lora_attack_toolkit.config import RadioMetadata
 
 
 class AttackRunner:
@@ -31,7 +34,6 @@ class AttackRunner:
     @staticmethod
     def _generate_session_id() -> str:
         """Generate a session ID for result organization."""
-        import uuid
         return str(uuid.uuid4())[:8]
     
     def run(self, scenario: AttackScenarioV1, cancel_event=None) -> dict[str, Any]:
@@ -62,10 +64,10 @@ class AttackRunner:
 
         title = spec.title or spec.name
         category = spec.category or spec.name
-        self.logger.info(f"Starting attack scenario: {title}")
-        self.logger.info(f"Attack type: {scenario.attack.type}  Category: {category}")
-        self.logger.info(f"Description: {scenario.scenario.description}")
-        self.logger.info(f"Target: {scenario.target.name} @ {scenario.target.host}:{scenario.target.port}")
+        self.logger.info("Starting attack scenario: %s", title)
+        self.logger.info("Attack type: %s  Category: %s", scenario.attack.type, category)
+        self.logger.info("Description: %s", scenario.scenario.description)
+        self.logger.info("Target: %s @ %s:%s", scenario.target.name, scenario.target.host, scenario.target.port)
         
         # Build device and gateway from config
         device = create_device(scenario.device, logger=self.logger)
@@ -103,11 +105,11 @@ class AttackRunner:
             results["expected_behavior"] = scenario.expected.secure_behavior
             results["success_criteria"] = scenario.expected.success_criteria
             
-            self.logger.info(f"Attack completed: {results['message']}")
+            self.logger.info("Attack completed: %s", results['message'])
             return results
             
         except Exception as e:
-            self.logger.exception(f"Attack failed: {e}")
+            self.logger.exception("Attack failed: %s", e)
             return {
                 "success": False,
                 "message": f"Attack execution failed: {str(e)}",
@@ -136,8 +138,6 @@ class AttackRunner:
         Returns:
             AttackContext ready for attack execution
         """
-        from lora_attack_toolkit.attacks.context import AttackContext, AttackServices, AttackInput
-        from lora_attack_toolkit.attacks.packet_capture import PacketCapture
         attack_config_dict = scenario.attack.config
         
         # Create services
@@ -160,7 +160,6 @@ class AttackRunner:
         )
         
         # Create and return context
-        import threading
         return AttackContext(
             services=services,
             input=attack_input,
@@ -192,5 +191,5 @@ class AttackRunner:
         with open(results_path, "w") as f:
             json.dump(results, f, indent=2)
         
-        self.logger.info(f"Results saved to: {results_path}")
+        self.logger.info("Results saved to: %s", results_path)
         return results

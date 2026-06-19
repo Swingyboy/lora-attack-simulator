@@ -26,6 +26,7 @@ from logging import Logger
 from typing import Any, Callable
 
 from lora_attack_toolkit.transport.errors import (
+    TransportError,
     TransportPermanentError,
     TransportTemporaryError,
 )
@@ -166,5 +167,5 @@ class ResilientTransport(TransportClient):
         """Try to reconnect the inner transport; log and continue on failure."""
         try:
             self._inner.reconnect()
-        except Exception as exc:  # noqa: BLE001
+        except (OSError, TransportError) as exc:
             self._logger.debug("Reconnect attempt failed: %s", exc)

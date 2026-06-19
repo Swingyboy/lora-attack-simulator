@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import struct
 import time
 from logging import Logger
 
+from lora_attack_toolkit.lorawan.frames import (
+    MHDR_JOIN_ACCEPT,
+    build_join_request,
+)
+from lora_attack_toolkit.lorawan.radio import AirtimeCalculator, Radio
+from lora_attack_toolkit.config import RadioMetadata
 from lora_attack_toolkit.runtime.device import SimulatedDevice
 from lora_attack_toolkit.runtime.gateway import GatewaySimulator
-from lora_attack_toolkit.config import RadioMetadata
-from lora_attack_toolkit.lorawan.radio import AirtimeCalculator, Radio
 
 
 def perform_otaa_join(
@@ -43,17 +48,17 @@ def perform_otaa_join(
         logger.info("Attempting OTAA join...")
     
     # 1. Build and send JoinRequest
+    dev_nonce = device.new_dev_nonce()
     join_request = device.build_join_request()
-    dev_nonce = device.runtime.dev_nonce
     
     if logger:
-        logger.info(f"Sending JoinRequest with DevNonce={dev_nonce.hex()}")
+        logger.info("Sending JoinRequest with DevNonce=%s", dev_nonce.hex())
     
     gateway.forward_uplink(join_request, radio)
     
     # 2. Wait for JoinAccept from Network Server
     if logger:
-        logger.info(f"Waiting for JoinAccept (timeout={timeout_sec}s)...")
+        logger.info("Waiting for JoinAccept (timeout=%.1fs)...", timeout_sec)
     
     join_accept = gateway.await_downlink(timeout_sec=timeout_sec)
     
@@ -68,15 +73,16 @@ def perform_otaa_join(
         
         if logger:
             logger.info(
-                f"OTAA join succeeded: DevAddr={device.runtime.dev_addr_hex}",
+                "OTAA join succeeded: DevAddr=%s",
+                device.runtime.dev_addr_hex,
                 extra={"dev_addr": device.runtime.dev_addr_hex},
             )
         
         return True
         
-    except Exception as e:
+    except (ValueError, KeyError, struct.error) as e:
         if logger:
-            logger.error(f"OTAA join failed: Could not apply JoinAccept: {e}")
+            logger.error("OTAA join failed: Could not apply JoinAccept: %s", e)
         return False
 
 
@@ -109,14 +115,12 @@ def perform_otaa_join_with_devnonce(
         - join_succeeded: True if JoinAccept was valid and applied successfully
     """
     if logger:
-        logger.info(f"Attempting OTAA join with DevNonce={dev_nonce.hex()}")
+        logger.info("Attempting OTAA join with DevNonce=%s", dev_nonce.hex())
     
     # Manually set DevNonce before building JoinRequest
     device.runtime.dev_nonce = dev_nonce
     
     # Build JoinRequest with specified DevNonce
-    from lora_attack_toolkit.lorawan.frames import build_join_request
-    
     join_request = build_join_request(
         join_eui=device._join_eui,
         dev_eui=device._dev_eui,
@@ -125,13 +129,13 @@ def perform_otaa_join_with_devnonce(
     )
     
     if logger:
-        logger.info(f"Sending JoinRequest with DevNonce={dev_nonce.hex()}")
+        logger.info("Sending JoinRequest with DevNonce=%s", dev_nonce.hex())
     
     gateway.forward_uplink(join_request, radio)
     
     # Wait for JoinAccept
     if logger:
-        logger.info(f"Waiting for JoinAccept (timeout={timeout_sec}s)...")
+        logger.info("Waiting for JoinAccept (timeout=%.1fs)...", timeout_sec)
     
     join_accept = gateway.await_downlink(timeout_sec=timeout_sec)
     
@@ -143,8 +147,8 @@ def perform_otaa_join_with_devnonce(
     # NS responded with something
     if logger:
         logger.info("downlink_received")
-        logger.debug(f"Raw downlink PHYPayload: {join_accept.hex()}")
-        logger.debug(f"Downlink size: {len(join_accept)} bytes")
+        logger.debug("Raw downlink PHYPayload: %s", join_accept.hex())
+        logger.debug("Downlink size: %d bytes", len(join_accept))
     
     # Parse MHDR to check message type
     if len(join_accept) == 0:
@@ -154,13 +158,6 @@ def perform_otaa_join_with_devnonce(
     
     mhdr = join_accept[0]
     mtype = (mhdr >> 5) & 0x07  # Extract MType from bits 7-5
-    
-    # Import MHDR constants
-    from lora_attack_toolkit.lorawan.frames import (
-        MHDR_JOIN_ACCEPT,
-        MHDR_UNCONFIRMED_DATA_UP,
-        MHDR_CONFIRMED_DATA_UP,
-    )
     
     # Map MType to human-readable name
     mtype_names = {
@@ -177,14 +174,12 @@ def perform_otaa_join_with_devnonce(
     mtype_name = mtype_names.get(mtype, f"Unknown({mtype})")
     
     if logger:
-        logger.debug(f"Downlink MHDR: 0x{mhdr:02x}, MType: {mtype} ({mtype_name})")
+        logger.debug("Downlink MHDR: 0x%02x, MType: %d (%s)", mhdr, mtype, mtype_name)
     
     # Check if it's actually a JoinAccept
     if mhdr != MHDR_JOIN_ACCEPT:
         if logger:
-            logger.info(
-                f"NS sent {mtype_name} instead of JoinAccept (MHDR=0x{mhdr:02x})"
-            )
+            logger.info("NS sent %s instead of JoinAccept (MHDR=0x%02x)", mtype_name, mhdr)
             logger.info(
                 "This is NOT a JoinAccept - NS did not establish new session (not a vulnerability)"
             )
@@ -199,24 +194,28 @@ def perform_otaa_join_with_devnonce(
         
         if logger:
             logger.info(
-                f"JoinAccept received: DevAddr={device.runtime.dev_addr_hex}",
+                "JoinAccept received: DevAddr=%s",
+                device.runtime.dev_addr_hex,
                 extra={"dev_addr": device.runtime.dev_addr_hex},
             )
         
         return (True, True)  # NS responded and JoinAccept valid
         
-    except Exception as e:
+    except (ValueError, KeyError, struct.error) as e:
         # NS responded with JoinAccept but it's malformed
         if logger:
-            logger.error(f"Could not parse JoinAccept: {e}")
-            logger.debug(f"Exception type: {type(e).__name__}")
-            logger.debug(f"Exception details: {str(e)}")
+            logger.error("Could not parse JoinAccept: %s", e)
+            logger.debug("Exception type: %s", type(e).__name__)
+            logger.debug("Exception details: %s", e)
             
             # Try to provide more context
             if "MIC" in str(e):
                 logger.debug("MIC verification failed - NS may have used wrong AppKey")
             elif "size" in str(e):
-                logger.debug(f"Invalid size - expected multiple of 16, got {len(join_accept)-1} encrypted bytes")
+                logger.debug(
+                    "Invalid size - expected multiple of 16, got %d encrypted bytes",
+                    len(join_accept) - 1,
+                )
             elif "too short" in str(e):
                 logger.debug("Payload too short after decryption")
         
@@ -289,9 +288,9 @@ def send_periodic_uplinks(
             if i < count - 1:
                 time.sleep(interval_sec)
 
-        except Exception as e:
+        except (OSError, ValueError) as e:
             if logger:
-                logger.error(f"Failed to send uplink {i+1}: {e}")
+                logger.error("Failed to send uplink %d: %s", i + 1, e)
 
     return sent_count
 
@@ -342,7 +341,7 @@ def wait_for_rx_windows(
     downlinks = []
     
     if logger:
-        logger.debug(f"Waiting for RX1 window ({rx1_delay_sec}s)...")
+        logger.debug("Waiting for RX1 window (%.1fs)...", rx1_delay_sec)
     
     # Wait until RX1 window
     start_time = time.time()
@@ -357,10 +356,10 @@ def wait_for_rx_windows(
         if downlink:
             downlinks.append(downlink)
             if logger:
-                logger.debug(f"Downlink received in RX1: {downlink.hex()[:32]}...")
+                logger.debug("Downlink received in RX1: %s...", downlink.hex()[:32])
     
     if logger:
-        logger.debug(f"RX1 window complete, waiting for RX2 ({rx2_delay_sec - rx1_delay_sec}s more)...")
+        logger.debug("RX1 window complete, waiting for RX2 (%.1fs more)...", rx2_delay_sec - rx1_delay_sec)
     
     # Wait until RX2 window
     deadline_rx2 = start_time + rx2_delay_sec
@@ -374,10 +373,10 @@ def wait_for_rx_windows(
         if downlink:
             downlinks.append(downlink)
             if logger:
-                logger.debug(f"Downlink received in RX2: {downlink.hex()[:32]}...")
+                logger.debug("Downlink received in RX2: %s...", downlink.hex()[:32])
     
     if logger:
-        logger.info(f"RX windows complete: {len(downlinks)} downlink(s) received")
+        logger.info("RX windows complete: %d downlink(s) received", len(downlinks))
     
     return downlinks
 
@@ -417,13 +416,12 @@ def capture_downlinks(
         if downlink:
             captured.append(downlink)
             if logger:
-                logger.info(f"Captured downlink {len(captured)}/{max_count}")
+                logger.info("Captured downlink %d/%d", len(captured), max_count)
         else:
             # Short sleep before retry
             time.sleep(0.1)
     
     if logger:
-        logger.info(f"Captured {len(captured)} downlink(s) in {timeout_sec}s")
+        logger.info("Captured %d downlink(s) in %.1fs", len(captured), timeout_sec)
     
     return captured
-
