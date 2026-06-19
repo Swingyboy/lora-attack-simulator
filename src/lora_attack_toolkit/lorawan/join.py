@@ -345,7 +345,7 @@ def send_periodic_uplinks(
 
     for i in range(count):
         try:
-            now = time.time()
+            now = time.monotonic()
             uplink_radio = _select_uplink_radio(device, radio, now=now)
 
             payload = bytes([i % 256])
@@ -438,11 +438,11 @@ def wait_for_rx_windows(
         logger.debug("Waiting for RX1 window (%.1fs)...", rx1_delay_sec)
 
     # Wait until RX1 window
-    start_time = time.time()
+    start_time = time.monotonic()
     deadline_rx1 = start_time + rx1_delay_sec
 
-    while time.time() < deadline_rx1:
-        remaining = deadline_rx1 - time.time()
+    while time.monotonic() < deadline_rx1:
+        remaining = deadline_rx1 - time.monotonic()
         if remaining <= 0:
             break
 
@@ -460,8 +460,8 @@ def wait_for_rx_windows(
     # Wait until RX2 window
     deadline_rx2 = start_time + rx2_delay_sec
 
-    while time.time() < deadline_rx2:
-        remaining = deadline_rx2 - time.time()
+    while time.monotonic() < deadline_rx2:
+        remaining = deadline_rx2 - time.monotonic()
         if remaining <= 0:
             break
 
@@ -498,10 +498,10 @@ def capture_downlinks(
         List of captured PHYPayload bytes
     """
     captured: list[bytes] = []
-    start_time = time.time()
+    start_time = time.monotonic()
 
     while len(captured) < max_count:
-        elapsed = time.time() - start_time
+        elapsed = time.monotonic() - start_time
         if elapsed >= timeout_sec:
             break
 

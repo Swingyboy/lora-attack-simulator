@@ -13,10 +13,10 @@ Typical usage::
     radio.apply_cflist(cflist_bytes)
 
     # In OTAA join loop:
-    tx = radio.select_join_channel(attempt_index, now=time.time())
+    tx = radio.select_join_channel(attempt_index, now=time.monotonic())
 
     # In uplink loop:
-    tx = radio.select_uplink_channel(uplink_index, now=time.time())
+    tx = radio.select_uplink_channel(uplink_index, now=time.monotonic())
     gateway.forward_uplink(frame, RadioMetadata(tx.frequency_hz, tx.data_rate, ...))
     radio.record_transmission(tx.frequency_hz, airtime_sec, now)
 """
