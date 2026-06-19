@@ -178,6 +178,14 @@ class AttackTiming:
     rx2_window_sec: float = 1.0
 
 
+# LEGACY (deprecated): ReplayPhaseConfig, CapturePhaseConfig, and ReplayConfigV1
+# support the nested capture_phase/replay_phase JSON format.  No example scenario
+# uses that format.  These classes are kept because:
+#   1. parse_replay_config still produces ReplayConfigV1 for nested input.
+#   2. UplinkReplayAttack._run_legacy consumes ReplayConfigV1.
+#   3. TestLegacyReplayAnalyzer exercises the path directly.
+# All three blockers must be resolved before these classes can be removed.
+
 @dataclass(frozen=True)
 class ReplayPhaseConfig:
     """Replay phase configuration for uplink replay attacks."""

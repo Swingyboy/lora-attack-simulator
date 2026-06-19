@@ -157,7 +157,18 @@ def _encode_pending_ans(pending: list[MACCommand]) -> bytes:
     return encode_mac_commands(pending)[:_FOPTS_MAX]
 
 
-# ── Legacy analyzer (kept for backward compat with existing tests) ─────────────
+# LEGACY (deprecated): ReplayAnalyzer is retained because TestLegacyReplayAnalyzer
+# exercises it directly as a unit test.  It is NOT used by the active enhanced
+# path (_run_enhanced); it is only called from _run_legacy which handles the
+# nested capture_phase/replay_phase config format.
+#
+# Removal is blocked by:
+#   1. TestLegacyReplayAnalyzer (3 tests) in tests/attacks/test_replay.py — the
+#      assertions must be ported to the enhanced verdict path before this class
+#      and its tests can be deleted.
+#   2. parse_replay_config still produces ReplayConfigV1 for the nested format —
+#      that branch must be removed from config.py first.
+# Scheduled for cleanup once those blockers are resolved.
 
 class ReplayAnalyzer(AttackAnalyzer):
     """Analyzer for replay attack results."""
@@ -664,6 +675,11 @@ class UplinkReplayAttack(BaseAttack):
             captured_packets=len(ctx.capture.uplinks) + len(ctx.capture.downlinks),
         )
 
+    # LEGACY: _run_legacy handles the nested ReplayConfigV1 (capture_phase/
+    # replay_phase) format.  No example scenarios use this format; it is kept
+    # only because parse_replay_config still produces ReplayConfigV1 for nested
+    # input.  Remove once parse_replay_config is narrowed to UplinkReplayConfigV1
+    # only and TestLegacyReplayAnalyzer is migrated.
     def _run_legacy(self, ctx: AttackContext) -> AttackResult:
         config = ctx.config  # ReplayConfigV1
         replay_count = config.replay_phase.count
