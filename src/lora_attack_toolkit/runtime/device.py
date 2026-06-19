@@ -73,7 +73,7 @@ class DeviceRuntime:
     nwk_s_key: bytes = b""
     app_s_key: bytes = b""
     fcnt_up: int = 0
-    fcnt_down: int = 0
+    fcnt_down: int = 0  # Stored as the full accepted 32-bit FCntDown value.
     adr: DeviceRadioState = field(default_factory=DeviceRadioState)
     radio: "Radio | None" = None  # Owns channel selection, CFList, duty-cycle, DR/power
     join_attempt_index: int = 0
@@ -82,6 +82,22 @@ class DeviceRuntime:
     @property
     def dev_addr_hex(self) -> str:
         return self.dev_addr_le[::-1].hex() if self.dev_addr_le else ""
+
+
+@dataclass
+class DownlinkResult:
+    accepted: bool
+    reject_reason: str | None
+    mtype: int
+    dev_addr_match: bool
+    valid_mic: bool
+    fcnt_ok: bool
+    fcnt_32: int
+    f_port: int | None
+    frm_payload: bytes
+    mac_commands: list[MACCommand]
+    applied_mac_commands: list[MACCommand]
+    is_join_accept: bool = False
 
 
 class SimulatedDevice:
@@ -97,6 +113,43 @@ class SimulatedDevice:
         self._app_key = bytes.fromhex(app_key)
         self._logger = logger
         self.runtime = DeviceRuntime()
+
+    @staticmethod
+    def _empty_downlink_result(
+        *,
+        accepted: bool = False,
+        reject_reason: str | None = None,
+        mtype: int = -1,
+        dev_addr_match: bool = False,
+        valid_mic: bool = False,
+        fcnt_ok: bool = False,
+        fcnt_32: int = -1,
+        f_port: int | None = None,
+        frm_payload: bytes = b"",
+        mac_commands: list[MACCommand] | None = None,
+        applied_mac_commands: list[MACCommand] | None = None,
+        is_join_accept: bool = False,
+    ) -> "DownlinkResult":
+        return DownlinkResult(
+            accepted=accepted,
+            reject_reason=reject_reason,
+            mtype=mtype,
+            dev_addr_match=dev_addr_match,
+            valid_mic=valid_mic,
+            fcnt_ok=fcnt_ok,
+            fcnt_32=fcnt_32,
+            f_port=f_port,
+            frm_payload=frm_payload,
+            mac_commands=list(mac_commands or []),
+            applied_mac_commands=list(applied_mac_commands or []),
+            is_join_accept=is_join_accept,
+        )
+
+    def _reconstruct_downlink_counter(self, received_low16: int) -> int:
+        candidate = (self.runtime.fcnt_down & 0xFFFF0000) | received_low16
+        if received_low16 < (self.runtime.fcnt_down & 0xFFFF):
+            candidate += 0x10000
+        return candidate
 
     def new_dev_nonce(self) -> bytes:
         """Generate a fresh DevNonce, store it in runtime state, and return it."""
@@ -121,7 +174,7 @@ class SimulatedDevice:
             app_key=self._app_key,
         )
 
-    def apply_join_accept(self, phy_payload: bytes) -> None:
+    def _apply_join_accept(self, phy_payload: bytes) -> None:
         if not self.runtime.dev_nonce:
             raise RuntimeError("join request must be sent before join accept")
         parsed = decode_join_accept(phy_payload, self._app_key)
@@ -146,6 +199,9 @@ class SimulatedDevice:
                     "Applied CFList; active uplink channels: %s",
                     self.runtime.radio.get_active_uplink_channels(),
                 )
+
+    def apply_join_accept(self, phy_payload: bytes) -> None:
+        self._apply_join_accept(phy_payload)
 
     def build_data_uplink(
         self, payload: bytes, f_port: int, confirmed: bool, f_opts: bytes = b""
@@ -258,8 +314,9 @@ class SimulatedDevice:
             result["reject_reason"] = "devaddr_mismatch"
             return result
 
-        # FCntDown (16-bit, bytes 6-7)
-        fcnt = int.from_bytes(phy_payload[6:8], "little")
+        # FCntDown reconstruction from 16-bit wire value to 32-bit runtime value
+        received_low16 = int.from_bytes(phy_payload[6:8], "little")
+        fcnt = self._reconstruct_downlink_counter(received_low16)
         result["fcnt"] = fcnt
 
         # MIC validation
@@ -279,18 +336,147 @@ class SimulatedDevice:
             result["reject_reason"] = "invalid_mic"
             return result
 
-        # FCntDown freshness (must be ≥ expected)
+        # FCntDown freshness (must be strictly newer than the last accepted)
         expected_fcnt_down = self.runtime.fcnt_down
-        fcnt_ok = fcnt >= expected_fcnt_down
+        fcnt_ok = fcnt > expected_fcnt_down
         result["fcnt_ok"] = fcnt_ok
         if not fcnt_ok:
-            result["reject_reason"] = f"stale_fcnt:got={fcnt},expected>={expected_fcnt_down}"
+            result["reject_reason"] = f"stale_fcnt:got={fcnt},expected>{expected_fcnt_down}"
             return result
 
         result["valid"] = True
         return result
 
-    def parse_downlink(self, phy_payload: bytes) -> dict[str, Any]:
+    def process_downlink(self, phy_payload: bytes, *, expect_join: bool = False) -> "DownlinkResult":
+        if expect_join:
+            result = self._empty_downlink_result(
+                mtype=((phy_payload[0] >> 5) & 0x07) if phy_payload else -1,
+                is_join_accept=True,
+            )
+            if not self.runtime.dev_nonce:
+                result.reject_reason = "join_request_missing"
+                return result
+            try:
+                parsed = decode_join_accept(phy_payload, self._app_key)
+            except (ValueError, KeyError) as exc:
+                result.reject_reason = str(exc)
+                return result
+
+            nwk_s_key, app_s_key = derive_session_keys(
+                app_key=self._app_key,
+                app_nonce=parsed.app_nonce,
+                net_id=parsed.net_id,
+                dev_nonce=self.runtime.dev_nonce,
+            )
+            self.runtime.dev_addr_le = parsed.dev_addr_le
+            self.runtime.nwk_s_key = nwk_s_key
+            self.runtime.app_s_key = app_s_key
+            self.runtime.joined = True
+            self.runtime.fcnt_up = 0
+            self.runtime.fcnt_down = 0
+
+            if parsed.cflist is not None and self.runtime.radio is not None:
+                self.runtime.radio.apply_cflist(parsed.cflist)
+                if self._logger:
+                    self._logger.info(
+                        "Applied CFList; active uplink channels: %s",
+                        self.runtime.radio.get_active_uplink_channels(),
+                    )
+
+            result.accepted = True
+            result.valid_mic = True
+            result.fcnt_ok = True
+            result.dev_addr_match = True
+            return result
+
+        if not self.runtime.joined:
+            return self._empty_downlink_result(reject_reason="device_not_joined")
+
+        result = self._empty_downlink_result(
+            mtype=((phy_payload[0] >> 5) & 0x07) if phy_payload else -1
+        )
+        if len(phy_payload) < 12:
+            result.reject_reason = f"frame_too_short:{len(phy_payload)}"
+            return result
+
+        mhdr = phy_payload[0]
+        mtype = (mhdr >> 5) & 0x07
+        result.mtype = mtype
+        if mtype not in (3, 5):
+            result.reject_reason = f"unsupported_mtype:{mtype}"
+            return result
+
+        frame_dev_addr_le = phy_payload[1:5]
+        result.dev_addr_match = frame_dev_addr_le == self.runtime.dev_addr_le
+        if not result.dev_addr_match:
+            result.reject_reason = "devaddr_mismatch"
+            return result
+
+        fctrl = phy_payload[5]
+        f_opts_len = fctrl & 0x0F
+        payload_start = 8 + f_opts_len
+        mic_start = len(phy_payload) - 4
+        if payload_start > mic_start:
+            result.reject_reason = "invalid_fopts_len"
+            return result
+
+        received_low16 = int.from_bytes(phy_payload[6:8], "little")
+        reconstructed_fcnt = self._reconstruct_downlink_counter(received_low16)
+        result.fcnt_32 = reconstructed_fcnt
+
+        from lora_attack_toolkit.lorawan.crypto import data_mic, lorawan_payload_cipher
+
+        expected_mic = data_mic(
+            nwk_s_key=self.runtime.nwk_s_key,
+            msg=phy_payload[:mic_start],
+            direction=1,
+            dev_addr_le=self.runtime.dev_addr_le,
+            fcnt_up=reconstructed_fcnt,
+        )
+        result.valid_mic = expected_mic == phy_payload[mic_start:]
+        if not result.valid_mic:
+            result.reject_reason = "invalid_mic"
+            return result
+
+        result.fcnt_ok = reconstructed_fcnt > self.runtime.fcnt_down
+        if not result.fcnt_ok:
+            result.reject_reason = (
+                f"stale_fcnt:got={reconstructed_fcnt},expected>{self.runtime.fcnt_down}"
+            )
+            return result
+
+        f_opts = phy_payload[8:payload_start]
+        mac_commands_in_fopts = self._parse_mac_commands(f_opts)
+
+        frm_payload = b""
+        f_port = None
+        mac_commands_in_payload: list[MACCommand] = []
+        if payload_start < mic_start:
+            f_port = phy_payload[payload_start]
+            encrypted_payload = phy_payload[payload_start + 1 : mic_start]
+            payload_key = self.runtime.nwk_s_key if f_port == 0 else self.runtime.app_s_key
+            frm_payload = lorawan_payload_cipher(
+                key=payload_key,
+                payload=encrypted_payload,
+                direction=1,
+                dev_addr_le=self.runtime.dev_addr_le,
+                fcnt_up=reconstructed_fcnt,
+            )
+            if f_port == 0 and frm_payload:
+                mac_commands_in_payload = self._parse_mac_commands(frm_payload)
+
+        all_mac_commands = mac_commands_in_fopts + mac_commands_in_payload
+        applied_mac_commands = self.apply_mac_commands(all_mac_commands) if all_mac_commands else []
+
+        self.runtime.fcnt_down = reconstructed_fcnt
+        result.accepted = True
+        result.f_port = f_port
+        result.frm_payload = frm_payload
+        result.mac_commands = all_mac_commands
+        result.applied_mac_commands = applied_mac_commands
+        return result
+
+    def _parse_downlink(self, phy_payload: bytes) -> dict[str, Any]:
         """
         Parse a downlink frame and extract MAC commands.
 
@@ -326,7 +512,7 @@ class SimulatedDevice:
         dev_addr_le = phy_payload[1:5]
         fctrl = phy_payload[5]
         fcnt_bytes = phy_payload[6:8]
-        fcnt = int.from_bytes(fcnt_bytes, byteorder="little")
+        fcnt = self._reconstruct_downlink_counter(int.from_bytes(fcnt_bytes, byteorder="little"))
 
         # FOpts length
         f_opts_len = fctrl & 0x0F
@@ -342,7 +528,17 @@ class SimulatedDevice:
 
         if payload_start < mic_start:
             f_port = phy_payload[payload_start]
-            frm_payload = phy_payload[payload_start + 1 : mic_start]
+            encrypted_payload = phy_payload[payload_start + 1 : mic_start]
+            from lora_attack_toolkit.lorawan.crypto import lorawan_payload_cipher
+
+            payload_key = self.runtime.nwk_s_key if f_port == 0 else self.runtime.app_s_key
+            frm_payload = lorawan_payload_cipher(
+                key=payload_key,
+                payload=encrypted_payload,
+                direction=1,  # Downlink
+                dev_addr_le=self.runtime.dev_addr_le,
+                fcnt_up=fcnt,
+            )
 
         # Verify MIC
         from lora_attack_toolkit.lorawan.crypto import data_mic
@@ -363,17 +559,7 @@ class SimulatedDevice:
 
         # If FPort == 0, FRMPayload contains MAC commands
         if f_port == 0 and frm_payload:
-            # Decrypt with NwkSKey
-            from lora_attack_toolkit.lorawan.crypto import lorawan_payload_cipher
-
-            decrypted = lorawan_payload_cipher(
-                key=self.runtime.nwk_s_key,
-                payload=frm_payload,
-                direction=1,  # Downlink
-                dev_addr_le=self.runtime.dev_addr_le,
-                fcnt_up=fcnt,
-            )
-            mac_commands_in_payload = self._parse_mac_commands(decrypted)
+            mac_commands_in_payload = self._parse_mac_commands(frm_payload)
 
         all_mac_commands = mac_commands_in_fopts + mac_commands_in_payload
 
@@ -381,11 +567,15 @@ class SimulatedDevice:
             "mtype": mtype,
             "dev_addr": dev_addr_le[::-1].hex(),
             "fcnt": fcnt,
+            "fcnt_32": fcnt,
             "f_port": f_port,
             "frm_payload": frm_payload,
             "mac_commands": all_mac_commands,
             "valid_mic": valid_mic,
         }
+
+    def parse_downlink(self, phy_payload: bytes) -> dict[str, Any]:
+        return self._parse_downlink(phy_payload)
 
     def _parse_mac_commands(self, data: bytes) -> list[MACCommand]:
         """Parse MAC commands from byte stream."""

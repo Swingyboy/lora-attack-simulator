@@ -19,8 +19,11 @@ from lora_attack_toolkit.attacks.registry import AttackRegistry
 from lora_attack_toolkit.attacks.bootstrap import register_builtin_attacks
 from lora_attack_toolkit.config import RadioMetadata
 from lora_attack_toolkit.config import JoinDevNonceConfigV1, parse_join_devnonce_config
-from lora_attack_toolkit.runtime.device import SimulatedDevice
+from lora_attack_toolkit.runtime.device import DownlinkResult, SimulatedDevice
 from lora_attack_toolkit.runtime.gateway import GatewaySimulator
+import pytest
+
+pytestmark = pytest.mark.unit
 
 
 def _step(dev_nonce: bytes, *, accepted: bool, ts: float = 0.0) -> JoinStepResult:
@@ -114,7 +117,22 @@ class TestJoinDevNonceAttack(unittest.TestCase):
         self.device._join_eui = bytes.fromhex("0011223344556677")
         self.device._dev_eui = bytes.fromhex("0011223344556677")
         self.device._app_key = bytes.fromhex("00112233445566770011223344556677")
-        self.device.apply_join_accept = MagicMock()
+        self.device.process_downlink = MagicMock(
+            return_value=DownlinkResult(
+                accepted=True,
+                reject_reason=None,
+                mtype=1,
+                dev_addr_match=True,
+                valid_mic=True,
+                fcnt_ok=True,
+                fcnt_32=-1,
+                f_port=None,
+                frm_payload=b"",
+                mac_commands=[],
+                applied_mac_commands=[],
+                is_join_accept=True,
+            )
+        )
         self.gateway = MagicMock(spec=GatewaySimulator)
         self.gateway.start = MagicMock()
         self.gateway.stop = MagicMock()
@@ -354,7 +372,7 @@ class TestJoinDevNonceAttack(unittest.TestCase):
         self.assertNotIn("partial", result.message)
 
     def test_execute_join_step_sets_runtime_dev_nonce(self) -> None:
-        """runtime.dev_nonce must be set before apply_join_accept is called."""
+        """runtime.dev_nonce must be set before process_downlink is called."""
         from lora_attack_toolkit.runtime.device import DeviceRuntime
 
         attack = JoinDevNonceAttack()
@@ -607,7 +625,6 @@ class TestDevNonceGeneration(unittest.TestCase):
         )
 
         import random as _random
-
         expected_start = _random.Random(42).randint(0, 0xFFFF)
 
         def fake_generation(ctx, cfg, timing, cache):

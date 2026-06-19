@@ -366,19 +366,22 @@ class UplinkReplayAttack(BaseAttack):
             rx = ctx.gateway.await_downlink(timeout_sec=_pre_probe_rx_timeout)
             if rx is not None:
                 try:
-                    parsed = ctx.device.parse_downlink(rx)
-                    mac_cmds = parsed.get("mac_commands", [])
-                    if mac_cmds and isinstance(mac_cmds, list):
-                        responses = ctx.device.apply_mac_commands(mac_cmds)
-                        if responses and isinstance(responses, list):
-                            with mac_ans_lock:
-                                pending_mac_ans.extend(responses)
-                            ctx.logger.info(
-                                "pre_probe_mac_ans_queued count=%d fcnt=%d",
-                                len(responses),
-                                current_fcnt,
-                            )
-                except Exception as exc:  # noqa: BLE001  # downlink parsing can raise many types
+                    result = ctx.device.process_downlink(rx)
+                    if not result.accepted:
+                        ctx.logger.warning(
+                            "pre_probe_downlink_rejected reason=%s fcnt_32=%d",
+                            result.reject_reason,
+                            result.fcnt_32,
+                        )
+                    elif result.applied_mac_commands:
+                        with mac_ans_lock:
+                            pending_mac_ans.extend(result.applied_mac_commands)
+                        ctx.logger.info(
+                            "pre_probe_mac_ans_queued count=%d fcnt=%d",
+                            len(result.applied_mac_commands),
+                            current_fcnt,
+                        )
+                except Exception as exc:  # noqa: BLE001  # downlink processing can raise many types
                     ctx.logger.warning("pre_probe_downlink_parse_error: %s", exc)
             remaining_sleep = max(0.0, cfg.uplink_interval_sec - _pre_probe_rx_timeout)
             if remaining_sleep > 0:
@@ -526,31 +529,36 @@ class UplinkReplayAttack(BaseAttack):
                 mac_cmds: list[Any] = []
                 dt_ans = None
                 try:
-                    parsed = ctx.device.parse_downlink(raw)
-                    mac_cmds = parsed.get("mac_commands", [])
-                    for cmd in mac_cmds:
-                        if cmd.cid == CID_DEVICE_TIME_ANS:
-                            dt_ans = decode_device_time_ans(cmd)
-                            if dt_ans is not None:
-                                ctx.logger.info(
-                                    "device_time_ans_decoded gps_seconds=%d"
-                                    " fractional=%d mono=%.3f",
-                                    dt_ans.gps_seconds,
-                                    dt_ans.fractional,
-                                    mono,
-                                )
-                    # Generate *Ans for every MAC command the NS sent.
-                    if mac_cmds and isinstance(mac_cmds, list):
-                        responses = ctx.device.apply_mac_commands(mac_cmds)
-                        if responses and isinstance(responses, list):
+                    result = ctx.device.process_downlink(raw)
+                    if not result.accepted:
+                        ctx.logger.warning(
+                            "downlink_rejected reason=%s fcnt_32=%d mono=%.3f",
+                            result.reject_reason,
+                            result.fcnt_32,
+                            mono,
+                        )
+                    else:
+                        mac_cmds = result.mac_commands
+                        for cmd in mac_cmds:
+                            if cmd.cid == CID_DEVICE_TIME_ANS:
+                                dt_ans = decode_device_time_ans(cmd)
+                                if dt_ans is not None:
+                                    ctx.logger.info(
+                                        "device_time_ans_decoded gps_seconds=%d"
+                                        " fractional=%d mono=%.3f",
+                                        dt_ans.gps_seconds,
+                                        dt_ans.fractional,
+                                        mono,
+                                    )
+                        if result.applied_mac_commands:
                             with mac_ans_lock:
-                                pending_mac_ans.extend(responses)
+                                pending_mac_ans.extend(result.applied_mac_commands)
                             ctx.logger.info(
                                 "mac_cmd_ans_queued count=%d mono=%.3f",
-                                len(responses),
+                                len(result.applied_mac_commands),
                                 mono,
                             )
-                except Exception as exc:  # noqa: BLE001  # downlink parsing can raise many types
+                except Exception as exc:  # noqa: BLE001  # downlink processing can raise many types
                     ctx.logger.warning("downlink_parse_error: %s", exc)
                 with downlink_lock:
                     downlink_rx.append(

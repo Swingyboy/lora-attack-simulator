@@ -397,7 +397,7 @@ class JoinDevNonceAttack(BaseAttack):
         phase: str,
     ) -> JoinStepResult:
         timestamp = time.time()
-        # Set runtime DevNonce so apply_join_accept() can derive session keys
+        # Set runtime DevNonce so process_downlink(..., expect_join=True) can derive session keys
         ctx.device.runtime.dev_nonce = dev_nonce
 
         # Resolve per-attempt radio: use channel plan when available
@@ -503,10 +503,16 @@ class JoinDevNonceAttack(BaseAttack):
                     ctx.logger.debug(
                         "Received JoinAccept downlink in %s: %s", window_name, downlink
                     )
-                    ctx.device.apply_join_accept(downlink)
+                    result = ctx.device.process_downlink(downlink, expect_join=True)
+                    if not result.accepted:
+                        ctx.logger.warning(
+                            "JoinAccept received but process_downlink rejected it: %s",
+                            result.reject_reason,
+                        )
+                        continue
                 except (ValueError, KeyError, struct.error) as exc:
                     ctx.logger.warning(
-                        "JoinAccept received but apply_join_accept failed: %s",
+                        "JoinAccept received but process_downlink failed: %s",
                         exc,
                     )
                     continue

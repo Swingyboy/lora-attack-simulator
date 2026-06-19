@@ -37,6 +37,10 @@ from lora_attack_toolkit.lorawan.mac_commands import (
     decode_device_time_ans,
     encode_mac_commands,
 )
+from lora_attack_toolkit.runtime.device import DownlinkResult
+import pytest
+
+pytestmark = pytest.mark.unit
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
@@ -76,15 +80,19 @@ def _make_ctx(cfg: UplinkReplayConfigV1) -> AttackContext:
         return frame
 
     device.build_data_uplink.side_effect = _build_uplink
-    device.parse_downlink.return_value = {
-        "mtype": 3,
-        "dev_addr": "01020304",
-        "fcnt": 0,
-        "f_port": None,
-        "frm_payload": b"",
-        "mac_commands": [],
-        "valid_mic": True,
-    }
+    device.process_downlink.return_value = DownlinkResult(
+        accepted=True,
+        reject_reason=None,
+        mtype=3,
+        dev_addr_match=True,
+        valid_mic=True,
+        fcnt_ok=True,
+        fcnt_32=0,
+        f_port=None,
+        frm_payload=b"",
+        mac_commands=[],
+        applied_mac_commands=[],
+    )
 
     gateway = MagicMock()
     gateway.forward_uplink.return_value = None
@@ -923,27 +931,29 @@ class TestMACCommandAcknowledgment(unittest.TestCase):
     """Verify that MAC commands received in downlinks are acknowledged in uplink FOpts."""
 
     def _make_ctx_with_mac_cmds(self, cfg: UplinkReplayConfigV1, mac_responses) -> AttackContext:
-        """Build ctx where parse_downlink returns MAC commands that apply_mac_commands answers."""
+        """Build ctx where process_downlink returns MAC commands and MAC answers."""
         ctx = _make_ctx(cfg)
         from lora_attack_toolkit.lorawan.mac_commands import (
             MACCommand,
             CID_LINK_ADR_ANS,
         )
 
-        # Return a mock LinkADRReq command in parse_downlink
+        # Return a mock LinkADRReq command in process_downlink
         link_adr_req = MACCommand(cid=0x03, payload=bytes([0x50, 0xFF, 0xFF, 0x07]))
-        ctx.device.parse_downlink.return_value = {
-            "mtype": 3,
-            "dev_addr": "01020304",
-            "fcnt": 1,
-            "f_port": None,
-            "frm_payload": b"",
-            "valid_mic": True,
-            "mac_commands": [link_adr_req],
-        }
+        ctx.device.process_downlink.return_value = DownlinkResult(
+            accepted=True,
+            reject_reason=None,
+            mtype=3,
+            dev_addr_match=True,
+            valid_mic=True,
+            fcnt_ok=True,
+            fcnt_32=1,
+            f_port=None,
+            frm_payload=b"",
+            mac_commands=[link_adr_req],
+            applied_mac_commands=mac_responses,
+        )
         ctx.gateway.await_downlink.return_value = b"\x60" + b"\x00" * 12
-        # apply_mac_commands returns a LinkADRAns
-        ctx.device.apply_mac_commands.return_value = mac_responses
         return ctx
 
     def test_mac_responses_are_queued_and_included_in_uplink(self) -> None:
@@ -980,7 +990,6 @@ class TestMACCommandAcknowledgment(unittest.TestCase):
     def test_mac_responses_are_queued_and_logged(self) -> None:
         """apply_mac_commands is called when downlink carries MAC commands."""
         from lora_attack_toolkit.lorawan.mac_commands import MACCommand, CID_LINK_ADR_ANS
-
         link_adr_ans = MACCommand(cid=CID_LINK_ADR_ANS, payload=bytes([0x07]))
         cfg = _cfg(capture_fcnt=0, replay_count=1, verification_uplink_count=1)
         ctx = self._make_ctx_with_mac_cmds(cfg, [link_adr_ans])
@@ -991,8 +1000,7 @@ class TestMACCommandAcknowledgment(unittest.TestCase):
             with patch.object(ctx.gateway, "start"), patch.object(ctx.gateway, "stop"):
                 UplinkReplayAttack().run(ctx)
 
-        # apply_mac_commands must have been called at least once.
-        ctx.device.apply_mac_commands.assert_called()
+        ctx.device.process_downlink.assert_called()
 
 
 if __name__ == "__main__":
