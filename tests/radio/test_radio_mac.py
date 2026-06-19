@@ -240,3 +240,75 @@ class TestRadioDutyCycleReq(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestChannelMaskFiltering(unittest.TestCase):
+    """get_active_uplink_channels() respects the channel mask."""
+
+    def test_all_channels_enabled_by_default(self) -> None:
+        radio = _make_radio()
+        # Default mask 0x00FF enables all 8 channels (3 base + up to 5 CFList).
+        # With no CFList, only the 3 base channels exist, all enabled.
+        channels = radio.get_active_uplink_channels()
+        self.assertEqual(len(channels), 3)
+
+    def test_disabled_cflist_channels_excluded(self) -> None:
+        """After LinkADRReq disables channels 3–7, CFList channels are dropped."""
+        radio = _make_radio()
+        # Add 2 CFList channels (indices 3 and 4)
+        cflist = bytes.fromhex("184f84e8568400000000000000000000")
+        radio.apply_cflist(cflist)
+        self.assertEqual(len(radio.get_active_uplink_channels()), 5)  # 3 base + 2 cflist
+
+        # Disable channels 3 and 4 (keep bits 0-2 only)
+        payload = _link_adr_payload(dr=5, tp=1, ch_mask=0x0007)
+        status = radio.apply_link_adr_req(payload)
+        self.assertEqual(status & 0x01, 1, "channel_mask_ack must be set")
+
+        channels = radio.get_active_uplink_channels()
+        self.assertEqual(len(channels), 3, "only 3 mandatory base channels should remain")
+
+    def test_re_enabling_channel_restores_it(self) -> None:
+        """Re-enabling a previously disabled CFList channel adds it back."""
+        radio = _make_radio()
+        cflist = bytes.fromhex("184f84e8568400000000000000000000")
+        radio.apply_cflist(cflist)
+
+        # Disable channels 3-4
+        radio.apply_link_adr_req(_link_adr_payload(dr=5, tp=1, ch_mask=0x0007))
+        self.assertEqual(len(radio.get_active_uplink_channels()), 3)
+
+        # Re-enable all
+        radio.apply_link_adr_req(_link_adr_payload(dr=5, tp=1, ch_mask=0x001F))
+        self.assertEqual(len(radio.get_active_uplink_channels()), 5)
+
+    def test_selector_never_returns_disabled_freq(self) -> None:
+        """select_uplink_channel always picks a frequency that is enabled."""
+        radio = _make_radio()
+        cflist = bytes.fromhex("184f84e8568400000000000000000000")
+        radio.apply_cflist(cflist)
+
+        # Disable the first CFList channel (index 3)
+        radio.apply_link_adr_req(_link_adr_payload(dr=5, tp=1, ch_mask=0x0017))
+
+        active_freqs = set(radio.get_active_uplink_channels())
+        for i in range(20):
+            params = radio.select_uplink_channel(i)
+            self.assertIn(params.frequency_hz, active_freqs, f"attempt {i}: disabled freq selected")
+
+    def test_mandatory_base_channels_always_included(self) -> None:
+        """Base channels 0-2 are always included, even if mask bits say otherwise."""
+        radio = _make_radio()
+        # Set mask to 0x0000 — no channel explicitly enabled.
+        # Mandatory base channels must still appear.
+        payload = _link_adr_payload(dr=5, tp=1, ch_mask=0x0000)
+        # apply_link_adr_req should reject a mask that disables all base channels
+        status = radio.apply_link_adr_req(payload)
+        # Channel mask ACK bit should be 0 (rejected), OR channels remain
+        if status & 0x01:
+            # If for some reason accepted, base channels must still be present
+            channels = radio.get_active_uplink_channels()
+            base = EU868RegionProfile().BASE_UPLINK_CHANNELS_HZ
+            for freq in base:
+                self.assertIn(freq, channels)
+        # else rejection is also correct behavior (existing test covers this)

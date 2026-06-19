@@ -355,11 +355,20 @@ class Radio:
     # ------------------------------------------------------------------
 
     def get_active_uplink_channels(self) -> list[int]:
-        """Return current active uplink channel frequencies (Hz).
+        """Return current active uplink channel frequencies (Hz), filtered by the channel mask.
 
-        Always includes base channels; CFList-derived channels follow when set.
+        Channels are indexed from 0: base channels first, then CFList channels.
+        A channel at index ``i`` is included only when bit ``i`` of ``_ch_mask`` is set.
+        Base channels 0–2 (EU868 mandatory) are always included regardless of mask.
         """
-        return self._base_uplink_channels_hz + self._cflist_channels_hz
+        all_channels = self._base_uplink_channels_hz + self._cflist_channels_hz
+        base_len = len(self._base_uplink_channels_hz)
+        result: list[int] = []
+        for idx, freq_hz in enumerate(all_channels):
+            mandatory = idx < base_len  # mandatory base channels always on
+            if mandatory or (self._ch_mask >> idx) & 1:
+                result.append(freq_hz)
+        return result
 
     # ------------------------------------------------------------------
     # Channel selection — duty-cycle aware
