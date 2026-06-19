@@ -229,8 +229,16 @@ class Radio:
         # EU868 base channels 0-2 are always enabled; bits 0-7 default on.
         self._ch_mask: int = 0x00FF
 
-        # Duty-cycle availability: freq_hz → earliest next-TX epoch time
-        self._channel_available_after: dict[int, float] = {}
+        # ── Sub-band duty-cycle tracking ──────────────────────────────────────
+        # Keyed by sub-band low_hz (from DUTY_CYCLES) or -1 for the default.
+        # Stores the earliest monotonic time at which the sub-band may TX again.
+        # All channels sharing a regulatory sub-band share one entry here.
+        self._subband_available_after: dict[int, float] = {}
+
+        # DutyCycleReq aggregate restriction: 1.0 = no restriction (default).
+        # When NS sends DutyCycleReq(MaxDCycle=n>0), fraction = 1/(2^n).
+        self._aggregate_dc_fraction: float = 1.0
+        self._aggregate_available_after: float = 0.0
 
         # Internal round-robin counter (used by get_next_uplink_channel)
         self._uplink_index: int = 0
@@ -415,28 +423,79 @@ class Radio:
     # Duty-cycle state
     # ------------------------------------------------------------------
 
+    def _get_subband_key(self, freq_hz: int) -> int:
+        """Return the sub-band key (low_hz) for *freq_hz*, or -1 if not in any defined sub-band."""
+        for low, high, _ in self._region.DUTY_CYCLES:
+            if low <= freq_hz <= high:
+                return low
+        return -1
+
     def can_transmit(self, freq_hz: int, now: float) -> bool:
-        """Return ``True`` if *freq_hz* is available for transmission at *now*."""
+        """Return ``True`` if *freq_hz* is available for transmission at *now*.
+
+        Checks in order:
+        1. Enforcement disabled → always True.
+        2. Sub-band availability (shared among all channels in the same ETSI band).
+        3. Aggregate duty-cycle availability (from DutyCycleReq, if active).
+        """
         if not self._duty_cycle_enforcement:
             return True
-        return now >= self._channel_available_after.get(freq_hz, 0.0)
+        subband_key = self._get_subband_key(freq_hz)
+        if subband_key >= 0:
+            if now < self._subband_available_after.get(subband_key, 0.0):
+                return False
+        # Aggregate limit (only applies when NS has sent a DutyCycleReq)
+        if self._aggregate_dc_fraction < 1.0:
+            if now < self._aggregate_available_after:
+                return False
+        return True
 
     def record_transmission(
         self, freq_hz: int, airtime_sec: float, now: float
     ) -> None:
-        """Record a completed transmission and update the channel's duty-cycle state.
+        """Record a completed transmission and update duty-cycle state.
 
-        ``time_off = airtime * (1 / duty_cycle - 1)``
-        so the channel becomes available again at ``now + airtime / duty_cycle``.
+        Updates:
+        - The *sub-band* availability shared by all channels in the same ETSI band.
+        - The *aggregate* availability when a DutyCycleReq restriction is active.
+
+        Formula: ``next_tx = now + airtime / duty_cycle``
+        (equivalent to ``now + airtime + time_off`` where
+        ``time_off = airtime * (1/dc - 1)``).
+
+        Only the **latest** busy-until time is kept per sub-band, so that a second
+        transmission within the same sub-band before the first one expires correctly
+        extends the cooldown.
         """
         if not self._duty_cycle_enforcement:
             return
         dc = self._get_duty_cycle(freq_hz)
-        self._channel_available_after[freq_hz] = now + airtime_sec / dc
+        next_tx = now + airtime_sec / dc
+
+        subband_key = self._get_subband_key(freq_hz)
+        if subband_key >= 0:
+            self._subband_available_after[subband_key] = max(
+                self._subband_available_after.get(subband_key, 0.0),
+                next_tx,
+            )
+
+        if self._aggregate_dc_fraction < 1.0:
+            agg_next_tx = now + airtime_sec / self._aggregate_dc_fraction
+            self._aggregate_available_after = max(
+                self._aggregate_available_after, agg_next_tx
+            )
 
     def next_available_time(self, freq_hz: int, now: float) -> float:
-        """Return the earliest epoch time when *freq_hz* may be used again."""
-        return max(self._channel_available_after.get(freq_hz, 0.0), now)
+        """Return the earliest monotonic time at which *freq_hz* may be used again.
+
+        Takes sub-band and aggregate restrictions into account.
+        """
+        if not self._duty_cycle_enforcement:
+            return now
+        subband_key = self._get_subband_key(freq_hz)
+        subband_time = self._subband_available_after.get(subband_key, 0.0) if subband_key >= 0 else 0.0
+        agg_time = self._aggregate_available_after if self._aggregate_dc_fraction < 1.0 else 0.0
+        return max(subband_time, agg_time, now)
 
     # ------------------------------------------------------------------
     # Data rate / TX power
@@ -705,7 +764,8 @@ class Radio:
             max_dcycle,
             effective,
         )
-        # Future: use effective to gate transmissions at the aggregate level.
+        # Store fraction so record_transmission enforces aggregate limit.
+        self._aggregate_dc_fraction = effective
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -747,14 +807,14 @@ class Radio:
         # All busy — wait for the earliest
         earliest = min(
             channels_hz,
-            key=lambda f: self._channel_available_after.get(f, 0.0),
+            key=lambda f: self.next_available_time(f, now),
         )
-        wait_sec = self._channel_available_after.get(earliest, 0.0) - now
+        wait_sec = self.next_available_time(earliest, now) - now
         if wait_sec > 0:
             self._logger.info("Waiting %.1fs for next available channel", wait_sec)
             _time.sleep(wait_sec)
 
-        actual_now = _time.time()
+        actual_now = _time.monotonic()
         self._log_selected(earliest)
         self._reserve(earliest, payload_size, actual_now)
         return RadioTxParams(earliest, self._data_rate, self._tx_power)

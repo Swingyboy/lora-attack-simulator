@@ -6,6 +6,7 @@ Responsibilities
 * Injectable :class:`SimClock` protocol so attack and analysis code never
   calls ``time.time()`` or ``time.monotonic()`` directly — making all
   time-dependent logic deterministic in tests.
+* Cooperative cancellable sleep (:func:`interruptible_sleep`).
 
 GPS epoch background
 --------------------
@@ -173,3 +174,41 @@ class FakeClock:
 
 #: Global default clock — replace in tests via dependency injection.
 _default_wall_clock = WallClock()
+
+
+def interruptible_sleep(
+    seconds: float,
+    cancel_event: "threading.Event | None" = None,
+    *,
+    poll_interval_sec: float = 0.05,
+) -> bool:
+    """Sleep for *seconds*, waking early if *cancel_event* is set.
+
+    Args:
+        seconds: Duration to sleep.
+        cancel_event: Optional threading.Event; when set the sleep aborts.
+        poll_interval_sec: How often to check the cancel_event (seconds).
+
+    Returns:
+        ``True`` if the full duration elapsed normally.
+        ``False`` if *cancel_event* was set before the duration expired.
+
+    When *cancel_event* is ``None`` the function behaves like
+    ``time.sleep(seconds)`` and always returns ``True``.
+    """
+    import threading as _threading
+    import time as _time_mod
+    if cancel_event is None:
+        _time_mod.sleep(seconds)
+        return True
+    if seconds <= 0:
+        return not cancel_event.is_set()
+    deadline = _time_mod.monotonic() + seconds
+    while True:
+        remaining = deadline - _time_mod.monotonic()
+        if remaining <= 0:
+            break
+        wait_time = min(poll_interval_sec, remaining)
+        if cancel_event.wait(timeout=wait_time):
+            return False
+    return not cancel_event.is_set()
