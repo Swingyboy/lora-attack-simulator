@@ -147,7 +147,7 @@ class AttackRunner:
             gateway=gateway,
             logger=self.logger,
             capture=capture,
-            metrics=None,  # TODO: Add metrics collector when implemented
+            metrics=None,  # not yet implemented
         )
         
         # Create input
