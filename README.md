@@ -383,7 +383,7 @@ LoRAT follows SOLID principles:
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.12+
 - Virtual environment recommended
 - No external LoRaWAN server required for testing (uses built-in simulators)
 

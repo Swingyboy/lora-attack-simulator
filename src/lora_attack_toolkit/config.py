@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 
 # ── Base types ────────────────────────────────────────────────────────────────
@@ -46,8 +46,13 @@ class GatewayConfig:
 
 @dataclass(frozen=True)
 class ActivationConfig:
-    """Device activation configuration."""
-    mode: str  # "OTAA" or "ABP"
+    """Device activation configuration (OTAA only).
+
+    ABP support is not yet implemented.  When it is added, a separate
+    ``ABPActivationConfig`` dataclass with ``dev_addr``, ``nwk_s_key``, and
+    ``app_s_key`` fields will be introduced rather than extending this class.
+    """
+    mode: Literal["OTAA"]
     dev_eui: str
     join_eui: str
     app_key: str

@@ -285,15 +285,16 @@ def validate_mac_criterion(
         if final_data_rate is None or final_tx_power is None:
             return CriterionResult(criterion, False, "ADR state not tracked")
         
-        # Detect clearly out-of-spec ADR values.  In EU868 the valid TX-power
-        # range is 0–14 dBm (LoRaWAN 1.0.3 §2.2.3), so only values strictly
-        # above 14 indicate manipulation.  SF12 (DR0) can be legitimate for
-        # range-limited devices, so it is noted but not treated as a hard fail.
-        if final_tx_power > 14:
+        # LoRaWAN 1.0.3 §2.2.3 defines TX power as an index (0–7) into a
+        # region-specific table.  For EU868 index 0 is the highest power
+        # (14 dBm) and index 7 is the lowest.  Any value outside 0–7 is
+        # out-of-spec and indicates potential manipulation.
+        _MAX_TX_POWER_INDEX = 7
+        if final_tx_power > _MAX_TX_POWER_INDEX:
             return CriterionResult(
                 criterion,
                 False,
-                f"⚠️  TX power out of spec - TXPower={final_tx_power} dBm exceeds EU868 maximum (14 dBm)",
+                f"⚠️  TX power index {final_tx_power} out of spec (valid range 0–{_MAX_TX_POWER_INDEX} for EU868)",
             )
         
         return CriterionResult(

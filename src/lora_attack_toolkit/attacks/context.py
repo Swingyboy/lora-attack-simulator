@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import warnings
 from dataclasses import dataclass, field
 from logging import Logger
 from typing import TYPE_CHECKING, Any
@@ -127,11 +128,21 @@ class AttackContext:
     def config(self) -> Any:
         """
         Shortcut to typed attack config (preferred).
-        
+
         Returns the typed config object (ReplayConfigV1, JoinDevNonceConfigV1, etc).
-        Falls back to raw dict if typed_config is not available.
+        Falls back to the legacy raw-dict ``attack_config`` when ``typed_config`` is
+        ``None``, emitting a :class:`DeprecationWarning` to guide callers toward the
+        typed path.
         """
-        return self.input.typed_config if self.input.typed_config is not None else self.input.attack_config
+        if self.input.typed_config is not None:
+            return self.input.typed_config
+        warnings.warn(
+            "ctx.config is returning a raw dict via the legacy attack_config field. "
+            "Migrate to typed_config (e.g. UplinkReplayConfigV1) for type safety.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.input.attack_config
     
     @property
     def expected(self) -> ExpectedBehavior | None:

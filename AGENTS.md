@@ -39,8 +39,12 @@ The `.venv` directory is in the repo root and is gitignored.
 | Run full test suite | `.venv/bin/python -m pytest -q` |
 | Run a single test file | `.venv/bin/python -m pytest tests/attacks/test_uplink_forgery.py -v` |
 | Run a specific test | `.venv/bin/python -m pytest tests/attacks/test_uplink_forgery.py::TestDetermineVerdict -v` |
+| Lint (Ruff) | `.venv/bin/ruff check src/ tests/` |
+| Type-check (mypy) | `.venv/bin/mypy src/` |
 | Launch interactive CLI | `.venv/bin/lorat` |
 | Execute one command | `.venv/bin/lorat "use uplink-forgery-v1"` |
+
+Install dev tools with `pip install -e ".[dev]"`.
 
 **Current baseline:** 242 tests, 0 failures (~160 s).
 
