@@ -147,52 +147,62 @@ class TestExpectHex:
 
 class TestParseReplayConfig:
     def test_valid_flat_config(self) -> None:
-        cfg = parse_replay_config({
-            "uplink_interval_sec": 30.0,
-            "capture_fcnt": 5,
-            "replay_attempt_interval_sec": 5.0,
-            "replay_count": 3,
-            "verification_uplink_count": 5,
-            "device_time_gps_tolerance_sec": 2.0,
-        })
+        cfg = parse_replay_config(
+            {
+                "uplink_interval_sec": 30.0,
+                "capture_fcnt": 5,
+                "replay_attempt_interval_sec": 5.0,
+                "replay_count": 3,
+                "verification_uplink_count": 5,
+                "device_time_gps_tolerance_sec": 2.0,
+            }
+        )
         assert cfg.replay_count == 3  # type: ignore[union-attr]
 
     def test_rejects_bool_as_replay_count(self) -> None:
         with pytest.raises(ValueError, match="replay_count.*must be integer"):
-            parse_replay_config({
-                "uplink_interval_sec": 30.0,
-                "capture_fcnt": 5,
-                "replay_attempt_interval_sec": 5.0,
-                "replay_count": True,  # bool masquerading as int
-            })
+            parse_replay_config(
+                {
+                    "uplink_interval_sec": 30.0,
+                    "capture_fcnt": 5,
+                    "replay_attempt_interval_sec": 5.0,
+                    "replay_count": True,  # bool masquerading as int
+                }
+            )
 
     def test_rejects_negative_uplink_interval(self) -> None:
         with pytest.raises(ValueError, match="uplink_interval_sec.*>= 0"):
-            parse_replay_config({
-                "uplink_interval_sec": -1.0,
-                "capture_fcnt": 5,
-                "replay_attempt_interval_sec": 5.0,
-            })
+            parse_replay_config(
+                {
+                    "uplink_interval_sec": -1.0,
+                    "capture_fcnt": 5,
+                    "replay_attempt_interval_sec": 5.0,
+                }
+            )
 
     def test_rejects_zero_replay_count(self) -> None:
         with pytest.raises(ValueError, match="replay_count.*>= 1"):
-            parse_replay_config({
-                "uplink_interval_sec": 30.0,
-                "capture_fcnt": 5,
-                "replay_attempt_interval_sec": 5.0,
-                "replay_count": 0,
-            })
+            parse_replay_config(
+                {
+                    "uplink_interval_sec": 30.0,
+                    "capture_fcnt": 5,
+                    "replay_attempt_interval_sec": 5.0,
+                    "replay_count": 0,
+                }
+            )
 
 
 class TestParseUplinkForgeryConfig:
     def test_valid_config(self) -> None:
-        cfg = parse_uplink_forgery_config({
-            "forgery_mode": "invalid_mic",
-            "perform_join": True,
-            "corrupt_mic": True,
-            "recalculate_mic": False,
-            "fport": 10,
-        })
+        cfg = parse_uplink_forgery_config(
+            {
+                "forgery_mode": "invalid_mic",
+                "perform_join": True,
+                "corrupt_mic": True,
+                "recalculate_mic": False,
+                "fport": 10,
+            }
+        )
         assert cfg.forgery_mode == "invalid_mic"
 
     def test_rejects_unknown_forgery_mode(self) -> None:
@@ -201,39 +211,49 @@ class TestParseUplinkForgeryConfig:
 
     def test_rejects_bool_as_fport(self) -> None:
         with pytest.raises(ValueError, match="fport.*must be integer"):
-            parse_uplink_forgery_config({
-                "forgery_mode": "invalid_mic",
-                "fport": True,
-            })
+            parse_uplink_forgery_config(
+                {
+                    "forgery_mode": "invalid_mic",
+                    "fport": True,
+                }
+            )
 
     def test_rejects_fport_out_of_range(self) -> None:
         with pytest.raises(ValueError, match="fport.*<= 223"):
-            parse_uplink_forgery_config({
-                "forgery_mode": "invalid_mic",
-                "fport": 250,
-            })
+            parse_uplink_forgery_config(
+                {
+                    "forgery_mode": "invalid_mic",
+                    "fport": 250,
+                }
+            )
 
     def test_rejects_recalculate_and_corrupt_mic_conflict(self) -> None:
         with pytest.raises(ValueError, match="cannot both be true"):
-            parse_uplink_forgery_config({
-                "forgery_mode": "invalid_mic",
-                "recalculate_mic": True,
-                "corrupt_mic": True,
-            })
+            parse_uplink_forgery_config(
+                {
+                    "forgery_mode": "invalid_mic",
+                    "recalculate_mic": True,
+                    "corrupt_mic": True,
+                }
+            )
 
     def test_rejects_perform_join_as_int(self) -> None:
         with pytest.raises(ValueError, match="perform_join.*must be boolean"):
-            parse_uplink_forgery_config({
-                "forgery_mode": "invalid_mic",
-                "perform_join": 1,
-            })
+            parse_uplink_forgery_config(
+                {
+                    "forgery_mode": "invalid_mic",
+                    "perform_join": 1,
+                }
+            )
 
     def test_rejects_negative_fcnt_delta(self) -> None:
         with pytest.raises(ValueError, match="fcnt_delta.*>= 1"):
-            parse_uplink_forgery_config({
-                "forgery_mode": "fcnt_jump_forward",
-                "fcnt_delta": 0,
-            })
+            parse_uplink_forgery_config(
+                {
+                    "forgery_mode": "fcnt_jump_forward",
+                    "fcnt_delta": 0,
+                }
+            )
 
 
 class TestParseJoinDevNonceConfig:

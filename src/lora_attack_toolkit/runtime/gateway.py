@@ -95,29 +95,29 @@ class GatewaySimulator:
                 self._logger.debug("Downlink %s...", downlink_phy.hex()[:32])
                 return downlink_phy
         return None
-    
+
     def drain_downlinks(self, drain_time_sec: float = 1.0) -> int:
         """
         Drain any pending downlinks from the queue.
-        
+
         This is useful to clear responses from previous uplinks
         before waiting for a specific downlink response.
-        
+
         Args:
             drain_time_sec: How long to drain (seconds)
-            
+
         Returns:
             Number of downlinks drained
         """
         drained_count = 0
         deadline = time.monotonic() + drain_time_sec
-        
+
         while time.monotonic() < deadline:
             self._send_periodic_pull_data_if_due()
             pkt = self._transport.receive(timeout_sec=0.1)
             if pkt is None:
                 continue
-            
+
             semtech = decode_packet(pkt)
             if semtech.packet_type in (PULL_ACK, PUSH_ACK):
                 continue
@@ -130,10 +130,10 @@ class GatewaySimulator:
                     self._logger.debug(
                         "Drained downlink %d: %s...", drained_count, downlink_phy.hex()[:32]
                     )
-        
+
         if drained_count > 0:
             self._logger.info("Drained %s pending downlink(s)", drained_count)
-        
+
         return drained_count
 
 

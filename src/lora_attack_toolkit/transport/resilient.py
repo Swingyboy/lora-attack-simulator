@@ -90,8 +90,7 @@ class ResilientTransport(TransportClient):
             raise
         except TransportTemporaryError as exc:
             self._logger.warning(
-                "Transport error detected during receive.\n"
-                "Transport: %s\nError: %s: %s",
+                "Transport error detected during receive.\nTransport: %s\nError: %s: %s",
                 self._transport_name,
                 type(exc).__name__,
                 exc,

@@ -22,7 +22,6 @@ from lora_attack_toolkit.attacks.validation import validate_criteria
 from lora_attack_toolkit.lorawan.frames import build_join_request
 
 if TYPE_CHECKING:
-
     from lora_attack_toolkit.attacks.context import AttackContext
     from lora_attack_toolkit.config import AttackTiming, ExpectedBehavior, JoinDevNonceConfigV1
 
@@ -70,6 +69,7 @@ class DevNonceResultCache:
 # metadata but is never instantiated in the active run() path.  It is safe to
 # delete once any tests that reference it directly are removed or migrated.
 # No test currently imports or calls it; removal is purely cosmetic cleanup.
+
 
 class JoinDevNonceAnalyzer(AttackAnalyzer):
     """Analyze DevNonce validation results from capture metadata."""
@@ -128,15 +128,20 @@ class JoinDevNonceAttack(BaseAttack):
 
             if ctx.cancel_event.is_set():
                 metrics = self._build_metrics(
-                    config=config, timing=timing,
+                    config=config,
+                    timing=timing,
                     generation_cache=generation_cache,
-                    final_devnonce=None, final_result=None,
-                    generation_complete=False, generation_partial=generation_cache.accepted_count > 0,
-                    final_check_executed=False, resolved_devnonce_start=resolved_start,
+                    final_devnonce=None,
+                    final_result=None,
+                    generation_complete=False,
+                    generation_partial=generation_cache.accepted_count > 0,
+                    final_check_executed=False,
+                    resolved_devnonce_start=resolved_start,
                 )
                 ctx.capture.metadata["devnonce_validation"] = metrics
                 return AttackResult(
-                    attack_name=self.name, attack_type=self.name,
+                    attack_name=self.name,
+                    attack_type=self.name,
                     execution_status=ExecutionStatus.CANCELLED,
                     security_verdict=SecurityVerdict.INCONCLUSIVE,
                     confidence=Confidence.LOW,
@@ -164,7 +169,11 @@ class JoinDevNonceAttack(BaseAttack):
                     resolved_devnonce_start=resolved_start,
                 )
                 ctx.capture.metadata["devnonce_validation"] = metrics
-                ctx.logger.debug("Received uplinks: %s. Received downlinks: %s", ctx.capture.uplinks, ctx.capture.downlinks)
+                ctx.logger.debug(
+                    "Received uplinks: %s. Received downlinks: %s",
+                    ctx.capture.uplinks,
+                    ctx.capture.downlinks,
+                )
                 return AttackResult(
                     attack_name=self.name,
                     attack_type=self.name,
@@ -197,16 +206,21 @@ class JoinDevNonceAttack(BaseAttack):
 
             if ctx.cancel_event.is_set():
                 metrics = self._build_metrics(
-                    config=config, timing=timing,
+                    config=config,
+                    timing=timing,
                     generation_cache=generation_cache,
-                    final_devnonce=final_devnonce, final_result=None,
-                    generation_complete=generation_complete, generation_partial=generation_partial,
-                    final_check_executed=False, resolved_devnonce_start=resolved_start,
+                    final_devnonce=final_devnonce,
+                    final_result=None,
+                    generation_complete=generation_complete,
+                    generation_partial=generation_partial,
+                    final_check_executed=False,
+                    resolved_devnonce_start=resolved_start,
                     selection_meta=selection_meta,
                 )
                 ctx.capture.metadata["devnonce_validation"] = metrics
                 return AttackResult(
-                    attack_name=self.name, attack_type=self.name,
+                    attack_name=self.name,
+                    attack_type=self.name,
                     execution_status=ExecutionStatus.CANCELLED,
                     security_verdict=SecurityVerdict.INCONCLUSIVE,
                     confidence=Confidence.LOW,
@@ -230,7 +244,11 @@ class JoinDevNonceAttack(BaseAttack):
             )
             ctx.capture.metadata["devnonce_validation"] = metrics
 
-            prefix = "Final DevNonce check executed after partial generation phase; " if generation_partial else ""
+            prefix = (
+                "Final DevNonce check executed after partial generation phase; "
+                if generation_partial
+                else ""
+            )
             devnonce_int = int.from_bytes(final_devnonce, "little")
 
             if final_result.join_accepted:
@@ -271,9 +289,7 @@ class JoinDevNonceAttack(BaseAttack):
         finally:
             ctx.gateway.stop()
 
-    def _validate_config(
-        self, config: "JoinDevNonceConfigV1", timing: "AttackTiming"
-    ) -> None:
+    def _validate_config(self, config: "JoinDevNonceConfigV1", timing: "AttackTiming") -> None:
         if config.valid_join_count < 1:
             raise ValueError("valid_join_count must be >= 1")
         if config.valid_devnonce_step < 1:
@@ -484,7 +500,9 @@ class JoinDevNonceAttack(BaseAttack):
                 if downlink is None:
                     continue
                 try:
-                    ctx.logger.debug("Received JoinAccept downlink in %s: %s", window_name, downlink)
+                    ctx.logger.debug(
+                        "Received JoinAccept downlink in %s: %s", window_name, downlink
+                    )
                     ctx.device.apply_join_accept(downlink)
                 except (ValueError, KeyError, struct.error) as exc:
                     ctx.logger.warning(
@@ -518,9 +536,7 @@ class JoinDevNonceAttack(BaseAttack):
 
         if config.final_check == "lower_than_last":
             if cache.last_accepted_devnonce is None:
-                raise ValueError(
-                    "No accepted DevNonce available for final_check='lower_than_last'"
-                )
+                raise ValueError("No accepted DevNonce available for final_check='lower_than_last'")
             last_value = int.from_bytes(cache.last_accepted_devnonce, "little")
             if last_value == 0:
                 raise ValueError("Cannot generate a lower DevNonce than 0")
@@ -604,7 +620,8 @@ class JoinDevNonceAttack(BaseAttack):
             "valid_join_count": config.valid_join_count,
             "generation_attempt_count": generation_cache.attempt_count,
             "accepted_generation_count": generation_cache.accepted_count,
-            "failed_generation_count": generation_cache.attempt_count - generation_cache.accepted_count,
+            "failed_generation_count": generation_cache.attempt_count
+            - generation_cache.accepted_count,
             "generation_complete": generation_complete,
             "generation_partial": generation_partial,
             "final_check_executed": final_check_executed,
@@ -620,7 +637,9 @@ class JoinDevNonceAttack(BaseAttack):
                 if generation_cache.last_accepted_devnonce is not None
                 else None
             ),
-            "recent_accepted_devnonces": [value.hex() for value in generation_cache.recent_accepted_devnonces],
+            "recent_accepted_devnonces": [
+                value.hex() for value in generation_cache.recent_accepted_devnonces
+            ],
             "timing": {
                 "join_accept_timeout_sec": timing.join_accept_timeout_sec,
             },

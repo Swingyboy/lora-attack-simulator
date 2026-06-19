@@ -43,15 +43,15 @@ def _register_builtin(spec: AttackSpec) -> None:
 
 def register_builtin_attacks() -> None:
     """Register all built-in attack plugins.
-    
+
     This function must be called during app startup to populate
     the attack registry with built-in attack types.
-    
+
     Raises:
         ValueError: If duplicate registration detected
     """
     logger.info("Registering built-in attack plugins...")
-    
+
     # Uplink Replay Attack
     _register_builtin(
         AttackSpec(
@@ -65,7 +65,7 @@ def register_builtin_attacks() -> None:
             description="Replay captured uplink frames to test frame counter validation",
         )
     )
-    
+
     # Join Replay Attack (with multiple modes)
     _register_builtin(
         AttackSpec(
@@ -78,7 +78,7 @@ def register_builtin_attacks() -> None:
             description="Test DevNonce replay protection with unified validation modes",
         )
     )
-    
+
     # MAC Command Injection/Abuse
     _register_builtin(
         AttackSpec(

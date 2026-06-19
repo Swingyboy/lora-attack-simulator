@@ -84,7 +84,7 @@ class AirtimeCalculator:
         sf = int(m.group(1))
         bw_hz = int(m.group(2)) * 1_000  # kHz → Hz
 
-        t_sym = (2 ** sf) / bw_hz
+        t_sym = (2**sf) / bw_hz
         t_preamble = (8 + 4.25) * t_sym
 
         de = 1 if t_sym >= 0.016 else 0
@@ -163,9 +163,9 @@ class EU868RegionProfile(RegionProfile):
     DEFAULT_DATA_RATE: str = "SF7BW125"
     DEFAULT_TX_POWER: int = 14
     DUTY_CYCLES: list[tuple[int, int, float]] = [
-        (868_000_000, 868_600_000, 0.01),   # g1: 1 %
+        (868_000_000, 868_600_000, 0.01),  # g1: 1 %
         (868_700_000, 869_200_000, 0.001),  # g2: 0.1 %
-        (869_400_000, 869_650_000, 0.10),   # g3: 10 %
+        (869_400_000, 869_650_000, 0.10),  # g3: 10 %
     ]
     DEFAULT_DUTY_CYCLE: float = 0.01
     JOIN_REQUEST_SIZE_BYTES: int = 23
@@ -219,11 +219,11 @@ class Radio:
         self._tx_power: int = region.DEFAULT_TX_POWER
 
         # ── RX window state (LoRaWAN 1.0.3 §7.2.2 EU868 defaults) ───────────
-        self._rx1_dr_offset: int = 0          # RX1DRoffset (0-7)
-        self._rx2_data_rate_idx: int = 0      # RX2 data-rate index
+        self._rx1_dr_offset: int = 0  # RX1DRoffset (0-7)
+        self._rx2_data_rate_idx: int = 0  # RX2 data-rate index
         self._rx2_frequency_hz: int = 869_525_000  # EU868 default 869.525 MHz
-        self._rx1_delay_sec: float = 1.0      # RECEIVE_DELAY1 (seconds)
-        self._nb_trans: int = 1               # Unconfirmed uplink repetitions (1-15)
+        self._rx1_delay_sec: float = 1.0  # RECEIVE_DELAY1 (seconds)
+        self._nb_trans: int = 1  # Unconfirmed uplink repetitions (1-15)
 
         # ── Active channel mask (bit i set ↔ channel i is enabled) ───────────
         # EU868 base channels 0-2 are always enabled; bits 0-7 default on.
@@ -311,9 +311,7 @@ class Radio:
             return
 
         if len(cflist) != 16:
-            self._logger.debug(
-                "radio_cflist_ignored reason=wrong_length length=%d", len(cflist)
-            )
+            self._logger.debug("radio_cflist_ignored reason=wrong_length length=%d", len(cflist))
             return
 
         cflist_type = cflist[15]
@@ -367,9 +365,7 @@ class Radio:
     # Channel selection — duty-cycle aware
     # ------------------------------------------------------------------
 
-    def select_join_channel(
-        self, attempt_index: int, now: float | None = None
-    ) -> RadioTxParams:
+    def select_join_channel(self, attempt_index: int, now: float | None = None) -> RadioTxParams:
         """Return TX parameters for the given JoinRequest attempt (0-based).
 
         When *now* is provided and duty-cycle enforcement is active the method:
@@ -392,9 +388,7 @@ class Radio:
             channels_hz, attempt_index, now, self._region.JOIN_REQUEST_SIZE_BYTES
         )
 
-    def select_uplink_channel(
-        self, uplink_index: int, now: float | None = None
-    ) -> RadioTxParams:
+    def select_uplink_channel(self, uplink_index: int, now: float | None = None) -> RadioTxParams:
         """Return TX parameters for the given uplink (0-based).
 
         Duty-cycle behaviour is identical to :meth:`select_join_channel`.
@@ -450,9 +444,7 @@ class Radio:
                 return False
         return True
 
-    def record_transmission(
-        self, freq_hz: int, airtime_sec: float, now: float
-    ) -> None:
+    def record_transmission(self, freq_hz: int, airtime_sec: float, now: float) -> None:
         """Record a completed transmission and update duty-cycle state.
 
         Updates:
@@ -481,9 +473,7 @@ class Radio:
 
         if self._aggregate_dc_fraction < 1.0:
             agg_next_tx = now + airtime_sec / self._aggregate_dc_fraction
-            self._aggregate_available_after = max(
-                self._aggregate_available_after, agg_next_tx
-            )
+            self._aggregate_available_after = max(self._aggregate_available_after, agg_next_tx)
 
     def next_available_time(self, freq_hz: int, now: float) -> float:
         """Return the earliest monotonic time at which *freq_hz* may be used again.
@@ -493,7 +483,9 @@ class Radio:
         if not self._duty_cycle_enforcement:
             return now
         subband_key = self._get_subband_key(freq_hz)
-        subband_time = self._subband_available_after.get(subband_key, 0.0) if subband_key >= 0 else 0.0
+        subband_time = (
+            self._subband_available_after.get(subband_key, 0.0) if subband_key >= 0 else 0.0
+        )
         agg_time = self._aggregate_available_after if self._aggregate_dc_fraction < 1.0 else 0.0
         return max(subband_time, agg_time, now)
 
@@ -589,9 +581,7 @@ class Radio:
             new_ch_mask = 0xFFFF
         else:
             # Other ChMaskCntl values not supported in EU868 base spec
-            self._logger.debug(
-                "apply_link_adr_req: unsupported ChMaskCntl %d", ch_mask_cntl
-            )
+            self._logger.debug("apply_link_adr_req: unsupported ChMaskCntl %d", ch_mask_cntl)
 
         status = (ch_mask_ack << 2) | (dr_ack << 1) | tp_ack
         if status == 0x07:
@@ -668,9 +658,7 @@ class Radio:
                 freq_hz,
             )
         else:
-            self._logger.info(
-                "apply_rx_param_setup_req: rejected status=0x%02x", status
-            )
+            self._logger.info("apply_rx_param_setup_req: rejected status=0x%02x", status)
         return status
 
     def apply_new_channel_req(self, payload: bytes) -> int:
@@ -710,13 +698,18 @@ class Radio:
             freq_ok = 0
 
         # Validate DR range
-        dr_ok = 1 if (min_dr in EU868_DR_TABLE and max_dr in EU868_DR_TABLE and min_dr <= max_dr) else 0
+        dr_ok = (
+            1 if (min_dr in EU868_DR_TABLE and max_dr in EU868_DR_TABLE and min_dr <= max_dr) else 0
+        )
 
         status = (dr_ok << 1) | freq_ok
         if status == 0x03 and freq_hz > 0:
             # Only add channels beyond the base 3 (ch_index >= 3 per LoRaWAN spec)
             if ch_index >= len(self._base_uplink_channels_hz):
-                if freq_hz not in self._base_uplink_channels_hz and freq_hz not in self._cflist_channels_hz:
+                if (
+                    freq_hz not in self._base_uplink_channels_hz
+                    and freq_hz not in self._cflist_channels_hz
+                ):
                     self._cflist_channels_hz.append(freq_hz)
                     self._logger.info(
                         "apply_new_channel_req: added ch_index=%d freq=%d", ch_index, freq_hz
@@ -737,9 +730,7 @@ class Radio:
         delay_val = payload[0] & 0x0F
         # Per spec: Del=0 means 1 s
         self._rx1_delay_sec = float(delay_val) if delay_val > 0 else 1.0
-        self._logger.info(
-            "apply_rx_timing_setup_req: rx1_delay=%.1f s", self._rx1_delay_sec
-        )
+        self._logger.info("apply_rx_timing_setup_req: rx1_delay=%.1f s", self._rx1_delay_sec)
 
     def apply_duty_cycle_req(self, payload: bytes) -> None:
         """Apply a DutyCycleReq payload.
@@ -758,7 +749,7 @@ class Radio:
         if max_dcycle == 0:
             effective = 1.0
         else:
-            effective = 1.0 / (2 ** max_dcycle)
+            effective = 1.0 / (2**max_dcycle)
         self._logger.info(
             "apply_duty_cycle_req: max_dcycle=%d effective_fraction=%.6f",
             max_dcycle,

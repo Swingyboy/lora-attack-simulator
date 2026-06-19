@@ -47,9 +47,7 @@ if TYPE_CHECKING:
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 _DEFAULT_TIMING = AttackTiming()
-_RX_DRAIN_SEC = (
-    _DEFAULT_TIMING.rx2_delay_sec + _DEFAULT_TIMING.rx2_window_sec + 0.5
-)
+_RX_DRAIN_SEC = _DEFAULT_TIMING.rx2_delay_sec + _DEFAULT_TIMING.rx2_window_sec + 0.5
 _FOPTS_MAX = 15  # LoRaWAN FOpts maximum length in bytes
 
 # ── Verdict ───────────────────────────────────────────────────────────────────
@@ -197,11 +195,11 @@ def _forgery_verdict_to_security(
 ) -> tuple[SecurityVerdict, Confidence, bool | None]:
     """Map ForgeryVerdict to (SecurityVerdict, Confidence, target_protected)."""
     mapping: dict[ForgeryVerdict, tuple[SecurityVerdict, Confidence, bool | None]] = {
-        ForgeryVerdict.REJECTED:          (SecurityVerdict.SECURE,       Confidence.HIGH,   True),
-        ForgeryVerdict.IGNORED:           (SecurityVerdict.SECURE,       Confidence.MEDIUM, True),
-        ForgeryVerdict.ACCEPTED:          (SecurityVerdict.VULNERABLE,   Confidence.HIGH,   False),
+        ForgeryVerdict.REJECTED: (SecurityVerdict.SECURE, Confidence.HIGH, True),
+        ForgeryVerdict.IGNORED: (SecurityVerdict.SECURE, Confidence.MEDIUM, True),
+        ForgeryVerdict.ACCEPTED: (SecurityVerdict.VULNERABLE, Confidence.HIGH, False),
         ForgeryVerdict.ACCEPTED_EXPECTED: (SecurityVerdict.NOT_APPLICABLE, Confidence.HIGH, None),
-        ForgeryVerdict.INCONCLUSIVE:      (SecurityVerdict.INCONCLUSIVE, Confidence.LOW,    None),
+        ForgeryVerdict.INCONCLUSIVE: (SecurityVerdict.INCONCLUSIVE, Confidence.LOW, None),
     }
     return mapping[verdict]
 
@@ -306,9 +304,7 @@ class UplinkForgeryAttack(BaseAttack):
 
     # ── Step helpers ──────────────────────────────────────────────────────────
 
-    def _send_baseline_uplinks(
-        self, ctx: "AttackContext", cfg: UplinkForgeryConfigV1
-    ) -> None:
+    def _send_baseline_uplinks(self, ctx: "AttackContext", cfg: UplinkForgeryConfigV1) -> None:
         """Send clean baseline uplinks to establish a valid session state."""
         for i in range(cfg.baseline_uplink_count):
             fcnt = ctx.device.runtime.fcnt_up
@@ -322,7 +318,9 @@ class UplinkForgeryAttack(BaseAttack):
             ctx.capture.capture_uplink(phy_payload=frame, fcnt=fcnt, packet_type="data_up")
             ctx.logger.info(
                 "uplink_forgery_baseline_uplink_sent index=%d fcnt=%d freq_hz=%d",
-                i, fcnt, radio.frequency,
+                i,
+                fcnt,
+                radio.frequency,
             )
             # Drain RX window between baseline uplinks
             ctx.gateway.await_downlink(timeout_sec=_RX_DRAIN_SEC)
@@ -330,9 +328,7 @@ class UplinkForgeryAttack(BaseAttack):
             if remaining > 0 and i < cfg.baseline_uplink_count - 1:
                 interruptible_sleep(remaining, ctx.cancel_event)
 
-    def _capture_session(
-        self, ctx: "AttackContext", cfg: UplinkForgeryConfigV1
-    ) -> dict[str, Any]:
+    def _capture_session(self, ctx: "AttackContext", cfg: UplinkForgeryConfigV1) -> dict[str, Any]:
         """Snapshot device session state after baseline uplinks."""
         rt = ctx.device.runtime
         return {
@@ -360,9 +356,7 @@ class UplinkForgeryAttack(BaseAttack):
         # ── Determine FCnt ─────────────────────────────────────────────────
         if mode == "fcnt_jump_forward":
             fcnt_used = (
-                cfg.target_fcnt
-                if cfg.target_fcnt is not None
-                else current_fcnt + cfg.fcnt_delta
+                cfg.target_fcnt if cfg.target_fcnt is not None else current_fcnt + cfg.fcnt_delta
             )
         elif mode == "fcnt_reuse_with_modified_payload":
             fcnt_used = max(0, current_fcnt - 1)
@@ -422,10 +416,13 @@ class UplinkForgeryAttack(BaseAttack):
         radio = ctx.device.select_uplink_radio(fcnt_used, ctx.radio)
 
         ctx.logger.info(
-            "uplink_forgery_frame_built mode=%s fcnt=%d devaddr=%s "
-            "mic=%s freq_hz=%d payload=%s",
-            mode, fcnt_used, used_addr_hex, mic_strategy,
-            radio.frequency, cfg.forged_payload_hex,
+            "uplink_forgery_frame_built mode=%s fcnt=%d devaddr=%s mic=%s freq_hz=%d payload=%s",
+            mode,
+            fcnt_used,
+            used_addr_hex,
+            mic_strategy,
+            radio.frequency,
+            cfg.forged_payload_hex,
         )
 
         tx_time = time.time()
@@ -434,7 +431,10 @@ class UplinkForgeryAttack(BaseAttack):
 
         ctx.logger.info(
             "uplink_forgery_frame_sent mode=%s fcnt=%d freq_hz=%d mic=%s",
-            mode, fcnt_used, radio.frequency, mic_strategy,
+            mode,
+            fcnt_used,
+            radio.frequency,
+            mic_strategy,
         )
 
         return ForgeryEvidence(
@@ -462,9 +462,7 @@ class UplinkForgeryAttack(BaseAttack):
             ctx.logger.info("uplink_forgery_downlink_received count=%d", count)
         return count
 
-    def _send_verification_uplinks(
-        self, ctx: "AttackContext", cfg: UplinkForgeryConfigV1
-    ) -> bool:
+    def _send_verification_uplinks(self, ctx: "AttackContext", cfg: UplinkForgeryConfigV1) -> bool:
         """Send post-forgery verification uplinks.  Returns True on any downlink."""
         got_downlink = False
         for i in range(cfg.verification_uplink_count):
@@ -480,7 +478,9 @@ class UplinkForgeryAttack(BaseAttack):
             ctx.capture.capture_uplink(phy_payload=frame, fcnt=fcnt, packet_type="data_up")
             ctx.logger.info(
                 "uplink_forgery_verification_uplink_sent index=%d fcnt=%d freq_hz=%d",
-                i, fcnt, radio.frequency,
+                i,
+                fcnt,
+                radio.frequency,
             )
             raw = ctx.gateway.await_downlink(timeout_sec=_RX_DRAIN_SEC)
             if raw is not None:

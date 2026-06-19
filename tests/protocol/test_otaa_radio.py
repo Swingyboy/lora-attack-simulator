@@ -41,9 +41,7 @@ class TestPerformOtaaJoinViaRadio:
         gw = _mock_gateway()
         device.apply_join_accept.return_value = None
 
-        result = perform_otaa_join_via_radio(
-            device, gw, radio, _base_radio(), seed=0
-        )
+        result = perform_otaa_join_via_radio(device, gw, radio, _base_radio(), seed=0)
         assert result is True
 
     def test_returns_false_on_timeout(self) -> None:
@@ -51,9 +49,7 @@ class TestPerformOtaaJoinViaRadio:
         device = _mock_device()
         gw = _mock_gateway(response=None)
 
-        result = perform_otaa_join_via_radio(
-            device, gw, radio, _base_radio(), seed=0
-        )
+        result = perform_otaa_join_via_radio(device, gw, radio, _base_radio(), seed=0)
         assert result is False
 
     def test_returns_false_on_invalid_join_accept(self) -> None:
@@ -62,9 +58,7 @@ class TestPerformOtaaJoinViaRadio:
         gw = _mock_gateway()
         device.apply_join_accept.side_effect = ValueError("bad MIC")
 
-        result = perform_otaa_join_via_radio(
-            device, gw, radio, _base_radio(), seed=0
-        )
+        result = perform_otaa_join_via_radio(device, gw, radio, _base_radio(), seed=0)
         assert result is False
 
     def test_deterministic_with_seed(self) -> None:

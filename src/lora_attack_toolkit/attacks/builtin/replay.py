@@ -36,9 +36,11 @@ if TYPE_CHECKING:
 
 # ── Timing record types ───────────────────────────────────────────────────────
 
+
 @dataclass
 class CapturedUplinkRecord:
     """Record of the captured probe uplink."""
+
     monotonic_time: float
     gps_time: float
     fcnt: int
@@ -48,6 +50,7 @@ class CapturedUplinkRecord:
 @dataclass
 class ValidUplinkRecord:
     """Record of a clean verification uplink."""
+
     monotonic_time: float
     gps_time: float
     fcnt: int
@@ -56,6 +59,7 @@ class ValidUplinkRecord:
 @dataclass
 class ReplayTxRecord:
     """Record of a single replay attempt."""
+
     monotonic_time: float
     gps_time: float
     replay_index: int
@@ -64,6 +68,7 @@ class ReplayTxRecord:
 @dataclass
 class DownlinkRxRecord:
     """Record of a received downlink with decoded MAC commands."""
+
     monotonic_time: float
     raw_payload: bytes
     decoded_mac_commands: list[Any] = field(default_factory=list)
@@ -71,6 +76,7 @@ class DownlinkRxRecord:
 
 
 # ── Verdict ───────────────────────────────────────────────────────────────────
+
 
 class ReplayVerdict(str, Enum):
     PROTECTED = "protected"
@@ -87,12 +93,23 @@ _RX_WINDOW_TOLERANCE_SEC = 0.5  # ± tolerance around expected RX1/RX2 window
 
 # ── Correlation helpers ───────────────────────────────────────────────────────
 
+
 def _in_rx_window(tx_mono: float, rx_mono: float) -> bool:
     """Return True if *rx_mono* falls inside the RX1 or RX2 window after *tx_mono*."""
     rx1_low = tx_mono + _DEFAULT_TIMING.rx1_delay_sec - _RX_WINDOW_TOLERANCE_SEC
-    rx1_high = tx_mono + _DEFAULT_TIMING.rx1_delay_sec + _DEFAULT_TIMING.rx1_window_sec + _RX_WINDOW_TOLERANCE_SEC
+    rx1_high = (
+        tx_mono
+        + _DEFAULT_TIMING.rx1_delay_sec
+        + _DEFAULT_TIMING.rx1_window_sec
+        + _RX_WINDOW_TOLERANCE_SEC
+    )
     rx2_low = tx_mono + _DEFAULT_TIMING.rx2_delay_sec - _RX_WINDOW_TOLERANCE_SEC
-    rx2_high = tx_mono + _DEFAULT_TIMING.rx2_delay_sec + _DEFAULT_TIMING.rx2_window_sec + _RX_WINDOW_TOLERANCE_SEC
+    rx2_high = (
+        tx_mono
+        + _DEFAULT_TIMING.rx2_delay_sec
+        + _DEFAULT_TIMING.rx2_window_sec
+        + _RX_WINDOW_TOLERANCE_SEC
+    )
     return (rx1_low <= rx_mono <= rx1_high) or (rx2_low <= rx_mono <= rx2_high)
 
 
@@ -129,18 +146,25 @@ def _determine_verdict(
     return ReplayVerdict.PROTECTED
 
 
-def _replay_verdict_to_security(verdict: ReplayVerdict) -> tuple[SecurityVerdict, Confidence, bool | None]:
+def _replay_verdict_to_security(
+    verdict: ReplayVerdict,
+) -> tuple[SecurityVerdict, Confidence, bool | None]:
     """Map a ReplayVerdict to (SecurityVerdict, Confidence, target_protected)."""
     mapping: dict[ReplayVerdict, tuple[SecurityVerdict, Confidence, bool | None]] = {
-        ReplayVerdict.PROTECTED:             (SecurityVerdict.SECURE,        Confidence.HIGH,   True),
-        ReplayVerdict.POSSIBLE_VULNERABILITY:(SecurityVerdict.VULNERABLE,    Confidence.MEDIUM, False),
-        ReplayVerdict.VULNERABLE:            (SecurityVerdict.VULNERABLE,    Confidence.HIGH,   False),
-        ReplayVerdict.INCONCLUSIVE:          (SecurityVerdict.INCONCLUSIVE,  Confidence.LOW,    None),
+        ReplayVerdict.PROTECTED: (SecurityVerdict.SECURE, Confidence.HIGH, True),
+        ReplayVerdict.POSSIBLE_VULNERABILITY: (
+            SecurityVerdict.VULNERABLE,
+            Confidence.MEDIUM,
+            False,
+        ),
+        ReplayVerdict.VULNERABLE: (SecurityVerdict.VULNERABLE, Confidence.HIGH, False),
+        ReplayVerdict.INCONCLUSIVE: (SecurityVerdict.INCONCLUSIVE, Confidence.LOW, None),
     }
     return mapping[verdict]
 
 
 # ── Channel selection helper ──────────────────────────────────────────────────
+
 
 def _select_radio_for_uplink(ctx: "AttackContext", fcnt: int) -> RadioMetadata:
     """Delegate uplink channel selection to the device layer."""
@@ -169,6 +193,7 @@ def _encode_pending_ans(pending: list[MACCommand]) -> bytes:
 #   2. parse_replay_config still produces ReplayConfigV1 for the nested format —
 #      that branch must be removed from config.py first.
 # Scheduled for cleanup once those blockers are resolved.
+
 
 class ReplayAnalyzer(AttackAnalyzer):
     """Analyzer for replay attack results."""
@@ -235,6 +260,7 @@ class ReplayAnalyzer(AttackAnalyzer):
 
 # ── Attack ────────────────────────────────────────────────────────────────────
 
+
 class UplinkReplayAttack(BaseAttack):
     """
     Uplink replay attack — enhanced edition.
@@ -289,7 +315,8 @@ class UplinkReplayAttack(BaseAttack):
         # 2. Wait before first uplink
         ctx.logger.debug(
             "post_join_sleep interval_sec=%.3f mono=%.3f",
-            cfg.uplink_interval_sec, join_mono,
+            cfg.uplink_interval_sec,
+            join_mono,
         )
         interruptible_sleep(cfg.uplink_interval_sec, ctx.cancel_event)
 
@@ -299,15 +326,15 @@ class UplinkReplayAttack(BaseAttack):
         pending_mac_ans: list[MACCommand] = []
         mac_ans_lock = threading.Lock()
         # How long to wait for RX1+RX2 after each pre-probe uplink.
-        _pre_probe_rx_timeout = (
-            _DEFAULT_TIMING.rx2_delay_sec + _DEFAULT_TIMING.rx2_window_sec + 0.5
-        )
+        _pre_probe_rx_timeout = _DEFAULT_TIMING.rx2_delay_sec + _DEFAULT_TIMING.rx2_window_sec + 0.5
 
         while ctx.device.runtime.fcnt_up < cfg.capture_fcnt:
             current_fcnt = ctx.device.runtime.fcnt_up
             ctx.logger.debug(
                 "waiting_for_capture_fcnt target=%d current=%d mono=%.3f",
-                cfg.capture_fcnt, current_fcnt, time.monotonic(),
+                cfg.capture_fcnt,
+                current_fcnt,
+                time.monotonic(),
             )
             # Include any pending MAC *Ans from previous iteration.
             with mac_ans_lock:
@@ -330,7 +357,9 @@ class UplinkReplayAttack(BaseAttack):
             )
             ctx.logger.debug(
                 "pre_probe_uplink_sent fcnt=%d freq_hz=%d mono=%.3f",
-                current_fcnt, radio_meta.frequency, tx_mono,
+                current_fcnt,
+                radio_meta.frequency,
+                tx_mono,
             )
             # Drain RX1/RX2 window: process any incoming MAC commands so the NS
             # converges before the replay validation window opens.
@@ -346,7 +375,8 @@ class UplinkReplayAttack(BaseAttack):
                                 pending_mac_ans.extend(responses)
                             ctx.logger.info(
                                 "pre_probe_mac_ans_queued count=%d fcnt=%d",
-                                len(responses), current_fcnt,
+                                len(responses),
+                                current_fcnt,
                             )
                 except Exception as exc:  # noqa: BLE001  # downlink parsing can raise many types
                     ctx.logger.warning("pre_probe_downlink_parse_error: %s", exc)
@@ -354,7 +384,8 @@ class UplinkReplayAttack(BaseAttack):
             if remaining_sleep > 0:
                 ctx.logger.debug(
                     "uplink_interval_sleep interval_sec=%.3f next_mono=%.3f",
-                    remaining_sleep, time.monotonic() + remaining_sleep,
+                    remaining_sleep,
+                    time.monotonic() + remaining_sleep,
                 )
                 interruptible_sleep(remaining_sleep, ctx.cancel_event)
 
@@ -362,7 +393,9 @@ class UplinkReplayAttack(BaseAttack):
         probe_fcnt = ctx.device.runtime.fcnt_up  # == capture_fcnt
         ctx.logger.debug(
             "waiting_for_capture_fcnt target=%d current=%d mono=%.3f",
-            cfg.capture_fcnt, probe_fcnt, time.monotonic(),
+            cfg.capture_fcnt,
+            probe_fcnt,
+            time.monotonic(),
         )
         # Combine DeviceTimeReq + any accumulated MAC *Ans (max 15 bytes FOpts).
         with mac_ans_lock:
@@ -393,7 +426,9 @@ class UplinkReplayAttack(BaseAttack):
         )
         ctx.logger.info(
             "probe_uplink_sent fcnt=%d contains_device_time_req=true freq_hz=%d mono=%.3f",
-            fcnt_captured, probe_radio.frequency, tx_mono,
+            fcnt_captured,
+            probe_radio.frequency,
+            tx_mono,
         )
         ctx.logger.info("probe_uplink_captured fcnt=%d mono=%.3f", fcnt_captured, tx_mono)
 
@@ -410,7 +445,8 @@ class UplinkReplayAttack(BaseAttack):
                 next_mono = time.monotonic() + cfg.replay_attempt_interval_sec
                 ctx.logger.debug(
                     "replay_interval_sleep interval_sec=%.3f next_mono=%.3f",
-                    cfg.replay_attempt_interval_sec, next_mono,
+                    cfg.replay_attempt_interval_sec,
+                    next_mono,
                 )
                 interruptible_sleep(cfg.replay_attempt_interval_sec, ctx.cancel_event)
                 replay_radio = _select_radio_for_uplink(ctx, captured.fcnt + i)
@@ -418,14 +454,19 @@ class UplinkReplayAttack(BaseAttack):
                     tx_mono = time.monotonic()
                     tx_gps = unix_to_gps(time.time())
                     ctx.gateway.forward_uplink(captured.phy_payload, replay_radio)
-                replay_tx.append(ReplayTxRecord(
-                    monotonic_time=tx_mono,
-                    gps_time=tx_gps,
-                    replay_index=i,
-                ))
+                replay_tx.append(
+                    ReplayTxRecord(
+                        monotonic_time=tx_mono,
+                        gps_time=tx_gps,
+                        replay_index=i,
+                    )
+                )
                 ctx.logger.info(
                     "replay_sent index=%d fcnt=%d freq_hz=%d mono=%.3f",
-                    i, captured.fcnt, replay_radio.frequency, tx_mono,
+                    i,
+                    captured.fcnt,
+                    replay_radio.frequency,
+                    tx_mono,
                 )
 
         def _normal_uplink_loop() -> None:
@@ -433,7 +474,8 @@ class UplinkReplayAttack(BaseAttack):
                 sleep_start = time.monotonic()
                 ctx.logger.debug(
                     "uplink_interval_sleep interval_sec=%.3f mono=%.3f",
-                    cfg.uplink_interval_sec, sleep_start,
+                    cfg.uplink_interval_sec,
+                    sleep_start,
                 )
                 interruptible_sleep(cfg.uplink_interval_sec, ctx.cancel_event)
                 # Drain accumulated MAC *Ans from _downlink_loop.
@@ -454,11 +496,13 @@ class UplinkReplayAttack(BaseAttack):
                     tx_gps = unix_to_gps(time.time())
                     ctx.gateway.forward_uplink(frame, normal_radio)
                 fcnt = ctx.device.runtime.fcnt_up - 1
-                valid_tx.append(ValidUplinkRecord(
-                    monotonic_time=tx_mono,
-                    gps_time=tx_gps,
-                    fcnt=fcnt,
-                ))
+                valid_tx.append(
+                    ValidUplinkRecord(
+                        monotonic_time=tx_mono,
+                        gps_time=tx_gps,
+                        fcnt=fcnt,
+                    )
+                )
                 ctx.capture.capture_uplink(
                     phy_payload=frame,
                     fcnt=fcnt,
@@ -466,7 +510,10 @@ class UplinkReplayAttack(BaseAttack):
                 )
                 ctx.logger.info(
                     "verification_uplink_sent index=%d fcnt=%d freq_hz=%d mono=%.3f",
-                    i, fcnt, normal_radio.frequency, tx_mono,
+                    i,
+                    fcnt,
+                    normal_radio.frequency,
+                    tx_mono,
                 )
 
         def _downlink_loop() -> None:
@@ -500,17 +547,20 @@ class UplinkReplayAttack(BaseAttack):
                                 pending_mac_ans.extend(responses)
                             ctx.logger.info(
                                 "mac_cmd_ans_queued count=%d mono=%.3f",
-                                len(responses), mono,
+                                len(responses),
+                                mono,
                             )
                 except Exception as exc:  # noqa: BLE001  # downlink parsing can raise many types
                     ctx.logger.warning("downlink_parse_error: %s", exc)
                 with downlink_lock:
-                    downlink_rx.append(DownlinkRxRecord(
-                        monotonic_time=mono,
-                        raw_payload=raw,
-                        decoded_mac_commands=mac_cmds,
-                        device_time_ans=dt_ans,
-                    ))
+                    downlink_rx.append(
+                        DownlinkRxRecord(
+                            monotonic_time=mono,
+                            raw_payload=raw,
+                            decoded_mac_commands=mac_cmds,
+                            device_time_ans=dt_ans,
+                        )
+                    )
                 ctx.capture.capture_downlink(
                     phy_payload=raw,
                     packet_type="data_down",
@@ -525,7 +575,8 @@ class UplinkReplayAttack(BaseAttack):
         )
         ctx.logger.info(
             "verification_window_started_after_fcnt=%d mono=%.3f",
-            cfg.capture_fcnt, time.monotonic(),
+            cfg.capture_fcnt,
+            time.monotonic(),
         )
         t_dl.start()
         t_replay.start()
@@ -534,7 +585,10 @@ class UplinkReplayAttack(BaseAttack):
         t_replay.join()
         t_normal.join()
         # Give RX windows time to drain after last TX
-        interruptible_sleep(max(_DEFAULT_TIMING.rx2_delay_sec + _DEFAULT_TIMING.rx2_window_sec, 3.0), ctx.cancel_event)
+        interruptible_sleep(
+            max(_DEFAULT_TIMING.rx2_delay_sec + _DEFAULT_TIMING.rx2_window_sec, 3.0),
+            ctx.cancel_event,
+        )
         stop_dl_event.set()
         t_dl.join(timeout=2.0)
 
@@ -566,7 +620,12 @@ class UplinkReplayAttack(BaseAttack):
         probe_received_dt_ans = False
 
         # Check probe's own RX window for DeviceTimeAns
-        probe_rx_deadline = captured.monotonic_time + _DEFAULT_TIMING.rx2_delay_sec + _DEFAULT_TIMING.rx2_window_sec + _RX_WINDOW_TOLERANCE_SEC
+        probe_rx_deadline = (
+            captured.monotonic_time
+            + _DEFAULT_TIMING.rx2_delay_sec
+            + _DEFAULT_TIMING.rx2_window_sec
+            + _RX_WINDOW_TOLERANCE_SEC
+        )
         for dl in downlink_rx:
             if dl.device_time_ans is not None and dl.monotonic_time <= probe_rx_deadline:
                 probe_received_dt_ans = True
@@ -593,13 +652,14 @@ class UplinkReplayAttack(BaseAttack):
 
             # GPS-time check against replay TX events
             if dl.device_time_ans is not None:
-                server_gps = float(dl.device_time_ans.gps_seconds) + dl.device_time_ans.fractional / 256.0
+                server_gps = (
+                    float(dl.device_time_ans.gps_seconds) + dl.device_time_ans.fractional / 256.0
+                )
                 for rtx in replay_tx:
                     if _gps_match(server_gps, rtx.gps_time, tol):
                         # Ensure no normal uplink also matches within tolerance
                         normal_also_matches = any(
-                            _gps_match(server_gps, vtx.gps_time, tol)
-                            for vtx in valid_tx
+                            _gps_match(server_gps, vtx.gps_time, tol) for vtx in valid_tx
                         ) or _gps_match(server_gps, captured.gps_time, tol)
                         if not normal_also_matches:
                             gps_replay_match = True
@@ -624,9 +684,7 @@ class UplinkReplayAttack(BaseAttack):
             gps_available=True,
         )
 
-        ctx.logger.info(
-            "ignored_pre_probe_downlink count=0"
-        )
+        ctx.logger.info("ignored_pre_probe_downlink count=0")
         ctx.logger.info(
             "replay_validation strong=%d weak=%d dt_ans=%d verdict=%s mono=%.3f",
             strong_replay_matches,
@@ -643,16 +701,20 @@ class UplinkReplayAttack(BaseAttack):
             "total_downlinks": len(downlink_rx),
             "device_time_answers": device_time_answers,
             "rx_timing_replay_matches": sum(
-                1 for dl in downlink_rx
+                1
+                for dl in downlink_rx
                 if any(_in_rx_window(r.monotonic_time, dl.monotonic_time) for r in replay_tx)
             ),
             "gps_time_replay_matches": sum(
-                1 for dl in downlink_rx
+                1
+                for dl in downlink_rx
                 if dl.device_time_ans is not None
                 and any(
                     _gps_match(
-                        float(dl.device_time_ans.gps_seconds) + dl.device_time_ans.fractional / 256.0,
-                        r.gps_time, tol
+                        float(dl.device_time_ans.gps_seconds)
+                        + dl.device_time_ans.fractional / 256.0,
+                        r.gps_time,
+                        tol,
                     )
                     for r in replay_tx
                 )
@@ -722,9 +784,7 @@ class UplinkReplayAttack(BaseAttack):
                 fcnt=fcnt_original,
                 packet_type="data_up",
             )
-            ctx.logger.info(
-                "original_uplink_sent fcnt=%d mono=%.3f", fcnt_original, tx_mono
-            )
+            ctx.logger.info("original_uplink_sent fcnt=%d mono=%.3f", fcnt_original, tx_mono)
 
             delay_start = time.monotonic()
             ctx.logger.info(
@@ -734,7 +794,8 @@ class UplinkReplayAttack(BaseAttack):
             delay_elapsed_ms = (time.monotonic() - delay_start) * 1000
             ctx.logger.info(
                 "replay_delay_done elapsed_ms=%.0f mono=%.3f",
-                delay_elapsed_ms, time.monotonic(),
+                delay_elapsed_ms,
+                time.monotonic(),
             )
 
             ctx.logger.info("Replaying uplink %d time(s)...", replay_count)

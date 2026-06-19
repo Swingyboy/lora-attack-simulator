@@ -9,6 +9,7 @@ from typing import Any
 
 class ExecutionStatus(str, Enum):
     """Technical execution outcome — did the attack machinery run to completion?"""
+
     COMPLETED = "completed"
     CANCELLED = "cancelled"
     FAILED = "failed"
@@ -16,6 +17,7 @@ class ExecutionStatus(str, Enum):
 
 class SecurityVerdict(str, Enum):
     """Security assessment of the target — how did the NS behave?"""
+
     SECURE = "secure"
     VULNERABLE = "vulnerable"
     INCONCLUSIVE = "inconclusive"
@@ -24,6 +26,7 @@ class SecurityVerdict(str, Enum):
 
 class Confidence(str, Enum):
     """Confidence in the :attr:`SecurityVerdict`."""
+
     HIGH = "high"
     MEDIUM = "medium"
     LOW = "low"
@@ -188,4 +191,3 @@ class AttackResult:
             metrics=metrics or {},
             error=error,
         )
-

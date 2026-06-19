@@ -113,13 +113,9 @@ def eu868_rx1_data_rate(uplink_dr_str: str, rx1_dr_offset: int) -> str:
             uplink_dr_idx = idx
             break
     if uplink_dr_idx is None:
-        raise ValueError(
-            "eu868_rx1_data_rate: unknown uplink data-rate %r" % uplink_dr_str
-        )
+        raise ValueError("eu868_rx1_data_rate: unknown uplink data-rate %r" % uplink_dr_str)
     if rx1_dr_offset < 0 or rx1_dr_offset > 5:
-        raise ValueError(
-            "eu868_rx1_data_rate: rx1_dr_offset must be 0–5, got %d" % rx1_dr_offset
-        )
+        raise ValueError("eu868_rx1_data_rate: rx1_dr_offset must be 0–5, got %d" % rx1_dr_offset)
     rx1_dr_idx = _EU868_RX1_DR_TABLE[uplink_dr_idx].get(rx1_dr_offset, 0)
     return EU868_DR_TABLE[rx1_dr_idx]
 

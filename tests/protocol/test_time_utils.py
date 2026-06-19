@@ -163,7 +163,7 @@ class TestSimClockProtocol(unittest.TestCase):
         gps_tx = unix_to_gps(unix_tx)  # GPS seconds at TX
 
         # NS reports back GPS time ≈ TX time (within 2 s tolerance)
-        gps_server_response = gps_tx + 0.5   # 0.5 s after TX
+        gps_server_response = gps_tx + 0.5  # 0.5 s after TX
         tolerance = 2.0
 
         # With correct GPS-to-GPS comparison: should match
@@ -171,7 +171,7 @@ class TestSimClockProtocol(unittest.TestCase):
 
         # Demonstrate old bug: if Unix time was compared directly to GPS seconds
         gps_server_large = gps_server_response  # correct GPS value
-        unix_tx_wrongly_used = unix_tx          # Unix value mistakenly used as GPS
+        unix_tx_wrongly_used = unix_tx  # Unix value mistakenly used as GPS
         difference_wrong = abs(gps_server_large - unix_tx_wrongly_used)
         # The difference is ~315,964,818 s — far outside any tolerance
         self.assertGreater(difference_wrong, 300_000_000)

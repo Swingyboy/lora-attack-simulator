@@ -58,28 +58,36 @@ class TestAttackResultSuccessCompat(unittest.TestCase):
 
     def test_completed_maps_to_success_true(self) -> None:
         r = AttackResult(
-            attack_name="a", attack_type="t", message="ok",
+            attack_name="a",
+            attack_type="t",
+            message="ok",
             execution_status=ExecutionStatus.COMPLETED,
         )
         self.assertTrue(r.success)
 
     def test_failed_maps_to_success_false(self) -> None:
         r = AttackResult(
-            attack_name="a", attack_type="t", message="err",
+            attack_name="a",
+            attack_type="t",
+            message="err",
             execution_status=ExecutionStatus.FAILED,
         )
         self.assertFalse(r.success)
 
     def test_cancelled_maps_to_success_false(self) -> None:
         r = AttackResult(
-            attack_name="a", attack_type="t", message="cancelled",
+            attack_name="a",
+            attack_type="t",
+            message="cancelled",
             execution_status=ExecutionStatus.CANCELLED,
         )
         self.assertFalse(r.success)
 
     def test_success_setter_overrides_status(self) -> None:
         r = AttackResult(
-            attack_name="a", attack_type="t", message="ok",
+            attack_name="a",
+            attack_type="t",
+            message="ok",
             execution_status=ExecutionStatus.COMPLETED,
         )
         r.success = False
@@ -147,7 +155,9 @@ class TestAttackResultSerialization(unittest.TestCase):
     def test_to_dict_omits_none_target_protected(self) -> None:
         """target_protected=None is omitted from serialization."""
         r = AttackResult(
-            attack_name="a", attack_type="t", message="m",
+            attack_name="a",
+            attack_type="t",
+            message="m",
             target_protected=None,
         )
         d = r.to_dict()
@@ -155,7 +165,9 @@ class TestAttackResultSerialization(unittest.TestCase):
 
     def test_to_dict_includes_target_protected_when_set(self) -> None:
         r = AttackResult(
-            attack_name="a", attack_type="t", message="m",
+            attack_name="a",
+            attack_type="t",
+            message="m",
             target_protected=False,
         )
         d = r.to_dict()
@@ -167,33 +179,23 @@ class TestAttackResultFailedConstructor(unittest.TestCase):
     """AttackResult.failed() convenience constructor."""
 
     def test_failed_sets_execution_status(self) -> None:
-        r = AttackResult.failed(
-            attack_name="a", attack_type="t", error="connection refused"
-        )
+        r = AttackResult.failed(attack_name="a", attack_type="t", error="connection refused")
         self.assertEqual(r.execution_status, ExecutionStatus.FAILED)
 
     def test_failed_sets_inconclusive_verdict(self) -> None:
-        r = AttackResult.failed(
-            attack_name="a", attack_type="t", error="timeout"
-        )
+        r = AttackResult.failed(attack_name="a", attack_type="t", error="timeout")
         self.assertEqual(r.security_verdict, SecurityVerdict.INCONCLUSIVE)
 
     def test_failed_stores_error_field(self) -> None:
-        r = AttackResult.failed(
-            attack_name="a", attack_type="t", error="boom"
-        )
+        r = AttackResult.failed(attack_name="a", attack_type="t", error="boom")
         self.assertEqual(r.error, "boom")
 
     def test_failed_success_property_is_false(self) -> None:
-        r = AttackResult.failed(
-            attack_name="a", attack_type="t", error="x"
-        )
+        r = AttackResult.failed(attack_name="a", attack_type="t", error="x")
         self.assertFalse(r.success)
 
     def test_failed_custom_message(self) -> None:
-        r = AttackResult.failed(
-            attack_name="a", attack_type="t", error="x", message="Custom error"
-        )
+        r = AttackResult.failed(attack_name="a", attack_type="t", error="x", message="Custom error")
         self.assertEqual(r.message, "Custom error")
 
 
@@ -202,7 +204,9 @@ class TestSecurityVerdictSemantics(unittest.TestCase):
 
     def test_secure_run_completed(self) -> None:
         r = AttackResult(
-            attack_name="a", attack_type="t", message="ok",
+            attack_name="a",
+            attack_type="t",
+            message="ok",
             execution_status=ExecutionStatus.COMPLETED,
             security_verdict=SecurityVerdict.SECURE,
         )
@@ -212,7 +216,9 @@ class TestSecurityVerdictSemantics(unittest.TestCase):
 
     def test_vulnerable_run_completed(self) -> None:
         r = AttackResult(
-            attack_name="a", attack_type="t", message="vuln",
+            attack_name="a",
+            attack_type="t",
+            message="vuln",
             execution_status=ExecutionStatus.COMPLETED,
             security_verdict=SecurityVerdict.VULNERABLE,
             target_protected=False,

@@ -42,10 +42,10 @@ from lora_attack_toolkit.lorawan.frames import build_unconfirmed_data_up
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
-_DEV_ADDR_LE = bytes.fromhex("04030201")   # DevAddr 01020304 stored LE
+_DEV_ADDR_LE = bytes.fromhex("04030201")  # DevAddr 01020304 stored LE
 _NWK_S_KEY = bytes(16)
 _APP_S_KEY = bytes(16)
-_PAYLOAD = b"\xDE\xAD\xBE\xEF"
+_PAYLOAD = b"\xde\xad\xbe\xef"
 _EXAMPLE_SCENARIO = Path("examples/attacks/uplink-forgery-v1.json")
 
 
@@ -105,8 +105,8 @@ def _make_ctx(cfg: UplinkForgeryConfigV1) -> AttackContext:
 
 # ── 1. Config parsing ─────────────────────────────────────────────────────────
 
-class TestParseUplinkForgeryConfig(unittest.TestCase):
 
+class TestParseUplinkForgeryConfig(unittest.TestCase):
     def test_defaults(self) -> None:
         cfg = parse_uplink_forgery_config({})
         self.assertEqual(cfg.forgery_mode, "invalid_mic")
@@ -170,10 +170,11 @@ class TestParseUplinkForgeryConfig(unittest.TestCase):
 
 # ── 2. Registry registration ──────────────────────────────────────────────────
 
-class TestUplinkForgeryRegistration(unittest.TestCase):
 
+class TestUplinkForgeryRegistration(unittest.TestCase):
     def setUp(self) -> None:
         from lora_attack_toolkit.attacks.bootstrap import register_builtin_attacks
+
         register_builtin_attacks()
 
     def test_attack_registered(self) -> None:
@@ -195,8 +196,8 @@ class TestUplinkForgeryRegistration(unittest.TestCase):
 
 # ── 3. Scenario loading ───────────────────────────────────────────────────────
 
-class TestExampleScenarioLoading(unittest.TestCase):
 
+class TestExampleScenarioLoading(unittest.TestCase):
     def test_example_file_exists(self) -> None:
         self.assertTrue(_EXAMPLE_SCENARIO.exists(), str(_EXAMPLE_SCENARIO))
 
@@ -217,6 +218,7 @@ class TestExampleScenarioLoading(unittest.TestCase):
         """ScenarioMetadata.from_file must succeed for the example file."""
         from lora_attack_toolkit.app.console import ScenarioMetadata
         from lora_attack_toolkit.attacks.bootstrap import register_builtin_attacks
+
         register_builtin_attacks()
         meta = ScenarioMetadata.from_file(_EXAMPLE_SCENARIO)
         self.assertIsNotNone(meta)
@@ -225,10 +227,10 @@ class TestExampleScenarioLoading(unittest.TestCase):
 
 # ── 4. Packet construction helpers ────────────────────────────────────────────
 
-class TestCorruptMic(unittest.TestCase):
 
+class TestCorruptMic(unittest.TestCase):
     def test_mic_is_bit_flipped(self) -> None:
-        frame = b"\x40\x01\x02\x03\x04\xAB\xCD\xEF\x12"
+        frame = b"\x40\x01\x02\x03\x04\xab\xcd\xef\x12"
         result = corrupt_mic(frame)
         self.assertEqual(result[:-4], frame[:-4])
         for orig, res in zip(frame[-4:], result[-4:]):
@@ -240,11 +242,14 @@ class TestCorruptMic(unittest.TestCase):
 
 
 class TestApplyMicStrategy(unittest.TestCase):
-
     def _base_frame(self, fcnt: int = 1) -> bytes:
         return build_unconfirmed_data_up(
-            dev_addr_le=_DEV_ADDR_LE, fcnt_up=fcnt, f_port=1,
-            frm_payload=_PAYLOAD, app_s_key=_APP_S_KEY, nwk_s_key=_NWK_S_KEY,
+            dev_addr_le=_DEV_ADDR_LE,
+            fcnt_up=fcnt,
+            f_port=1,
+            frm_payload=_PAYLOAD,
+            app_s_key=_APP_S_KEY,
+            nwk_s_key=_NWK_S_KEY,
             confirmed=False,
         )
 
@@ -252,14 +257,23 @@ class TestApplyMicStrategy(unittest.TestCase):
         base = self._base_frame(3)
         rebuilt, strategy = _apply_mic_strategy(
             frame=base,
-            recalculate_mic=True, corrupt_mic_flag=False,
-            dev_addr_le=_DEV_ADDR_LE, fcnt_up=3, fport=1,
-            payload=_PAYLOAD, app_s_key=_APP_S_KEY, nwk_s_key=_NWK_S_KEY,
+            recalculate_mic=True,
+            corrupt_mic_flag=False,
+            dev_addr_le=_DEV_ADDR_LE,
+            fcnt_up=3,
+            fport=1,
+            payload=_PAYLOAD,
+            app_s_key=_APP_S_KEY,
+            nwk_s_key=_NWK_S_KEY,
         )
         self.assertEqual(strategy, "recalculated")
         expected = build_unconfirmed_data_up(
-            dev_addr_le=_DEV_ADDR_LE, fcnt_up=3, f_port=1,
-            frm_payload=_PAYLOAD, app_s_key=_APP_S_KEY, nwk_s_key=_NWK_S_KEY,
+            dev_addr_le=_DEV_ADDR_LE,
+            fcnt_up=3,
+            f_port=1,
+            frm_payload=_PAYLOAD,
+            app_s_key=_APP_S_KEY,
+            nwk_s_key=_NWK_S_KEY,
             confirmed=False,
         )
         self.assertEqual(rebuilt, expected)
@@ -268,9 +282,14 @@ class TestApplyMicStrategy(unittest.TestCase):
         base = self._base_frame(2)
         result, strategy = _apply_mic_strategy(
             frame=base,
-            recalculate_mic=False, corrupt_mic_flag=True,
-            dev_addr_le=_DEV_ADDR_LE, fcnt_up=2, fport=1,
-            payload=_PAYLOAD, app_s_key=_APP_S_KEY, nwk_s_key=_NWK_S_KEY,
+            recalculate_mic=False,
+            corrupt_mic_flag=True,
+            dev_addr_le=_DEV_ADDR_LE,
+            fcnt_up=2,
+            fport=1,
+            payload=_PAYLOAD,
+            app_s_key=_APP_S_KEY,
+            nwk_s_key=_NWK_S_KEY,
         )
         self.assertEqual(strategy, "corrupted")
         self.assertEqual(result[:-4], base[:-4])
@@ -280,9 +299,14 @@ class TestApplyMicStrategy(unittest.TestCase):
         base = self._base_frame(5)
         result, strategy = _apply_mic_strategy(
             frame=base,
-            recalculate_mic=False, corrupt_mic_flag=False,
-            dev_addr_le=_DEV_ADDR_LE, fcnt_up=5, fport=1,
-            payload=_PAYLOAD, app_s_key=_APP_S_KEY, nwk_s_key=_NWK_S_KEY,
+            recalculate_mic=False,
+            corrupt_mic_flag=False,
+            dev_addr_le=_DEV_ADDR_LE,
+            fcnt_up=5,
+            fport=1,
+            payload=_PAYLOAD,
+            app_s_key=_APP_S_KEY,
+            nwk_s_key=_NWK_S_KEY,
         )
         self.assertEqual(strategy, "original")
         self.assertEqual(result, base)
@@ -291,15 +315,19 @@ class TestApplyMicStrategy(unittest.TestCase):
         base = self._base_frame(7)
         result, strategy = _apply_mic_strategy(
             frame=base,
-            recalculate_mic=True, corrupt_mic_flag=True,
-            dev_addr_le=_DEV_ADDR_LE, fcnt_up=7, fport=1,
-            payload=_PAYLOAD, app_s_key=_APP_S_KEY, nwk_s_key=_NWK_S_KEY,
+            recalculate_mic=True,
+            corrupt_mic_flag=True,
+            dev_addr_le=_DEV_ADDR_LE,
+            fcnt_up=7,
+            fport=1,
+            payload=_PAYLOAD,
+            app_s_key=_APP_S_KEY,
+            nwk_s_key=_NWK_S_KEY,
         )
         self.assertEqual(strategy, "recalculated")
 
 
 class TestBuildMacCommandFopts(unittest.TestCase):
-
     def test_all_commands_produce_nonempty_fopts(self) -> None:
         for cmd in UPLINK_FORGERY_MAC_COMMANDS:
             fopts = _build_mac_command_fopts(cmd)
@@ -312,19 +340,22 @@ class TestBuildMacCommandFopts(unittest.TestCase):
 
 
 class TestFcntManipulation(unittest.TestCase):
-
     def _forge(self, mode: str, **kw) -> ForgeryEvidence:
         cfg = _cfg(forgery_mode=mode, **kw)
         ctx = _make_ctx(cfg)
         ctx.device.runtime.fcnt_up = 10
         attack = UplinkForgeryAttack()
-        return attack._forge_and_transmit(ctx, cfg, {
-            "dev_addr_le": _DEV_ADDR_LE,
-            "dev_addr_hex": "01020304",
-            "fcnt_up": 10,
-            "nwk_s_key": _NWK_S_KEY,
-            "app_s_key": _APP_S_KEY,
-        })
+        return attack._forge_and_transmit(
+            ctx,
+            cfg,
+            {
+                "dev_addr_le": _DEV_ADDR_LE,
+                "dev_addr_hex": "01020304",
+                "fcnt_up": 10,
+                "nwk_s_key": _NWK_S_KEY,
+                "app_s_key": _APP_S_KEY,
+            },
+        )
 
     def test_fcnt_jump_uses_delta(self) -> None:
         ev = self._forge("fcnt_jump_forward", fcnt_delta=9990)
@@ -349,20 +380,24 @@ class TestDeviceLayerUsed(unittest.TestCase):
     def test_select_uplink_radio_called(self) -> None:
         cfg = _cfg(forgery_mode="invalid_mic")
         ctx = _make_ctx(cfg)
-        UplinkForgeryAttack()._forge_and_transmit(ctx, cfg, {
-            "dev_addr_le": _DEV_ADDR_LE,
-            "dev_addr_hex": "01020304",
-            "fcnt_up": 5,
-            "nwk_s_key": _NWK_S_KEY,
-            "app_s_key": _APP_S_KEY,
-        })
+        UplinkForgeryAttack()._forge_and_transmit(
+            ctx,
+            cfg,
+            {
+                "dev_addr_le": _DEV_ADDR_LE,
+                "dev_addr_hex": "01020304",
+                "fcnt_up": 5,
+                "nwk_s_key": _NWK_S_KEY,
+                "app_s_key": _APP_S_KEY,
+            },
+        )
         ctx.device.select_uplink_radio.assert_called()
 
 
 # ── 5. Verdict logic ──────────────────────────────────────────────────────────
 
-class TestDetermineVerdict(unittest.TestCase):
 
+class TestDetermineVerdict(unittest.TestCase):
     def test_invalid_mic_no_dl_rejected(self) -> None:
         self.assertEqual(
             determine_forgery_verdict("invalid_mic", False, False, "corrupted"),
@@ -396,7 +431,9 @@ class TestDetermineVerdict(unittest.TestCase):
 
     def test_fcnt_reuse_no_dl_rejected(self) -> None:
         self.assertEqual(
-            determine_forgery_verdict("fcnt_reuse_with_modified_payload", False, False, "corrupted"),
+            determine_forgery_verdict(
+                "fcnt_reuse_with_modified_payload", False, False, "corrupted"
+            ),
             ForgeryVerdict.REJECTED,
         )
 
@@ -439,10 +476,11 @@ class TestDetermineVerdict(unittest.TestCase):
 
 # ── 6. End-to-end attack run ──────────────────────────────────────────────────
 
-class TestUplinkForgeryAttackRun(unittest.TestCase):
 
+class TestUplinkForgeryAttackRun(unittest.TestCase):
     def _run_mode(self, mode: str, **kw) -> AttackResult:  # type: ignore[name-defined]
         from lora_attack_toolkit.attacks.result import AttackResult
+
         cfg = _cfg(forgery_mode=mode, **kw)
         ctx = _make_ctx(cfg)
         result = UplinkForgeryAttack().run(ctx)
@@ -479,20 +517,30 @@ class TestUplinkForgeryAttackRun(unittest.TestCase):
     def test_result_contains_all_evidence_fields(self) -> None:
         r = self._run_mode("invalid_mic")
         for key in (
-            "forgery_mode", "dev_addr", "fcnt_used", "payload_hex",
-            "mic_strategy", "frequency_hz", "data_rate", "tx_timestamp",
-            "downlink_received", "downlink_count", "verification_accepted",
-            "verdict", "verdict_label",
+            "forgery_mode",
+            "dev_addr",
+            "fcnt_used",
+            "payload_hex",
+            "mic_strategy",
+            "frequency_hz",
+            "data_rate",
+            "tx_timestamp",
+            "downlink_received",
+            "downlink_count",
+            "verification_accepted",
+            "verdict",
+            "verdict_label",
         ):
             self.assertIn(key, r.metrics, f"Missing evidence field: {key}")
 
 
 # ── 7. Regression — existing attacks still work ───────────────────────────────
 
-class TestRegressionJoinReplay(unittest.TestCase):
 
+class TestRegressionJoinReplay(unittest.TestCase):
     def test_join_devnonce_registered(self) -> None:
         from lora_attack_toolkit.attacks.bootstrap import register_builtin_attacks
+
         register_builtin_attacks()
         spec = AttackRegistry.get_spec("join_devnonce")
         self.assertEqual(spec.name, "join_devnonce")
@@ -502,9 +550,9 @@ class TestRegressionJoinReplay(unittest.TestCase):
 
 
 class TestRegressionUplinkReplay(unittest.TestCase):
-
     def test_uplink_replay_registered(self) -> None:
         from lora_attack_toolkit.attacks.bootstrap import register_builtin_attacks
+
         register_builtin_attacks()
         spec = AttackRegistry.get_spec("uplink_replay")
         self.assertEqual(spec.name, "uplink_replay")

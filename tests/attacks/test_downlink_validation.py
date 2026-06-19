@@ -31,7 +31,7 @@ def _make_device() -> SimulatedDevice:
     # Manually inject a joined session
     device.runtime.joined = True
     device.runtime.dev_addr_le = bytes.fromhex("01020304")
-    device.runtime.nwk_s_key = bytes(16)   # all-zero key for test frames
+    device.runtime.nwk_s_key = bytes(16)  # all-zero key for test frames
     device.runtime.app_s_key = bytes(16)
     device.runtime.fcnt_up = 1
     device.runtime.fcnt_down = 0

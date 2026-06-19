@@ -112,6 +112,7 @@ Automatically masks hex keys in logs:
 - Disabled via `mask_secrets=False` (logs warning)
 
 """
+
 from __future__ import annotations
 
 import json
@@ -158,43 +159,44 @@ LEVEL_COLORS = {
 
 class SecretMasker:
     """Mask sensitive data in log messages."""
-    
+
     # Patterns for secret keys (hex strings of specific lengths)
     SECRET_PATTERNS = [
-        (r'\b([0-9a-fA-F]{32})\b', 'app_key'),  # 16-byte hex (AppKey, NwkKey)
-        (r'\b([0-9a-fA-F]{64})\b', 'root_key'),  # 32-byte hex
-        (r'(app_key|nwk_key|app_s_key|nwk_s_key|app_session_key|network_session_key)["\']?\s*[:=]\s*["\']?([0-9a-fA-F]+)', 'key_value'),
+        (r"\b([0-9a-fA-F]{32})\b", "app_key"),  # 16-byte hex (AppKey, NwkKey)
+        (r"\b([0-9a-fA-F]{64})\b", "root_key"),  # 32-byte hex
+        (
+            r'(app_key|nwk_key|app_s_key|nwk_s_key|app_session_key|network_session_key)["\']?\s*[:=]\s*["\']?([0-9a-fA-F]+)',
+            "key_value",
+        ),
     ]
-    
+
     def __init__(self, enabled: bool = True) -> None:
         self.enabled = enabled
-    
+
     def mask(self, text: str) -> str:
         """Mask secrets in text."""
         if not self.enabled:
             return text
-        
+
         # Mask 32-char hex strings (16-byte keys like AppKey)
         text = re.sub(
-            r'\b([0-9a-fA-F]{8})([0-9a-fA-F]{16})([0-9a-fA-F]{8})\b',
-            r'\1********\3',
-            text
+            r"\b([0-9a-fA-F]{8})([0-9a-fA-F]{16})([0-9a-fA-F]{8})\b", r"\1********\3", text
         )
-        
+
         # Mask key=value patterns
         text = re.sub(
             r'(app_key|nwk_key|app_s_key|nwk_s_key|app_session_key|network_session_key)(["\']?\s*[:=]\s*["\']?)([0-9a-fA-F]{8})([0-9a-fA-F]+)',
-            r'\1\2\3********',
+            r"\1\2\3********",
             text,
-            flags=re.IGNORECASE
+            flags=re.IGNORECASE,
         )
-        
+
         return text
 
 
 class JsonFormatter(logging.Formatter):
     """Structured JSONL formatter with optional secret masking."""
-    
+
     def __init__(
         self,
         session_id: str | None = None,
@@ -205,39 +207,39 @@ class JsonFormatter(logging.Formatter):
         self.session_id = session_id
         self.scenario_id = scenario_id
         self.masker = SecretMasker(enabled=mask_secrets)
-    
+
     def format(self, record: logging.LogRecord) -> str:
         """Format log record as JSONL."""
         message = record.getMessage()
-        
+
         # Mask secrets if enabled
         message = self.masker.mask(message)
-        
+
         payload: dict[str, Any] = {
             "ts": datetime.now(tz=timezone.utc).isoformat(),
             "level": record.levelname,
             "logger": record.name,
             "message": message,
         }
-        
+
         # Add session and scenario context
         if self.session_id:
             payload["session_id"] = self.session_id
         if self.scenario_id:
             payload["scenario_id"] = self.scenario_id
-        
+
         # Add extra fields from record
         if hasattr(record, "scenario_id") and not self.scenario_id:
             payload["scenario_id"] = record.scenario_id
         if hasattr(record, "component"):
             payload["component"] = record.component
-        
+
         return json.dumps(payload, separators=(",", ":"))
 
 
 class ColoredConsoleFormatter(logging.Formatter):
     """Terminal formatter with color support and secret masking."""
-    
+
     def __init__(
         self,
         use_colors: bool = True,
@@ -246,21 +248,21 @@ class ColoredConsoleFormatter(logging.Formatter):
         super().__init__()
         self.use_colors = use_colors and sys.stdout.isatty()
         self.masker = SecretMasker(enabled=mask_secrets)
-    
+
     def format(self, record: logging.LogRecord) -> str:
         """Format log record for terminal with colors."""
         message = record.getMessage()
-        
+
         # Mask secrets if enabled
         message = self.masker.mask(message)
-        
+
         # Get color for level
         color = LEVEL_COLORS.get(record.levelname, COLORS["RESET"]) if self.use_colors else ""
         reset = COLORS["RESET"] if self.use_colors else ""
-        
+
         # Format timestamp (HH:MM:SS)
         timestamp = datetime.fromtimestamp(record.created).strftime("%H:%M:%S")
-        
+
         # Format: [HH:MM:SS] [LEVEL] logger - message
         return f"[{timestamp}] {color}[{record.levelname}]{reset} {record.name} - {message}"
 
@@ -268,13 +270,13 @@ class ColoredConsoleFormatter(logging.Formatter):
 class LoggingConfig:
     """
     Global logging configuration state with explicit precedence.
-    
+
     Logging Precedence (highest to lowest):
     1. CLI/Session overrides (set logging.level commands)
     2. Scenario configuration (logging section in scenario JSON)
     3. Framework defaults (INFO level, colored output, secret masking)
     """
-    
+
     def __init__(self) -> None:
         self.level: str = "INFO"
         self.session_log_file: Path | None = None
@@ -284,36 +286,38 @@ class LoggingConfig:
         self.use_colors: bool = True
         self.log_phy_payload: bool = False
         self.log_semtech_udp: bool = False
-        
+
         # Track source of current log level for precedence
-        self.level_source: str = "framework_default"  # "framework_default" | "scenario" | "cli_override"
-    
+        self.level_source: str = (
+            "framework_default"  # "framework_default" | "scenario" | "cli_override"
+        )
+
     def set_level(self, level: str, source: str = "framework_default") -> bool:
         """
         Set log level with precedence checking.
-        
+
         Args:
             level: New log level
             source: Source of the change (framework_default, scenario, cli_override)
-        
+
         Returns:
             True if level was changed, False if blocked by precedence
-        
+
         Precedence order:
             cli_override (2) > scenario (1) > framework_default (0)
         """
         precedence = {"framework_default": 0, "scenario": 1, "cli_override": 2}
-        
+
         current_precedence = precedence.get(self.level_source, 0)
         new_precedence = precedence.get(source, 0)
-        
+
         # Only apply if new source has higher or equal precedence
         if new_precedence >= current_precedence:
             self.level = level.upper()
             self.level_source = source
             return True
         return False
-    
+
     def to_dict(self) -> dict[str, Any]:
         """Export config as dict."""
         return {
@@ -350,7 +354,7 @@ def configure_logging(
 ) -> None:
     """
     Configure logging with dual output (terminal + file).
-    
+
     Args:
         level: Log level (ERROR, WARNING, INFO, DEBUG, TRACE)
         log_file: Path to session log file (auto-created if None)
@@ -362,10 +366,10 @@ def configure_logging(
         log_semtech_udp: Enable Semtech UDP packet logging
     """
     global _logging_config
-    
+
     # Set level with precedence (defaults to framework_default source)
     _logging_config.set_level(level, source="framework_default")
-    
+
     # Update other config (no precedence needed for these)
     _logging_config.session_id = session_id
     _logging_config.scenario_id = scenario_id
@@ -373,7 +377,7 @@ def configure_logging(
     _logging_config.use_colors = use_colors
     _logging_config.log_phy_payload = log_phy_payload
     _logging_config.log_semtech_udp = log_semtech_udp
-    
+
     # Create session log file if not provided
     if log_file is None:
         logs_dir = Path.cwd() / "logs"
@@ -383,31 +387,35 @@ def configure_logging(
     else:
         log_file = Path(log_file)
         log_file.parent.mkdir(parents=True, exist_ok=True)
-    
+
     _logging_config.session_log_file = log_file
-    
+
     # Configure root logger
     logger = logging.getLogger("lora_attack_toolkit")
     logger.setLevel(getattr(logging, level.upper(), logging.INFO))
     logger.handlers.clear()
-    
+
     # Console handler (colored, human-readable)
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(ColoredConsoleFormatter(
-        use_colors=use_colors,
-        mask_secrets=mask_secrets,
-    ))
+    console_handler.setFormatter(
+        ColoredConsoleFormatter(
+            use_colors=use_colors,
+            mask_secrets=mask_secrets,
+        )
+    )
     logger.addHandler(console_handler)
-    
+
     # File handler (JSONL, structured)
-    file_handler = logging.FileHandler(log_file, mode='a', encoding='utf-8')
-    file_handler.setFormatter(JsonFormatter(
-        session_id=session_id,
-        scenario_id=scenario_id,
-        mask_secrets=mask_secrets,
-    ))
+    file_handler = logging.FileHandler(log_file, mode="a", encoding="utf-8")
+    file_handler.setFormatter(
+        JsonFormatter(
+            session_id=session_id,
+            scenario_id=scenario_id,
+            mask_secrets=mask_secrets,
+        )
+    )
     logger.addHandler(file_handler)
-    
+
     # Log configuration
     logger.info("Logging configured: level=%s, file=%s", level, log_file)
     if not mask_secrets:
@@ -417,19 +425,19 @@ def configure_logging(
 def reconfigure_level(level: str, source: str = "cli_override") -> None:
     """
     Reconfigure log level at runtime with precedence awareness.
-    
+
     Args:
         level: New log level (ERROR, WARNING, INFO, DEBUG, TRACE)
         source: Source of change (cli_override by default, scenario for scenario-driven changes)
-    
+
     Note:
         Respects logging precedence. CLI overrides always win over scenario config.
     """
     global _logging_config
-    
+
     # Try to set level with precedence check
     changed = _logging_config.set_level(level, source)
-    
+
     if changed:
         # Update logger level
         logger = logging.getLogger("lora_attack_toolkit")
@@ -437,14 +445,18 @@ def reconfigure_level(level: str, source: str = "cli_override") -> None:
         logger.info("Log level changed to: %s (source: %s)", _logging_config.level, source)
     else:
         logger = logging.getLogger("lora_attack_toolkit")
-        logger.debug("Log level change to %s blocked by precedence (current source: %s)", level, _logging_config.level_source)
+        logger.debug(
+            "Log level change to %s blocked by precedence (current source: %s)",
+            level,
+            _logging_config.level_source,
+        )
 
 
 def set_scenario_context(scenario_id: str | None) -> None:
     """Update scenario context for logging."""
     global _logging_config
     _logging_config.scenario_id = scenario_id
-    
+
     # Update formatters
     logger = logging.getLogger("lora_attack_toolkit")
     for handler in logger.handlers:

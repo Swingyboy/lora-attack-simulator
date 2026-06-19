@@ -67,7 +67,7 @@ class TestEu868Rx1DataRate:
 class TestClassAReceiverRx1Success:
     def test_returns_rx1_when_frame_in_rx1(self) -> None:
         radio = _make_radio(rx1_delay=0.0)
-        frame = b"\xAA\xBB\xCC"
+        frame = b"\xaa\xbb\xcc"
         gw = _make_gateway(rx1_frame=frame)
         clock = FakeClock(start_mono=0.0)
         receiver = ClassAReceiver(radio, gw, clock=clock, rx_window_sec=0.1)
@@ -100,7 +100,7 @@ class TestClassAReceiverRx1Success:
 class TestClassAReceiverRx2Fallback:
     def test_returns_rx2_when_rx1_empty(self) -> None:
         radio = _make_radio(rx1_delay=0.0)
-        frame = b"\xDD\xEE"
+        frame = b"\xdd\xee"
         gw = _make_gateway(rx1_frame=None, rx2_frame=frame)
         clock = FakeClock(start_mono=0.0)
         receiver = ClassAReceiver(radio, gw, clock=clock, rx_window_sec=0.0)
@@ -160,10 +160,12 @@ class TestClassAReceiverCancellation:
 
         def cancel_soon() -> None:
             import time
+
             time.sleep(0.02)
             cancel.set()
 
         import threading as _t
+
         _t.Thread(target=cancel_soon, daemon=True).start()
 
         result = receiver.await_downlink(

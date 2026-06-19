@@ -233,8 +233,13 @@ class TestDeviceRadioIntegration(unittest.TestCase):
             p.cflist = cflist_bytes
             return p
 
-        with patch("lora_attack_toolkit.runtime.device.decode_join_accept") as mock_dec, \
-             patch("lora_attack_toolkit.runtime.device.derive_session_keys", return_value=(b"\x00" * 16, b"\x00" * 16)):
+        with (
+            patch("lora_attack_toolkit.runtime.device.decode_join_accept") as mock_dec,
+            patch(
+                "lora_attack_toolkit.runtime.device.derive_session_keys",
+                return_value=(b"\x00" * 16, b"\x00" * 16),
+            ),
+        ):
             # Simulate 5 JoinAccepts with different CFLists
             for seed in range(5):
                 freq = 867_100_000 + seed * 200_000

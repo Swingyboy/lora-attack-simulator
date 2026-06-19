@@ -185,9 +185,7 @@ class TestJoinDevNonceAttack(unittest.TestCase):
             cache.store(_step(b"\x02\x00", accepted=True, ts=1.0))
 
         attack._execute_generation_phase = Mock(side_effect=fake_generation)
-        attack._execute_join_step = Mock(
-            return_value=_step(b"\x02\x00", accepted=False, ts=2.0)
-        )
+        attack._execute_join_step = Mock(return_value=_step(b"\x02\x00", accepted=False, ts=2.0))
 
         result = attack.run(self.ctx)
 
@@ -203,16 +201,21 @@ class TestJoinDevNonceAttack(unittest.TestCase):
             cache.store(_step(b"\x0a\x00", accepted=True, ts=1.0))
 
         attack._execute_generation_phase = Mock(side_effect=fake_generation)
-        attack._execute_join_step = Mock(
-            return_value=_step(b"\x09\x00", accepted=False, ts=2.0)
-        )
+        attack._execute_join_step = Mock(return_value=_step(b"\x09\x00", accepted=False, ts=2.0))
 
         result = attack.run(
-            replace(self.ctx, input=replace(self.ctx.input, typed_config=replace(self.config, final_check="lower_than_last")))
+            replace(
+                self.ctx,
+                input=replace(
+                    self.ctx.input, typed_config=replace(self.config, final_check="lower_than_last")
+                ),
+            )
         )
 
         self.assertTrue(result.success)
-        self.assertEqual(attack._execute_join_step.call_args_list[-1].kwargs["dev_nonce"], b"\x09\x00")
+        self.assertEqual(
+            attack._execute_join_step.call_args_list[-1].kwargs["dev_nonce"], b"\x09\x00"
+        )
 
     def test_run_replay_first_uses_first_devnonce(self) -> None:
         attack = JoinDevNonceAttack()
@@ -222,16 +225,21 @@ class TestJoinDevNonceAttack(unittest.TestCase):
             cache.store(_step(b"\x02\x00", accepted=True, ts=2.0))
 
         attack._execute_generation_phase = Mock(side_effect=fake_generation)
-        attack._execute_join_step = Mock(
-            return_value=_step(b"\x01\x00", accepted=False, ts=3.0)
-        )
+        attack._execute_join_step = Mock(return_value=_step(b"\x01\x00", accepted=False, ts=3.0))
 
         result = attack.run(
-            replace(self.ctx, input=replace(self.ctx.input, typed_config=replace(self.config, final_check="replay_first")))
+            replace(
+                self.ctx,
+                input=replace(
+                    self.ctx.input, typed_config=replace(self.config, final_check="replay_first")
+                ),
+            )
         )
 
         self.assertTrue(result.success)
-        self.assertEqual(attack._execute_join_step.call_args_list[-1].kwargs["dev_nonce"], b"\x01\x00")
+        self.assertEqual(
+            attack._execute_join_step.call_args_list[-1].kwargs["dev_nonce"], b"\x01\x00"
+        )
 
     # --- Memory-depth scenario tests ---
 
@@ -250,9 +258,7 @@ class TestJoinDevNonceAttack(unittest.TestCase):
             cache.store(_step(b"\x03\x00", accepted=True))
 
         attack._execute_generation_phase = Mock(side_effect=fake_generation)
-        attack._execute_join_step = Mock(
-            return_value=_step(b"\x01\x00", accepted=False)
-        )
+        attack._execute_join_step = Mock(return_value=_step(b"\x01\x00", accepted=False))
 
         ctx = replace(self.ctx, input=replace(self.ctx.input, typed_config=config))
         result = attack.run(ctx)
@@ -281,6 +287,7 @@ class TestJoinDevNonceAttack(unittest.TestCase):
         result = attack.run(ctx)
 
         from lora_attack_toolkit.attacks.result import SecurityVerdict
+
         self.assertEqual(result.security_verdict, SecurityVerdict.INCONCLUSIVE)
         self.assertIn("not executed", result.message)
         self.assertFalse(result.metrics["final_check_executed"])
@@ -293,13 +300,11 @@ class TestJoinDevNonceAttack(unittest.TestCase):
 
         def fake_generation(ctx, config, timing, cache):
             cache.store(_step(b"\x01\x00", accepted=False))  # first attempt fails
-            cache.store(_step(b"\x02\x00", accepted=True))   # first accepted
+            cache.store(_step(b"\x02\x00", accepted=True))  # first accepted
             cache.store(_step(b"\x03\x00", accepted=True))
 
         attack._execute_generation_phase = Mock(side_effect=fake_generation)
-        attack._execute_join_step = Mock(
-            return_value=_step(b"\x02\x00", accepted=False)
-        )
+        attack._execute_join_step = Mock(return_value=_step(b"\x02\x00", accepted=False))
 
         ctx = replace(self.ctx, input=replace(self.ctx.input, typed_config=config))
         attack.run(ctx)
@@ -322,6 +327,7 @@ class TestJoinDevNonceAttack(unittest.TestCase):
         result = attack.run(ctx)
 
         from lora_attack_toolkit.attacks.result import SecurityVerdict
+
         self.assertEqual(result.security_verdict, SecurityVerdict.INCONCLUSIVE)
         self.assertIn("not executed", result.message)
         self.assertFalse(result.metrics["final_check_executed"])
@@ -337,9 +343,7 @@ class TestJoinDevNonceAttack(unittest.TestCase):
             cache.store(_step(b"\x02\x00", accepted=True))
 
         attack._execute_generation_phase = Mock(side_effect=fake_generation)
-        attack._execute_join_step = Mock(
-            return_value=_step(b"\x02\x00", accepted=False)
-        )
+        attack._execute_join_step = Mock(return_value=_step(b"\x02\x00", accepted=False))
 
         ctx = replace(self.ctx, input=replace(self.ctx.input, typed_config=config))
         result = attack.run(ctx)
@@ -374,8 +378,13 @@ class TestJoinDevNonceAttack(unittest.TestCase):
         # First few calls return 0 (so sleep is skipped), then large value so
         # all RX windows are immediately considered expired.
         times = chain([0.0, 0.0, 0.0], repeat(100.0))
-        with patch("lora_attack_toolkit.attacks.builtin.join_devnonce.time.monotonic", side_effect=lambda: next(times)), \
-             patch("lora_attack_toolkit.attacks.builtin.join_devnonce.time.sleep"):
+        with (
+            patch(
+                "lora_attack_toolkit.attacks.builtin.join_devnonce.time.monotonic",
+                side_effect=lambda: next(times),
+            ),
+            patch("lora_attack_toolkit.attacks.builtin.join_devnonce.time.sleep"),
+        ):
             attack._execute_join_step(
                 ctx=ctx,
                 config=self.config,
@@ -406,8 +415,12 @@ class TestJoinDevNonceAttack(unittest.TestCase):
         # RX2 inner while: 2.0<3.0→enter, remaining=3.0-2.0=1.0, await→accept
         times = chain([0.0, 0.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 2.0], repeat(2.0))
 
-        with patch("lora_attack_toolkit.attacks.builtin.join_devnonce.time.monotonic", side_effect=lambda: next(times)), patch(
-            "lora_attack_toolkit.attacks.builtin.join_devnonce.time.sleep"
+        with (
+            patch(
+                "lora_attack_toolkit.attacks.builtin.join_devnonce.time.monotonic",
+                side_effect=lambda: next(times),
+            ),
+            patch("lora_attack_toolkit.attacks.builtin.join_devnonce.time.sleep"),
         ):
             accepted = attack._wait_for_join_accept(
                 ctx=ctx,
@@ -454,23 +467,31 @@ class TestDevNonceGeneration(unittest.TestCase):
     # --- Schema parsing ---
 
     def test_parse_numeric_start(self) -> None:
-        cfg = parse_join_devnonce_config({"valid_devnonce_start": 100, "final_check": "same_as_last"})
+        cfg = parse_join_devnonce_config(
+            {"valid_devnonce_start": 100, "final_check": "same_as_last"}
+        )
         self.assertEqual(cfg.valid_devnonce_start, 100)
 
     def test_parse_random_start(self) -> None:
-        cfg = parse_join_devnonce_config({"valid_devnonce_start": "random", "final_check": "same_as_last"})
+        cfg = parse_join_devnonce_config(
+            {"valid_devnonce_start": "random", "final_check": "same_as_last"}
+        )
         self.assertEqual(cfg.valid_devnonce_start, "random")
 
     def test_parse_invalid_string_start_raises(self) -> None:
         with self.assertRaises(ValueError):
-            parse_join_devnonce_config({"valid_devnonce_start": "auto", "final_check": "same_as_last"})
+            parse_join_devnonce_config(
+                {"valid_devnonce_start": "auto", "final_check": "same_as_last"}
+            )
 
     def test_parse_devnonce_seed(self) -> None:
         cfg = parse_join_devnonce_config({"devnonce_seed": 42, "final_check": "same_as_last"})
         self.assertEqual(cfg.devnonce_seed, 42)
 
     def test_parse_valid_devnonce_wrap(self) -> None:
-        cfg = parse_join_devnonce_config({"valid_devnonce_wrap": True, "final_check": "same_as_last"})
+        cfg = parse_join_devnonce_config(
+            {"valid_devnonce_wrap": True, "final_check": "same_as_last"}
+        )
         self.assertTrue(cfg.valid_devnonce_wrap)
 
     # --- Resolve start ---
@@ -505,16 +526,14 @@ class TestDevNonceGeneration(unittest.TestCase):
     def test_generate_devnonce_numeric_start(self) -> None:
         cfg = replace(self.base_config, valid_devnonce_step=1)
         values = [
-            int.from_bytes(self.attack._generate_devnonce(cfg, i, 10), "little")
-            for i in range(4)
+            int.from_bytes(self.attack._generate_devnonce(cfg, i, 10), "little") for i in range(4)
         ]
         self.assertEqual(values, [10, 11, 12, 13])
 
     def test_generate_devnonce_step(self) -> None:
         cfg = replace(self.base_config, valid_devnonce_step=5)
         values = [
-            int.from_bytes(self.attack._generate_devnonce(cfg, i, 0), "little")
-            for i in range(4)
+            int.from_bytes(self.attack._generate_devnonce(cfg, i, 0), "little") for i in range(4)
         ]
         self.assertEqual(values, [0, 5, 10, 15])
 
@@ -561,8 +580,12 @@ class TestDevNonceGeneration(unittest.TestCase):
         capture = PacketCapture(logger)
         radio = RadioMetadata(frequency=868100000, data_rate="SF7BW125", rssi=-60, snr=7.5)
         ctx = AttackContext(
-            services=AttackServices(device=device, gateway=gateway, logger=logger, capture=capture, metrics=None),
-            input=AttackInput(typed_config=config, expected_behavior=None, radio=radio, timeout_sec=30.0),
+            services=AttackServices(
+                device=device, gateway=gateway, logger=logger, capture=capture, metrics=None
+            ),
+            input=AttackInput(
+                typed_config=config, expected_behavior=None, radio=radio, timeout_sec=30.0
+            ),
         )
 
         result = attack.run(ctx)
@@ -584,6 +607,7 @@ class TestDevNonceGeneration(unittest.TestCase):
         )
 
         import random as _random
+
         expected_start = _random.Random(42).randint(0, 0xFFFF)
 
         def fake_generation(ctx, cfg, timing, cache):
@@ -605,15 +629,18 @@ class TestDevNonceGeneration(unittest.TestCase):
         capture = PacketCapture(logger)
         radio = RadioMetadata(frequency=868100000, data_rate="SF7BW125", rssi=-60, snr=7.5)
         ctx = AttackContext(
-            services=AttackServices(device=device, gateway=gateway, logger=logger, capture=capture, metrics=None),
-            input=AttackInput(typed_config=config, expected_behavior=None, radio=radio, timeout_sec=30.0),
+            services=AttackServices(
+                device=device, gateway=gateway, logger=logger, capture=capture, metrics=None
+            ),
+            input=AttackInput(
+                typed_config=config, expected_behavior=None, radio=radio, timeout_sec=30.0
+            ),
         )
 
         result = attack.run(ctx)
 
         self.assertEqual(result.metrics["resolved_devnonce_start"], expected_start)
         self.assertEqual(result.metrics["devnonce_seed"], 42)
-
 
 
 class TestLowerThanLastSelection(unittest.TestCase):
@@ -706,19 +733,21 @@ class TestLowerThanLastSelection(unittest.TestCase):
 
     def test_build_metrics_includes_final_devnonce_was_previously_used(self) -> None:
         attack = JoinDevNonceAttack()
-        config = parse_join_devnonce_config({
-            "valid_join_count": 2,
-            "valid_devnonce_start": 10,
-            "valid_devnonce_step": 2,
-            "final_check": "lower_than_last",
-            "timing": {
-                "join_accept_timeout_sec": 3.0,
-                "rx1_delay_sec": 1.0,
-                "rx1_window_sec": 1.0,
-                "rx2_delay_sec": 2.0,
-                "rx2_window_sec": 1.0,
-            },
-        })
+        config = parse_join_devnonce_config(
+            {
+                "valid_join_count": 2,
+                "valid_devnonce_start": 10,
+                "valid_devnonce_step": 2,
+                "final_check": "lower_than_last",
+                "timing": {
+                    "join_accept_timeout_sec": 3.0,
+                    "rx1_delay_sec": 1.0,
+                    "rx1_window_sec": 1.0,
+                    "rx2_delay_sec": 2.0,
+                    "rx2_window_sec": 1.0,
+                },
+            }
+        )
 
         def fake_generation(ctx, cfg, timing, cache):
             cache.store(_step(b"\x0a\x00", accepted=True))  # 10
@@ -735,8 +764,12 @@ class TestLowerThanLastSelection(unittest.TestCase):
         capture = PacketCapture(logger=logger)
         radio = RadioMetadata(frequency=868100000, data_rate="SF7BW125", rssi=-60, snr=7.5)
         ctx = AttackContext(
-            services=AttackServices(device=device, gateway=gateway, logger=logger, capture=capture, metrics=None),
-            input=AttackInput(typed_config=config, expected_behavior=None, radio=radio, timeout_sec=30.0),
+            services=AttackServices(
+                device=device, gateway=gateway, logger=logger, capture=capture, metrics=None
+            ),
+            input=AttackInput(
+                typed_config=config, expected_behavior=None, radio=radio, timeout_sec=30.0
+            ),
         )
 
         result = attack.run(ctx)

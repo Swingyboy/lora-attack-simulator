@@ -41,6 +41,7 @@ from lora_attack_toolkit.lorawan.mac_commands import (
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
 
+
 def _radio() -> RadioMetadata:
     return RadioMetadata(frequency=868_100_000, data_rate="SF7BW125", rssi=-80, snr=7.0)
 
@@ -76,8 +77,13 @@ def _make_ctx(cfg: UplinkReplayConfigV1) -> AttackContext:
 
     device.build_data_uplink.side_effect = _build_uplink
     device.parse_downlink.return_value = {
-        "mtype": 3, "dev_addr": "01020304", "fcnt": 0,
-        "f_port": None, "frm_payload": b"", "mac_commands": [], "valid_mic": True,
+        "mtype": 3,
+        "dev_addr": "01020304",
+        "fcnt": 0,
+        "f_port": None,
+        "frm_payload": b"",
+        "mac_commands": [],
+        "valid_mic": True,
     }
 
     gateway = MagicMock()
@@ -91,16 +97,19 @@ def _make_ctx(cfg: UplinkReplayConfigV1) -> AttackContext:
 
 # ─── 1. parse_replay_config returns UplinkReplayConfigV1 for new format ───────
 
+
 class TestParseReplayConfig(unittest.TestCase):
     def test_new_format_returns_uplink_replay_config_v1(self) -> None:
-        cfg = parse_replay_config({
-            "uplink_interval_sec": 30,
-            "capture_fcnt": 5,
-            "replay_attempt_interval_sec": 5,
-            "replay_count": 3,
-            "verification_uplink_count": 5,
-            "device_time_gps_tolerance_sec": 2,
-        })
+        cfg = parse_replay_config(
+            {
+                "uplink_interval_sec": 30,
+                "capture_fcnt": 5,
+                "replay_attempt_interval_sec": 5,
+                "replay_count": 3,
+                "verification_uplink_count": 5,
+                "device_time_gps_tolerance_sec": 2,
+            }
+        )
         self.assertIsInstance(cfg, UplinkReplayConfigV1)
         self.assertEqual(cfg.uplink_interval_sec, 30.0)
         self.assertEqual(cfg.capture_fcnt, 5)
@@ -110,10 +119,12 @@ class TestParseReplayConfig(unittest.TestCase):
         self.assertEqual(cfg.device_time_gps_tolerance_sec, 2.0)
 
     def test_old_format_returns_replay_config_v1(self) -> None:
-        cfg = parse_replay_config({
-            "capture_phase": {"perform_join": True},
-            "replay_phase": {"mode": "immediate", "count": 2, "delay_sec": 1.0},
-        })
+        cfg = parse_replay_config(
+            {
+                "capture_phase": {"perform_join": True},
+                "replay_phase": {"mode": "immediate", "count": 2, "delay_sec": 1.0},
+            }
+        )
         self.assertIsInstance(cfg, ReplayConfigV1)
 
     def test_defaults_applied(self) -> None:
@@ -126,6 +137,7 @@ class TestParseReplayConfig(unittest.TestCase):
 
 # ─── 2. capture_fcnt captures expected FCnt ──────────────────────────────────
 
+
 class TestCaptureFcnt(unittest.TestCase):
     """Acceptance criterion 1: capture_fcnt selects the correct probe FCnt."""
 
@@ -134,7 +146,9 @@ class TestCaptureFcnt(unittest.TestCase):
         cfg = _cfg(capture_fcnt=0, verification_uplink_count=0, replay_count=1)
         ctx = _make_ctx(cfg)
 
-        with patch("lora_attack_toolkit.attacks.builtin.replay.perform_otaa_join", return_value=True):
+        with patch(
+            "lora_attack_toolkit.attacks.builtin.replay.perform_otaa_join", return_value=True
+        ):
             with patch.object(ctx.gateway, "start"), patch.object(ctx.gateway, "stop"):
                 attack = UplinkReplayAttack()
                 result = attack.run(ctx)
@@ -146,7 +160,9 @@ class TestCaptureFcnt(unittest.TestCase):
         cfg = _cfg(capture_fcnt=2, verification_uplink_count=0, replay_count=1)
         ctx = _make_ctx(cfg)
 
-        with patch("lora_attack_toolkit.attacks.builtin.replay.perform_otaa_join", return_value=True):
+        with patch(
+            "lora_attack_toolkit.attacks.builtin.replay.perform_otaa_join", return_value=True
+        ):
             with patch.object(ctx.gateway, "start"), patch.object(ctx.gateway, "stop"):
                 attack = UplinkReplayAttack()
                 result = attack.run(ctx)
@@ -155,6 +171,7 @@ class TestCaptureFcnt(unittest.TestCase):
 
 
 # ─── 3. Replay packet is byte-identical to captured PHYPayload ────────────────
+
 
 class TestReplayByteIdentical(unittest.TestCase):
     """Acceptance criterion 2: replay packet == captured PHYPayload."""
@@ -166,7 +183,9 @@ class TestReplayByteIdentical(unittest.TestCase):
         forwarded: list[bytes] = []
         ctx.gateway.forward_uplink.side_effect = lambda frame, radio: forwarded.append(frame)
 
-        with patch("lora_attack_toolkit.attacks.builtin.replay.perform_otaa_join", return_value=True):
+        with patch(
+            "lora_attack_toolkit.attacks.builtin.replay.perform_otaa_join", return_value=True
+        ):
             with patch.object(ctx.gateway, "start"), patch.object(ctx.gateway, "stop"):
                 UplinkReplayAttack().run(ctx)
 
@@ -178,12 +197,13 @@ class TestReplayByteIdentical(unittest.TestCase):
 
 # ─── 4. Normal uplink loop not blocked by replay loop ─────────────────────────
 
+
 class TestConcurrency(unittest.TestCase):
     """Acceptance criterion 3: normal uplinks and replay run independently."""
 
     def test_both_loops_run_concurrently(self) -> None:
         """Both threads must execute — neither serialises the other."""
-        forwarded: list[tuple[str, float]] = []   # (tag, monotonic_time)
+        forwarded: list[tuple[str, float]] = []  # (tag, monotonic_time)
         lock = threading.Lock()
         _fcnt = [0]
 
@@ -204,6 +224,7 @@ class TestConcurrency(unittest.TestCase):
 
         # Patch time.sleep in the attack module so the post-loop drain is instant
         import lora_attack_toolkit.attacks.builtin.replay as replay_mod
+
         original_sleep = replay_mod.time.sleep
         sleep_calls: list[float] = []
 
@@ -214,7 +235,9 @@ class TestConcurrency(unittest.TestCase):
                 original_sleep(secs)
 
         with patch.object(replay_mod.time, "sleep", side_effect=_fast_sleep):
-            with patch("lora_attack_toolkit.attacks.builtin.replay.perform_otaa_join", return_value=True):
+            with patch(
+                "lora_attack_toolkit.attacks.builtin.replay.perform_otaa_join", return_value=True
+            ):
                 with patch.object(ctx.gateway, "start"), patch.object(ctx.gateway, "stop"):
                     UplinkReplayAttack().run(ctx)
 
@@ -227,6 +250,7 @@ class TestConcurrency(unittest.TestCase):
 
 
 # ─── 5. Replay attempts respect replay_attempt_interval_sec ──────────────────
+
 
 class TestReplayInterval(unittest.TestCase):
     """Acceptance criterion 4: replay_attempt_interval_sec is honoured."""
@@ -248,7 +272,9 @@ class TestReplayInterval(unittest.TestCase):
         ctx = _make_ctx(cfg)
         ctx.gateway.forward_uplink.side_effect = _record
 
-        with patch("lora_attack_toolkit.attacks.builtin.replay.perform_otaa_join", return_value=True):
+        with patch(
+            "lora_attack_toolkit.attacks.builtin.replay.perform_otaa_join", return_value=True
+        ):
             with patch.object(ctx.gateway, "start"), patch.object(ctx.gateway, "stop"):
                 UplinkReplayAttack().run(ctx)
 
@@ -261,12 +287,14 @@ class TestReplayInterval(unittest.TestCase):
         for i in range(1, len(timestamps)):
             gap = timestamps[i] - timestamps[i - 1]
             self.assertGreaterEqual(
-                gap, interval * 0.8,
-                f"Gap between forward {i-1} and {i} too small: {gap:.3f}s",
+                gap,
+                interval * 0.8,
+                f"Gap between forward {i - 1} and {i} too small: {gap:.3f}s",
             )
 
 
 # ─── 6. Valid uplinks respect uplink_interval_sec ────────────────────────────
+
 
 class TestUplinkInterval(unittest.TestCase):
     """Acceptance criterion 5: uplink_interval_sec is honoured between verification uplinks."""
@@ -299,19 +327,22 @@ class TestUplinkInterval(unittest.TestCase):
 
         ctx.device.build_data_uplink.side_effect = _track
 
-        with patch("lora_attack_toolkit.attacks.builtin.replay.perform_otaa_join", return_value=True):
+        with patch(
+            "lora_attack_toolkit.attacks.builtin.replay.perform_otaa_join", return_value=True
+        ):
             with patch.object(ctx.gateway, "start"), patch.object(ctx.gateway, "stop"):
                 UplinkReplayAttack().run(ctx)
 
         # sent[0] = probe; sent[1..] = verification uplinks
         verify_ts = [t for t, _ in sent[1:]]
         if len(verify_ts) >= 2:
-            gaps = [verify_ts[i+1] - verify_ts[i] for i in range(len(verify_ts) - 1)]
+            gaps = [verify_ts[i + 1] - verify_ts[i] for i in range(len(verify_ts) - 1)]
             for gap in gaps:
                 self.assertGreaterEqual(gap, interval * 0.8, "Uplink interval not respected")
 
 
 # ─── 7. DeviceTimeAns decoded from downlink MAC commands ─────────────────────
+
 
 class TestDeviceTimeAnsDecoding(unittest.TestCase):
     """Acceptance criterion 6: DeviceTimeAns is decoded from downlink MAC commands."""
@@ -357,6 +388,7 @@ class TestDeviceTimeAnsDecoding(unittest.TestCase):
     def test_parse_mac_command_handles_device_time_ans(self) -> None:
         """parse_mac_command recognises CID 0x0D with 5-byte payload."""
         from lora_attack_toolkit.lorawan.mac_commands import parse_mac_command
+
         gps_sec = 100
         data = bytes([0x0D]) + gps_sec.to_bytes(4, "little") + bytes([50])
         cmd, consumed = parse_mac_command(data)
@@ -367,6 +399,7 @@ class TestDeviceTimeAnsDecoding(unittest.TestCase):
     def test_device_parse_downlink_extracts_device_time_ans(self) -> None:
         """SimulatedDevice._parse_mac_commands handles CID 0x0D."""
         from lora_attack_toolkit.runtime.device import SimulatedDevice
+
         dev = SimulatedDevice(
             dev_eui="0102030405060708",
             join_eui="0807060504030201",
@@ -391,7 +424,7 @@ class TestDeviceTimeAnsDecoding(unittest.TestCase):
         from lora_attack_toolkit.lorawan.crypto import data_mic as _data_mic
 
         nwk_s_key = b"\x10" * 16
-        dev_addr_le = b"\xAA\xBB\xCC\xDD"
+        dev_addr_le = b"\xaa\xbb\xcc\xdd"
         fcnt_down = 7
         gps_sec = 1_700_000_000
         fractional = 128
@@ -438,6 +471,7 @@ class TestDeviceTimeAnsDecoding(unittest.TestCase):
 
 # ─── 8. GPS-time correlation detects replay match ────────────────────────────
 
+
 class TestGpsTimeCorrelation(unittest.TestCase):
     """Acceptance criterion 7: GPS-time correlation correctly flags replay match."""
 
@@ -482,7 +516,7 @@ class TestGpsTimeCorrelation(unittest.TestCase):
         ctx = _make_ctx(cfg)
 
         captured = CapturedUplinkRecord(
-            monotonic_time=now, gps_time=gps_now, fcnt=0, phy_payload=b"\xAA"
+            monotonic_time=now, gps_time=gps_now, fcnt=0, phy_payload=b"\xaa"
         )
         replay_txs = [ReplayTxRecord(monotonic_time=now + 5, gps_time=gps_now + 5, replay_index=0)]
         gps_sec = int(gps_now + 5)
@@ -490,19 +524,24 @@ class TestGpsTimeCorrelation(unittest.TestCase):
         dl = DownlinkRxRecord(
             monotonic_time=now + 6,
             raw_payload=b"\x00" * 12,
-            decoded_mac_commands=[MACCommand(cid=CID_DEVICE_TIME_ANS, payload=b"\x00"*5)],
+            decoded_mac_commands=[MACCommand(cid=CID_DEVICE_TIME_ANS, payload=b"\x00" * 5)],
             device_time_ans=dt_ans,
         )
 
         attack = UplinkReplayAttack()
         result = attack._analyze_enhanced(
-            cfg=cfg, ctx=ctx,
-            captured=captured, valid_tx=[], replay_tx=replay_txs, downlink_rx=[dl],
+            cfg=cfg,
+            ctx=ctx,
+            captured=captured,
+            valid_tx=[],
+            replay_tx=replay_txs,
+            downlink_rx=[dl],
         )
         self.assertGreater(result.metrics["gps_time_replay_matches"], 0)
 
 
 # ─── 9. RX-window timing correlation detects replay match ────────────────────
+
 
 class TestRxWindowTimingCorrelation(unittest.TestCase):
     """Acceptance criterion 8: RX-window timing correlation."""
@@ -528,10 +567,12 @@ class TestRxWindowTimingCorrelation(unittest.TestCase):
         ctx = _make_ctx(cfg)
 
         captured = CapturedUplinkRecord(
-            monotonic_time=now, gps_time=time.time(), fcnt=0, phy_payload=b"\xAA"
+            monotonic_time=now, gps_time=time.time(), fcnt=0, phy_payload=b"\xaa"
         )
         # Replay TX at now+10; downlink arrives within RX1 of that
-        replay_txs = [ReplayTxRecord(monotonic_time=now + 10, gps_time=time.time() + 10, replay_index=0)]
+        replay_txs = [
+            ReplayTxRecord(monotonic_time=now + 10, gps_time=time.time() + 10, replay_index=0)
+        ]
         dl = DownlinkRxRecord(
             monotonic_time=now + 11.0,  # ~1 s after replay TX → RX1 window
             raw_payload=b"\x00" * 12,
@@ -541,13 +582,18 @@ class TestRxWindowTimingCorrelation(unittest.TestCase):
 
         attack = UplinkReplayAttack()
         result = attack._analyze_enhanced(
-            cfg=cfg, ctx=ctx,
-            captured=captured, valid_tx=[], replay_tx=replay_txs, downlink_rx=[dl],
+            cfg=cfg,
+            ctx=ctx,
+            captured=captured,
+            valid_tx=[],
+            replay_tx=replay_txs,
+            downlink_rx=[dl],
         )
         self.assertGreater(result.metrics["rx_timing_replay_matches"], 0)
 
 
 # ─── 10. Undecodable downlink → inconclusive, not protected ──────────────────
+
 
 class TestInconclusiveVerdict(unittest.TestCase):
     """Acceptance criterion 9: undecodable downlink → inconclusive."""
@@ -595,7 +641,9 @@ class TestInconclusiveVerdict(unittest.TestCase):
         ctx = _make_ctx(cfg)
         ctx.gateway.await_downlink.return_value = None
 
-        with patch("lora_attack_toolkit.attacks.builtin.replay.perform_otaa_join", return_value=True):
+        with patch(
+            "lora_attack_toolkit.attacks.builtin.replay.perform_otaa_join", return_value=True
+        ):
             with patch.object(ctx.gateway, "start"), patch.object(ctx.gateway, "stop"):
                 result = UplinkReplayAttack().run(ctx)
 
@@ -604,48 +652,69 @@ class TestInconclusiveVerdict(unittest.TestCase):
 
 # ─── 11. Verdict rules ────────────────────────────────────────────────────────
 
+
 class TestVerdictRules(unittest.TestCase):
     """Acceptance criterion 10: verdict follows defined rules."""
 
     def test_protected(self) -> None:
         verdict = _determine_verdict(
-            strong_matches=0, weak_matches=0, device_time_answers=1,
-            expected_normal_answers=1, probe_received_device_time_ans=True,
-            downlinks_decodable=True, gps_available=True,
+            strong_matches=0,
+            weak_matches=0,
+            device_time_answers=1,
+            expected_normal_answers=1,
+            probe_received_device_time_ans=True,
+            downlinks_decodable=True,
+            gps_available=True,
         )
         self.assertEqual(verdict, ReplayVerdict.PROTECTED)
 
     def test_possible_vulnerability(self) -> None:
         verdict = _determine_verdict(
-            strong_matches=0, weak_matches=2, device_time_answers=1,
-            expected_normal_answers=1, probe_received_device_time_ans=True,
-            downlinks_decodable=True, gps_available=True,
+            strong_matches=0,
+            weak_matches=2,
+            device_time_answers=1,
+            expected_normal_answers=1,
+            probe_received_device_time_ans=True,
+            downlinks_decodable=True,
+            gps_available=True,
         )
         self.assertEqual(verdict, ReplayVerdict.POSSIBLE_VULNERABILITY)
 
     def test_vulnerable_via_strong_match(self) -> None:
         verdict = _determine_verdict(
-            strong_matches=1, weak_matches=0, device_time_answers=1,
-            expected_normal_answers=1, probe_received_device_time_ans=True,
-            downlinks_decodable=True, gps_available=True,
+            strong_matches=1,
+            weak_matches=0,
+            device_time_answers=1,
+            expected_normal_answers=1,
+            probe_received_device_time_ans=True,
+            downlinks_decodable=True,
+            gps_available=True,
         )
         self.assertEqual(verdict, ReplayVerdict.VULNERABLE)
 
     def test_vulnerable_via_excess_dt_ans(self) -> None:
         """device_time_answers > expected → Vulnerable."""
         verdict = _determine_verdict(
-            strong_matches=0, weak_matches=0, device_time_answers=5,
-            expected_normal_answers=1, probe_received_device_time_ans=True,
-            downlinks_decodable=True, gps_available=True,
+            strong_matches=0,
+            weak_matches=0,
+            device_time_answers=5,
+            expected_normal_answers=1,
+            probe_received_device_time_ans=True,
+            downlinks_decodable=True,
+            gps_available=True,
         )
         self.assertEqual(verdict, ReplayVerdict.VULNERABLE)
 
     def test_strong_overrides_weak(self) -> None:
         """Even with weak_matches present, one strong_match → Vulnerable."""
         verdict = _determine_verdict(
-            strong_matches=2, weak_matches=3, device_time_answers=1,
-            expected_normal_answers=1, probe_received_device_time_ans=True,
-            downlinks_decodable=True, gps_available=True,
+            strong_matches=2,
+            weak_matches=3,
+            device_time_answers=1,
+            expected_normal_answers=1,
+            probe_received_device_time_ans=True,
+            downlinks_decodable=True,
+            gps_available=True,
         )
         self.assertEqual(verdict, ReplayVerdict.VULNERABLE)
 
@@ -654,20 +723,29 @@ class TestVerdictRules(unittest.TestCase):
         cfg = _cfg(capture_fcnt=0, replay_count=1, verification_uplink_count=1)
         ctx = _make_ctx(cfg)
 
-        with patch("lora_attack_toolkit.attacks.builtin.replay.perform_otaa_join", return_value=True):
+        with patch(
+            "lora_attack_toolkit.attacks.builtin.replay.perform_otaa_join", return_value=True
+        ):
             with patch.object(ctx.gateway, "start"), patch.object(ctx.gateway, "stop"):
                 result = UplinkReplayAttack().run(ctx)
 
         required = {
-            "captured_fcnt", "replay_count",
-            "verification_uplink_count", "total_downlinks", "device_time_answers",
-            "rx_timing_replay_matches", "gps_time_replay_matches",
-            "strong_replay_matches", "weak_replay_matches", "verdict",
+            "captured_fcnt",
+            "replay_count",
+            "verification_uplink_count",
+            "total_downlinks",
+            "device_time_answers",
+            "rx_timing_replay_matches",
+            "gps_time_replay_matches",
+            "strong_replay_matches",
+            "weak_replay_matches",
+            "verdict",
         }
         self.assertTrue(required.issubset(result.metrics.keys()))
 
 
 # ─── 12. Legacy analyzer backward compat ────────────────────────────────────
+
 
 class TestLegacyReplayAnalyzer(unittest.TestCase):
     """Existing legacy tests preserved."""
@@ -722,11 +800,13 @@ class TestPacketCapture(unittest.TestCase):
 
 # ─── 13. FOpts / DeviceTimeReq in probe uplink ───────────────────────────────
 
+
 class TestProbeUplinkContainsDeviceTimeReq(unittest.TestCase):
     """Verify probe frame is built with DeviceTimeReq in FOpts."""
 
     def test_device_time_req_bytes_in_probe_frame(self) -> None:
         from lora_attack_toolkit.lorawan.mac_commands import CID_DEVICE_TIME_REQ
+
         dt_req = encode_mac_commands([build_device_time_req()])
         # DeviceTimeReq is CID 0x0D with no payload → 1 byte
         self.assertEqual(dt_req, bytes([CID_DEVICE_TIME_REQ]))
@@ -734,6 +814,7 @@ class TestProbeUplinkContainsDeviceTimeReq(unittest.TestCase):
     def test_probe_frame_differs_from_plain_frame(self) -> None:
         """build_data_uplink with f_opts differs from one without."""
         from lora_attack_toolkit.runtime.device import SimulatedDevice
+
         dev = SimulatedDevice(
             dev_eui="0102030405060708",
             join_eui="0807060504030201",
@@ -746,11 +827,11 @@ class TestProbeUplinkContainsDeviceTimeReq(unittest.TestCase):
         dev.runtime.app_s_key = b"\x00" * 16
         dev.runtime.fcnt_up = 0
 
-        plain = dev.build_data_uplink(payload=b"\xAB", f_port=10, confirmed=False)
+        plain = dev.build_data_uplink(payload=b"\xab", f_port=10, confirmed=False)
         dev.runtime.fcnt_up = 0  # reset FCnt for comparable frame
 
         f_opts = encode_mac_commands([build_device_time_req()])
-        probe = dev.build_data_uplink(payload=b"\xAB", f_port=10, confirmed=False, f_opts=f_opts)
+        probe = dev.build_data_uplink(payload=b"\xab", f_port=10, confirmed=False, f_opts=f_opts)
         dev.runtime.fcnt_up = 0
 
         self.assertNotEqual(plain, probe)
@@ -764,11 +845,13 @@ class TestProbeUplinkContainsDeviceTimeReq(unittest.TestCase):
 
 # ─── 14. Channel rotation via _select_radio_for_uplink ───────────────────────
 
+
 class TestChannelRotation(unittest.TestCase):
     """Verify _select_radio_for_uplink / device.select_uplink_radio channel behaviour."""
 
     def _real_device(self) -> "SimulatedDevice":
         from lora_attack_toolkit.runtime.device import SimulatedDevice
+
         return SimulatedDevice(
             dev_eui="0102030405060708",
             join_eui="0807060504030201",
@@ -778,6 +861,7 @@ class TestChannelRotation(unittest.TestCase):
     def test_falls_back_to_ctx_radio_when_no_radio_object(self) -> None:
         """When device has no Radio, select_uplink_radio returns the fallback unchanged."""
         from lora_attack_toolkit.attacks.builtin.replay import _select_radio_for_uplink
+
         cfg = _cfg()
         ctx = _make_ctx(cfg)
         # Replace the MagicMock device with a real one (no Radio configured)
@@ -791,6 +875,7 @@ class TestChannelRotation(unittest.TestCase):
     def test_uses_radio_select_uplink_channel_when_real_radio(self) -> None:
         """When device has a real Radio, select_uplink_radio uses it for channel selection."""
         from lora_attack_toolkit.lorawan.radio import Radio, EU868RegionProfile
+
         radio_fallback = _radio()
 
         dev = self._real_device()
@@ -807,6 +892,7 @@ class TestChannelRotation(unittest.TestCase):
     def test_channel_rotates_across_calls(self) -> None:
         """Consecutive uplink_index values produce round-robin channels."""
         from lora_attack_toolkit.lorawan.radio import Radio, EU868RegionProfile
+
         radio_fallback = _radio()
 
         dev = self._real_device()
@@ -819,6 +905,7 @@ class TestChannelRotation(unittest.TestCase):
     def test_replay_select_radio_delegates_to_device(self) -> None:
         """_select_radio_for_uplink in replay.py must call device.select_uplink_radio."""
         from lora_attack_toolkit.attacks.builtin.replay import _select_radio_for_uplink
+
         cfg = _cfg()
         ctx = _make_ctx(cfg)
         radio = _radio()
@@ -831,6 +918,7 @@ class TestChannelRotation(unittest.TestCase):
 
 # ─── 15. MAC command acknowledgment ──────────────────────────────────────────
 
+
 class TestMACCommandAcknowledgment(unittest.TestCase):
     """Verify that MAC commands received in downlinks are acknowledged in uplink FOpts."""
 
@@ -841,11 +929,16 @@ class TestMACCommandAcknowledgment(unittest.TestCase):
             MACCommand,
             CID_LINK_ADR_ANS,
         )
+
         # Return a mock LinkADRReq command in parse_downlink
         link_adr_req = MACCommand(cid=0x03, payload=bytes([0x50, 0xFF, 0xFF, 0x07]))
         ctx.device.parse_downlink.return_value = {
-            "mtype": 3, "dev_addr": "01020304", "fcnt": 1,
-            "f_port": None, "frm_payload": b"", "valid_mic": True,
+            "mtype": 3,
+            "dev_addr": "01020304",
+            "fcnt": 1,
+            "f_port": None,
+            "frm_payload": b"",
+            "valid_mic": True,
             "mac_commands": [link_adr_req],
         }
         ctx.gateway.await_downlink.return_value = b"\x60" + b"\x00" * 12
@@ -855,12 +948,19 @@ class TestMACCommandAcknowledgment(unittest.TestCase):
 
     def test_mac_responses_are_queued_and_included_in_uplink(self) -> None:
         """After _downlink_loop calls apply_mac_commands, responses appear in next uplink FOpts."""
-        from lora_attack_toolkit.lorawan.mac_commands import MACCommand, CID_LINK_ADR_ANS, encode_mac_commands
+        from lora_attack_toolkit.lorawan.mac_commands import (
+            MACCommand,
+            CID_LINK_ADR_ANS,
+            encode_mac_commands,
+        )
+
         link_adr_ans = MACCommand(cid=CID_LINK_ADR_ANS, payload=bytes([0x07]))
         cfg = _cfg(capture_fcnt=0, replay_count=1, verification_uplink_count=2)
         ctx = self._make_ctx_with_mac_cmds(cfg, [link_adr_ans])
 
-        with patch("lora_attack_toolkit.attacks.builtin.replay.perform_otaa_join", return_value=True):
+        with patch(
+            "lora_attack_toolkit.attacks.builtin.replay.perform_otaa_join", return_value=True
+        ):
             with patch.object(ctx.gateway, "start"), patch.object(ctx.gateway, "stop"):
                 UplinkReplayAttack().run(ctx)
 
@@ -868,23 +968,26 @@ class TestMACCommandAcknowledgment(unittest.TestCase):
         # (Use kwargs only — build_data_uplink is always called with keyword args.)
         calls = ctx.device.build_data_uplink.call_args_list
         expected_ans_bytes = encode_mac_commands([link_adr_ans])
-        any_with_ans = any(
-            expected_ans_bytes in c.kwargs.get("f_opts", b"")
-            for c in calls
+        any_with_ans = any(expected_ans_bytes in c.kwargs.get("f_opts", b"") for c in calls)
+        self.assertTrue(
+            any_with_ans,
+            (
+                f"No uplink carried LinkADRAns in FOpts.\n"
+                f"FOpts found: {[c.kwargs.get('f_opts', b'') for c in calls]}"
+            ),
         )
-        self.assertTrue(any_with_ans, (
-            f"No uplink carried LinkADRAns in FOpts.\n"
-            f"FOpts found: {[c.kwargs.get('f_opts', b'') for c in calls]}"
-        ))
 
     def test_mac_responses_are_queued_and_logged(self) -> None:
         """apply_mac_commands is called when downlink carries MAC commands."""
         from lora_attack_toolkit.lorawan.mac_commands import MACCommand, CID_LINK_ADR_ANS
+
         link_adr_ans = MACCommand(cid=CID_LINK_ADR_ANS, payload=bytes([0x07]))
         cfg = _cfg(capture_fcnt=0, replay_count=1, verification_uplink_count=1)
         ctx = self._make_ctx_with_mac_cmds(cfg, [link_adr_ans])
 
-        with patch("lora_attack_toolkit.attacks.builtin.replay.perform_otaa_join", return_value=True):
+        with patch(
+            "lora_attack_toolkit.attacks.builtin.replay.perform_otaa_join", return_value=True
+        ):
             with patch.object(ctx.gateway, "start"), patch.object(ctx.gateway, "stop"):
                 UplinkReplayAttack().run(ctx)
 

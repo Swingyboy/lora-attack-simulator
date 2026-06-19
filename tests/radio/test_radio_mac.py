@@ -103,7 +103,7 @@ class TestRadioLinkADRReq(unittest.TestCase):
 
     def test_short_payload_returns_reject(self) -> None:
         radio = _make_radio()
-        status = radio.apply_link_adr_req(b"\x50\xFF")
+        status = radio.apply_link_adr_req(b"\x50\xff")
         self.assertEqual(status, 0x00)
 
     def test_subsequent_uplinks_use_updated_data_rate(self) -> None:
@@ -221,7 +221,7 @@ class TestRadioNewChannelReq(unittest.TestCase):
 
     def test_short_payload_rejected(self) -> None:
         radio = _make_radio()
-        status = radio.apply_new_channel_req(b"\x03\xFF\xFF")
+        status = radio.apply_new_channel_req(b"\x03\xff\xff")
         self.assertEqual(status, 0x00)
 
 

@@ -23,8 +23,14 @@ jobs:
       - name: Install package and dev dependencies
         run: pip install -e ".[dev]"
 
-      - name: Ruff — lint
+      - name: Ruff — lint (blocking)
         run: ruff check src/lora_attack_toolkit/
+
+      - name: Ruff — format check (blocking)
+        run: ruff format --check src/lora_attack_toolkit/ tests/
+
+      - name: Ruff — line length (informational only)
+        run: ruff check --select E501 --exit-zero src/lora_attack_toolkit/
 
       - name: mypy — type-check
         run: mypy src/lora_attack_toolkit/ --ignore-missing-imports

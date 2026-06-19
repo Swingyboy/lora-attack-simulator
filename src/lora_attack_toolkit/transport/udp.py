@@ -78,6 +78,4 @@ class UdpTransport(TransportClient):
             ip: str = cast(str, addr_info[0][4][0])
             return (ip, self._port)
         except socket.gaierror as exc:
-            raise DnsResolutionError(
-                f"DNS resolution failed for '{self._host}': {exc}"
-            ) from exc
+            raise DnsResolutionError(f"DNS resolution failed for '{self._host}': {exc}") from exc
