@@ -8,18 +8,18 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
+from lora_attack_toolkit.attacks.analyzer import AttackAnalyzer
 from lora_attack_toolkit.attacks.base import BaseAttack
+from lora_attack_toolkit.attacks.lifecycle import gateway_lifecycle
+from lora_attack_toolkit.attacks.packet_capture import PacketCapture
 from lora_attack_toolkit.attacks.result import (
     AttackResult,
     Confidence,
     ExecutionStatus,
     SecurityVerdict,
 )
-from lora_attack_toolkit.attacks.analyzer import AttackAnalyzer
-from lora_attack_toolkit.attacks.packet_capture import PacketCapture
 from lora_attack_toolkit.attacks.validation import validate_criteria
-from lora_attack_toolkit.attacks.lifecycle import gateway_lifecycle
-from lora_attack_toolkit.lorawan.time_utils import interruptible_sleep
+from lora_attack_toolkit.config import AttackTiming, RadioMetadata, UplinkReplayConfigV1
 from lora_attack_toolkit.lorawan.join import perform_otaa_join
 from lora_attack_toolkit.lorawan.mac_commands import (
     CID_DEVICE_TIME_ANS,
@@ -28,12 +28,11 @@ from lora_attack_toolkit.lorawan.mac_commands import (
     decode_device_time_ans,
     encode_mac_commands,
 )
-from lora_attack_toolkit.lorawan.time_utils import unix_to_gps
-from lora_attack_toolkit.config import AttackTiming, RadioMetadata, UplinkReplayConfigV1
+from lora_attack_toolkit.lorawan.time_utils import interruptible_sleep, unix_to_gps
 
 if TYPE_CHECKING:
     from lora_attack_toolkit.attacks.context import AttackContext
-    from lora_attack_toolkit.config import ExpectedBehavior, ReplayConfigV1
+    from lora_attack_toolkit.config import ExpectedBehavior
 
 # ── Timing record types ───────────────────────────────────────────────────────
 
@@ -241,8 +240,8 @@ class UplinkReplayAttack(BaseAttack):
             if isinstance(ctx.config, UplinkReplayConfigV1):
                 return self._run_enhanced(ctx, ctx.config)
             return self._run_legacy(ctx)
-        except Exception as e:
-            ctx.logger.error(f"Attack failed: {e}", exc_info=True)
+        except Exception as e:  # noqa: BLE001
+            ctx.logger.exception("Attack failed: %s", e)
             return AttackResult.failed(
                 attack_name=self.name,
                 attack_type="uplink_replay",
@@ -338,7 +337,7 @@ class UplinkReplayAttack(BaseAttack):
                                 "pre_probe_mac_ans_queued count=%d fcnt=%d",
                                 len(responses), current_fcnt,
                             )
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001  # downlink parsing can raise many types
                     ctx.logger.warning("pre_probe_downlink_parse_error: %s", exc)
             remaining_sleep = max(0.0, cfg.uplink_interval_sec - _pre_probe_rx_timeout)
             if remaining_sleep > 0:
@@ -492,7 +491,7 @@ class UplinkReplayAttack(BaseAttack):
                                 "mac_cmd_ans_queued count=%d mono=%.3f",
                                 len(responses), mono,
                             )
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001  # downlink parsing can raise many types
                     ctx.logger.warning("downlink_parse_error: %s", exc)
                 with downlink_lock:
                     downlink_rx.append(DownlinkRxRecord(

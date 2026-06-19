@@ -75,7 +75,9 @@ class PacketCapture:
         self.uplinks.append(packet)
         
         self.logger.debug(
-            f"Captured uplink: type={packet_type}, fcnt={fcnt}",
+            "Captured uplink: type=%s, fcnt=%s",
+            packet_type,
+            fcnt,
             extra={
                 "packet_type": packet_type,
                 "fcnt": fcnt,
@@ -113,7 +115,9 @@ class PacketCapture:
         self.downlinks.append(packet)
         
         self.logger.debug(
-            f"Captured downlink: type={packet_type}, fcnt={fcnt}",
+            "Captured downlink: type=%s, fcnt=%s",
+            packet_type,
+            fcnt,
             extra={
                 "packet_type": packet_type,
                 "fcnt": fcnt,

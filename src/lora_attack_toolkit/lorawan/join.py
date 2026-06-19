@@ -6,12 +6,12 @@ import struct
 import time
 from logging import Logger
 
+from lora_attack_toolkit.config import RadioMetadata
 from lora_attack_toolkit.lorawan.frames import (
     MHDR_JOIN_ACCEPT,
     build_join_request,
 )
 from lora_attack_toolkit.lorawan.radio import AirtimeCalculator, Radio
-from lora_attack_toolkit.config import RadioMetadata
 from lora_attack_toolkit.runtime.device import SimulatedDevice
 from lora_attack_toolkit.runtime.gateway import GatewaySimulator
 
@@ -491,7 +491,7 @@ def capture_downlinks(
     Returns:
         List of captured PHYPayload bytes
     """
-    captured = []
+    captured: list[bytes] = []
     start_time = time.time()
     
     while len(captured) < max_count:

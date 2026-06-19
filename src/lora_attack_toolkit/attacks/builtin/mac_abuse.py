@@ -5,15 +5,15 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Any
 
+from lora_attack_toolkit.attacks.analyzer import AttackAnalyzer
 from lora_attack_toolkit.attacks.base import BaseAttack
+from lora_attack_toolkit.attacks.packet_capture import PacketCapture
 from lora_attack_toolkit.attacks.result import (
     AttackResult,
     Confidence,
     ExecutionStatus,
     SecurityVerdict,
 )
-from lora_attack_toolkit.attacks.analyzer import AttackAnalyzer
-from lora_attack_toolkit.attacks.packet_capture import PacketCapture
 from lora_attack_toolkit.attacks.validation import validate_criteria
 from lora_attack_toolkit.lorawan.join import perform_otaa_join
 from lora_attack_toolkit.lorawan.mac_commands import (
@@ -134,7 +134,7 @@ class MACCommandAbuse(BaseAttack):
         Returns:
             AttackResult with execution outcome
         """
-        ctx.logger.info(f"Starting {self.name} attack")
+        ctx.logger.info("Starting %s attack", self.name)
         
         try:
             # Get typed configuration
@@ -193,13 +193,14 @@ class MACCommandAbuse(BaseAttack):
                     ctx.gateway.forward_uplink(uplink, ctx.radio)
                     time.sleep(0.3)
                 except RuntimeError as e:
-                    ctx.logger.warning(f"Could not build baseline uplink: {e}")
+                    ctx.logger.warning("Could not build baseline uplink: %s", e)
             
             time.sleep(0.5)
             
             # Build and inject MAC command
             ctx.logger.info(
-                f"Injecting MAC command: type={config.command_type}, malformed={config.malformed}"
+                "Injecting MAC command: type=%s, malformed=%s",
+                config.command_type, config.malformed,
             )
             
             if config.malformed:
@@ -245,7 +246,7 @@ class MACCommandAbuse(BaseAttack):
                 
                 ctx.gateway.forward_uplink(uplink, ctx.radio)
             except RuntimeError as e:
-                ctx.logger.warning(f"Could not build follow-up uplink: {e}")
+                ctx.logger.warning("Could not build follow-up uplink: %s", e)
             
             time.sleep(1.0)
             
@@ -273,8 +274,8 @@ class MACCommandAbuse(BaseAttack):
                 criteria_met=analysis.get("criteria_met"),
             )
             
-        except Exception as e:
-            ctx.logger.error(f"Attack failed: {e}", exc_info=True)
+        except Exception as e:  # noqa: BLE001
+            ctx.logger.exception("Attack failed: %s", e)
             return AttackResult.failed(
                 attack_name=self.name,
                 attack_type="mac_command_injection",
@@ -330,7 +331,7 @@ class MACCommandAbuse(BaseAttack):
         
         return build_malformed_mac_command(
             cid=cid,
-            malformation_type=config.malformation_type,
+            malformation_type=config.malformation_type or "truncate",
             **params,
         )
     
@@ -356,6 +357,7 @@ class MACCommandAbuse(BaseAttack):
         
         if ctx is not None:
             ctx.logger.info(
-                f"ADR state updated: DR={data_rate}, TXPower={tx_power}, NbTrans={nb_trans}",
+                "ADR state updated: DR=%s, TXPower=%s, NbTrans=%s",
+                data_rate, tx_power, nb_trans,
                 extra=adr_state,
             )

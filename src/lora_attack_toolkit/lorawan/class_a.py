@@ -16,7 +16,7 @@ All timing uses monotonic time via the injected :class:`SimClock`.
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING
 

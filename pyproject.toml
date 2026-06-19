@@ -42,3 +42,9 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+  "unit: fast, deterministic unit tests — no network, no real clock",
+  "integration: tests that require a live Network Server or real transport",
+  "slow: tests with real-time sleeps > 1 s",
+]
+addopts = "-m 'not integration and not slow'"

@@ -3,12 +3,9 @@ from __future__ import annotations
 import base64
 import time
 from logging import Logger
+from typing import TYPE_CHECKING
 
-from lora_attack_toolkit.transport.transport import TransportClient
-from lora_attack_toolkit.transport.resilient import ResilientTransport
-from lora_attack_toolkit.transport.retry import RetryPolicy
-from lora_attack_toolkit.transport.udp import UdpTransport
-from lora_attack_toolkit.config import RadioMetadata, GatewayConfig
+from lora_attack_toolkit.config import GatewayConfig, RadioMetadata
 from lora_attack_toolkit.lorawan.semtech_udp import (
     PULL_ACK,
     PULL_RESP,
@@ -18,6 +15,10 @@ from lora_attack_toolkit.lorawan.semtech_udp import (
     encode_push_data,
     encode_tx_ack,
 )
+from lora_attack_toolkit.transport.resilient import ResilientTransport
+from lora_attack_toolkit.transport.retry import RetryPolicy
+from lora_attack_toolkit.transport.transport import TransportClient
+from lora_attack_toolkit.transport.udp import UdpTransport
 
 
 class GatewaySimulator:
@@ -91,7 +92,7 @@ class GatewaySimulator:
                 downlink_phy = base64.b64decode(txpk["data"])
                 self._transport.send(encode_tx_ack(semtech.token, self._gateway_eui))
                 self._logger.info("downlink_received")
-                self._logger.debug(f"Downlink {downlink_phy.hex()[:32]}...")
+                self._logger.debug("Downlink %s...", downlink_phy.hex()[:32])
                 return downlink_phy
         return None
     
@@ -127,18 +128,16 @@ class GatewaySimulator:
                     self._transport.send(encode_tx_ack(semtech.token, self._gateway_eui))
                     drained_count += 1
                     self._logger.debug(
-                        f"Drained downlink {drained_count}: {downlink_phy.hex()[:32]}..."
+                        "Drained downlink %d: %s...", drained_count, downlink_phy.hex()[:32]
                     )
         
         if drained_count > 0:
-            self._logger.info(f"Drained {drained_count} pending downlink(s)")
+            self._logger.info("Drained %s pending downlink(s)", drained_count)
         
         return drained_count
 
 
 # --- factory ---
-
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from lora_attack_toolkit.config import GatewayConfigV1, TargetConfig

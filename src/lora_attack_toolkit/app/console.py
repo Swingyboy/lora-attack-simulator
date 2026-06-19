@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import logging
 import signal
-import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -209,16 +208,18 @@ class LoRaWANConsole(cmd2.Cmd):
         if not self.session.is_scenario_loaded():
             print("No scenario loaded. Use 'use <scenario>' first.")
             return
-        
+        if self.session.scenario_name is None or self.session.scenario_data is None:
+            return
+
         metadata = self.scenario_metadata[self.session.scenario_name]
-        
+
         print(f"\nScenario: {self.session.scenario_name}")
         print(f"Title: {metadata.title}")
         print(f"Category: {metadata.category}")
         print("=" * 70)
         print(f"{'Parameter Path':<40} {'Current Value':<30}")
         print("-" * 70)
-        
+
         self._display_params(self.session.scenario_data)
         print("\nUse 'set <parameter> <value>' to modify parameters")
         print("Use 'show options verbose' for extended metadata")
@@ -227,6 +228,8 @@ class LoRaWANConsole(cmd2.Cmd):
         """Display current scenario options with full parameter metadata."""
         if not self.session.is_scenario_loaded():
             print("No scenario loaded. Use 'use <scenario>' first.")
+            return
+        if self.session.scenario_data is None:
             return
 
         from lora_attack_toolkit.app.params import all_paths, get_param
@@ -366,7 +369,7 @@ class LoRaWANConsole(cmd2.Cmd):
             print(f"  Category: {metadata.category}")
             print(f"  Description: {metadata.description}")
             print("\nUse 'show options' to view parameters")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"Error loading scenario: {e}")
 
     def complete_use(self, text: str, line: str, begidx: int, endidx: int) -> list[str]:
@@ -408,24 +411,24 @@ class LoRaWANConsole(cmd2.Cmd):
         print(f"Category:    {metadata.category}")
         print(f"Type:        {metadata.scenario_type}")
         print(f"Path:        {metadata.path}")
-        print(f"\nDescription:")
+        print("\nDescription:")
         print(f"  {metadata.description}")
         
         try:
             with open(metadata.path, 'r') as f:
                 scenario_data = json.load(f)
             
-            print(f"\nDefault Parameters:")
+            print("\nDefault Parameters:")
             print("-" * 70)
             print(f"{'Parameter Path':<40} {'Default Value':<30}")
             print("-" * 70)
             self._display_params(scenario_data)
             
-            print(f"\nTo use this scenario:")
+            print("\nTo use this scenario:")
             print(f"  use {scenario_name}")
-            print(f"  set <parameter> <value>")
-            print(f"  run")
-        except Exception as e:
+            print("  set <parameter> <value>")
+            print("  run")
+        except Exception as e:  # noqa: BLE001
             print(f"\nCould not load default parameters: {e}")
         
         print()
@@ -473,7 +476,9 @@ class LoRaWANConsole(cmd2.Cmd):
         if not self.session.is_scenario_loaded():
             print("No scenario loaded. Use 'use <scenario>' first.")
             return
-        
+        if self.session.scenario_data is None:
+            return
+
         try:
             self.session.set_parameter(param_path, value_str)
             self._set_nested_value(self.session.scenario_data, param_path, value_str)
@@ -604,33 +609,38 @@ class LoRaWANConsole(cmd2.Cmd):
         if not self.session.is_scenario_loaded():
             print("No scenario loaded. Use 'use <scenario>' first.")
             return
-        
+        scenario_path = self.session.scenario_path
+        if scenario_path is None:
+            return
+
         if not args:
             try:
-                with open(self.session.scenario_path, 'r') as f:
+                with open(scenario_path, 'r') as f:
                     scenario_data = json.load(f)
-                
+
                 self.session.load_scenario(
                     name=self.session.scenario_name or "",
-                    path=self.session.scenario_path,
+                    path=scenario_path,
                     data=scenario_data
                 )
                 print("✓ Reset all parameters to defaults")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 print(f"Error reloading scenario: {e}")
         else:
             param_path = args.strip()
+            if self.session.scenario_data is None:
+                return
             try:
-                with open(self.session.scenario_path, 'r') as f:
+                with open(scenario_path, 'r') as f:
                     original_scenario = json.load(f)
-                
+
                 original_value = self._get_nested_value(original_scenario, param_path)
                 self._set_nested_value_direct(self.session.scenario_data, param_path, original_value)
-                
+
                 print(f"✓ Reset {param_path} to default: {original_value}")
             except KeyError as e:
                 print(f"Error: Parameter not found: {e}")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 print(f"Error: {e}")
     
     def _get_nested_value(self, data: dict[str, Any], path: str) -> Any:
@@ -669,22 +679,25 @@ class LoRaWANConsole(cmd2.Cmd):
         if not self.session.is_scenario_loaded():
             print("No scenario loaded. Use 'use <scenario>' first.")
             return
-        
+        if self.session.scenario_data is None:
+            return
+
         print("Validating scenario configuration...")
-        
+
         try:
-            from lora_attack_toolkit.config import load_attack_scenario
             import tempfile
-            
+
+            from lora_attack_toolkit.config import load_attack_scenario
+
             with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
                 json.dump(self.session.scenario_data, f, indent=2)
                 temp_path = f.name
-            
+
             try:
                 load_attack_scenario(temp_path)
                 print("✓ Scenario configuration is valid")
-                
-                print(f"\nValidation Summary:")
+
+                print("\nValidation Summary:")
                 print(f"  Schema: {self.session.scenario_data.get('schema_version', 'unknown')}")
                 print(f"  Category: {self.session.scenario_data['scenario']['category']}")
                 print(f"  Attack Type: {self.session.scenario_data['attack']['type']}")
@@ -700,7 +713,7 @@ class LoRaWANConsole(cmd2.Cmd):
             print(f"✗ Validation failed: {e}")
         except KeyError as e:
             print(f"✗ Validation error: Missing required field {e}")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"✗ Validation error: {e}")
     
     # ── run ──────────────────────────────────────────────────────────────────
@@ -716,7 +729,9 @@ class LoRaWANConsole(cmd2.Cmd):
         if not self.session.is_scenario_loaded():
             print("No scenario loaded. Use 'use <scenario>' first.")
             return
-        
+        if self.session.scenario_data is None:
+            return
+
         print("Validating scenario...")
         import tempfile
         
@@ -728,7 +743,7 @@ class LoRaWANConsole(cmd2.Cmd):
             from lora_attack_toolkit.config import load_attack_scenario
             scenario = load_attack_scenario(tmp_path)
             
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"\n❌ Validation failed: {e}")
             return
         finally:
@@ -763,7 +778,7 @@ class LoRaWANConsole(cmd2.Cmd):
             from lora_attack_toolkit.runner import AttackRunner
             
             runner = AttackRunner(logger=logger)
-            print(f"\n🚀 Starting attack execution...\n")
+            print("\n🚀 Starting attack execution...\n")
             print("   Press Ctrl+C to interrupt.\n")
             
             signal.signal(signal.SIGINT, _sigint_handler)
@@ -779,7 +794,7 @@ class LoRaWANConsole(cmd2.Cmd):
             if not results.get("interrupted"):
                 print("\n✓ Attack execution complete")
             
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"\n❌ Attack execution failed: {e}")
             import traceback
             traceback.print_exc()
@@ -812,16 +827,16 @@ class LoRaWANConsole(cmd2.Cmd):
             return
 
         current = "(not loaded)"
-        if self.session.is_scenario_loaded():
+        if self.session.is_scenario_loaded() and self.session.scenario_data is not None:
             try:
                 current = str(self._get_nested_value(self.session.scenario_data, path))
             except (KeyError, TypeError):
                 current = "(not set)"
 
         try:
+            from rich import box
             from rich.console import Console
             from rich.panel import Panel
-            from rich import box
 
             console = Console()
             lines = [
@@ -936,7 +951,7 @@ class LoRaWANConsole(cmd2.Cmd):
             with open(results_path, 'w') as f:
                 json.dump(results, f, indent=2)
             print(f"\n💾 Results saved to: {results_path}")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             print(f"\n⚠️  Failed to save results: {e}")
     
     # ── misc commands ────────────────────────────────────────────────────────
@@ -979,7 +994,7 @@ class LoRaWANConsole(cmd2.Cmd):
             print(f"Unknown command: {line!r}")
         print("Type 'help' for available commands.")
 
-    def emptyline(self) -> None:
+    def emptyline(self) -> bool:
         """Do nothing on empty line."""
-        pass
+        return False
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import socket
+from typing import cast
 
 from lora_attack_toolkit.transport.errors import (
     DnsResolutionError,
@@ -74,7 +75,7 @@ class UdpTransport(TransportClient):
             addr_info = socket.getaddrinfo(
                 self._host, self._port, socket.AF_INET, socket.SOCK_DGRAM
             )
-            ip = addr_info[0][4][0]
+            ip: str = cast(str, addr_info[0][4][0])
             return (ip, self._port)
         except socket.gaierror as exc:
             raise DnsResolutionError(

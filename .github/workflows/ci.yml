@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "development"]
+  pull_request:
+    branches: ["main", "development"]
+
+jobs:
+  # ── Unit tests + linting (fast, required gate) ──────────────────────────────
+  quality:
+    name: Quality gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install package and dev dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Ruff — lint
+        run: ruff check src/lora_attack_toolkit/
+
+      - name: mypy — type-check
+        run: mypy src/lora_attack_toolkit/ --ignore-missing-imports
+
+      - name: Unit tests
+        # Default addopts in pyproject.toml exclude integration+slow markers
+        run: python -m pytest -q --tb=short
+
+      - name: Validate example scenarios
+        run: |
+          python - << 'EOF'
+          import sys, pathlib, json
+          from lora_attack_toolkit.config import load_attack_scenario
+
+          errors = []
+          for path in sorted(pathlib.Path("examples/attacks").glob("*.json")):
+              try:
+                  load_attack_scenario(str(path))
+              except Exception as exc:
+                  errors.append(f"{path.name}: {exc}")
+
+          if errors:
+              for err in errors:
+                  print(f"FAIL  {err}", file=sys.stderr)
+              sys.exit(1)
+          print(f"OK  {len(list(pathlib.Path('examples/attacks').glob('*.json')))} scenario(s) validated")
+          EOF
+
+  # ── Integration tests (optional, separate job) ──────────────────────────────
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install package and dev dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Integration tests
+        run: python -m pytest -q --tb=short -m integration

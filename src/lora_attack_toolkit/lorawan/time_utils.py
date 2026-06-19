@@ -30,8 +30,9 @@ Use :func:`gps_to_unix` to compare those values against wall-clock timestamps.
 
 from __future__ import annotations
 
+import threading as _threading
 import time as _time
-from typing import Protocol, runtime_checkable
+from typing import Optional, Protocol, runtime_checkable
 
 # ── GPS / Unix conversion constants ──────────────────────────────────────────
 
@@ -178,7 +179,7 @@ _default_wall_clock = WallClock()
 
 def interruptible_sleep(
     seconds: float,
-    cancel_event: "threading.Event | None" = None,
+    cancel_event: Optional["_threading.Event"] = None,
     *,
     poll_interval_sec: float = 0.05,
 ) -> bool:
@@ -196,16 +197,14 @@ def interruptible_sleep(
     When *cancel_event* is ``None`` the function behaves like
     ``time.sleep(seconds)`` and always returns ``True``.
     """
-    import threading as _threading
-    import time as _time_mod
     if cancel_event is None:
-        _time_mod.sleep(seconds)
+        _time.sleep(seconds)
         return True
     if seconds <= 0:
         return not cancel_event.is_set()
-    deadline = _time_mod.monotonic() + seconds
+    deadline = _time.monotonic() + seconds
     while True:
-        remaining = deadline - _time_mod.monotonic()
+        remaining = deadline - _time.monotonic()
         if remaining <= 0:
             break
         wait_time = min(poll_interval_sec, remaining)

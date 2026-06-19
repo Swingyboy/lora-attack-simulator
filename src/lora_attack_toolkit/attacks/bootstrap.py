@@ -111,6 +111,7 @@ def register_builtin_attacks() -> None:
     )
 
     logger.info(
-        f"Registered {len(AttackRegistry.list_attacks())} attack types: "
-        f"{', '.join(AttackRegistry.list_attacks())}"
+        "Registered %d attack types: %s",
+        len(AttackRegistry.list_attacks()),
+        ", ".join(AttackRegistry.list_attacks()),
     )

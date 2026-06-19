@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+import struct
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -21,11 +22,9 @@ from lora_attack_toolkit.attacks.validation import validate_criteria
 from lora_attack_toolkit.lorawan.frames import build_join_request
 
 if TYPE_CHECKING:
-    from logging import Logger
 
     from lora_attack_toolkit.attacks.context import AttackContext
-    from lora_attack_toolkit.config import ExpectedBehavior, JoinDevNonceConfigV1
-    from lora_attack_toolkit.config import AttackTiming
+    from lora_attack_toolkit.config import AttackTiming, ExpectedBehavior, JoinDevNonceConfigV1
 
 
 @dataclass(frozen=True)
@@ -111,7 +110,7 @@ class JoinDevNonceAttack(BaseAttack):
     name = "join_devnonce"
 
     def run(self, ctx: "AttackContext") -> AttackResult:
-        ctx.logger.info(f"Starting {self.name} attack")
+        ctx.logger.info("Starting %s attack", self.name)
 
         config: JoinDevNonceConfigV1 = ctx.config
         timing = self._resolve_timing(config)
@@ -160,7 +159,7 @@ class JoinDevNonceAttack(BaseAttack):
                     resolved_devnonce_start=resolved_start,
                 )
                 ctx.capture.metadata["devnonce_validation"] = metrics
-                ctx.logger.debug(f"Received uplinks: {ctx.capture.uplinks}. Received downlinks: {ctx.capture.downlinks}")
+                ctx.logger.debug("Received uplinks: %s. Received downlinks: %s", ctx.capture.uplinks, ctx.capture.downlinks)
                 return AttackResult(
                     attack_name=self.name,
                     attack_type=self.name,
@@ -256,8 +255,8 @@ class JoinDevNonceAttack(BaseAttack):
                 metrics=metrics,
                 captured_packets=len(ctx.capture.uplinks) + len(ctx.capture.downlinks),
             )
-        except Exception as exc:
-            ctx.logger.error(f"Attack failed: {exc}", exc_info=True)
+        except Exception as exc:  # noqa: BLE001
+            ctx.logger.exception("Attack failed: %s", exc)
             return AttackResult.failed(
                 attack_name=self.name,
                 attack_type=self.name,
@@ -467,7 +466,7 @@ class JoinDevNonceAttack(BaseAttack):
                 return False
             window_deadline = start + window_start_offset + window_size
 
-            ctx.logger.debug(f"Opening window {window_name}")
+            ctx.logger.debug("Opening window %s", window_name)
 
             while time.monotonic() < window_deadline:
                 if ctx.cancel_event.is_set():
@@ -480,13 +479,12 @@ class JoinDevNonceAttack(BaseAttack):
                 if downlink is None:
                     continue
                 try:
-                    ctx.logger.debug(f"Received JoinAccept downlink in {window_name}: {downlink}")
+                    ctx.logger.debug("Received JoinAccept downlink in %s: %s", window_name, downlink)
                     ctx.device.apply_join_accept(downlink)
-                except Exception as exc:
+                except (ValueError, KeyError, struct.error) as exc:
                     ctx.logger.warning(
                         "JoinAccept received but apply_join_accept failed: %s",
                         exc,
-                        exc_info=True,
                     )
                     continue
 

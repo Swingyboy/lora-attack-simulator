@@ -16,7 +16,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-
 # ── Base types ────────────────────────────────────────────────────────────────
 
 @dataclass(frozen=True)
@@ -421,12 +420,12 @@ def parse_replay_config(config: dict[str, Any]) -> "UplinkReplayConfigV1 | Repla
     _new_keys = {"uplink_interval_sec", "capture_fcnt", "replay_attempt_interval_sec"}
     if _new_keys.intersection(config.keys()):
         return UplinkReplayConfigV1(
-            uplink_interval_sec=float(config.get("uplink_interval_sec", 30.0)),
-            capture_fcnt=int(config.get("capture_fcnt", 5)),
-            replay_attempt_interval_sec=float(config.get("replay_attempt_interval_sec", 5.0)),
-            replay_count=int(config.get("replay_count", 3)),
-            verification_uplink_count=int(config.get("verification_uplink_count", 5)),
-            device_time_gps_tolerance_sec=float(config.get("device_time_gps_tolerance_sec", 2.0)),
+            uplink_interval_sec=_expect_float("uplink_interval_sec", config.get("uplink_interval_sec", 30.0), min_value=0.0),
+            capture_fcnt=_expect_int("capture_fcnt", config.get("capture_fcnt", 5), min_value=0),
+            replay_attempt_interval_sec=_expect_float("replay_attempt_interval_sec", config.get("replay_attempt_interval_sec", 5.0), min_value=0.0),
+            replay_count=_expect_int("replay_count", config.get("replay_count", 3), min_value=1),
+            verification_uplink_count=_expect_int("verification_uplink_count", config.get("verification_uplink_count", 5), min_value=0),
+            device_time_gps_tolerance_sec=_expect_float("device_time_gps_tolerance_sec", config.get("device_time_gps_tolerance_sec", 2.0), min_value=0.0),
         )
 
     capture_data = config.get("capture_phase", {})
@@ -483,12 +482,12 @@ def parse_join_devnonce_config(config: dict[str, Any]) -> JoinDevNonceConfigV1:
         valid_devnonce_start = int(valid_devnonce_start_raw)
 
     return JoinDevNonceConfigV1(
-        valid_join_count=int(config.get("valid_join_count", 1)),
+        valid_join_count=_expect_int("valid_join_count", config.get("valid_join_count", 1), min_value=1),
         valid_devnonce_start=valid_devnonce_start,
-        valid_devnonce_step=int(config.get("valid_devnonce_step", 1)),
-        valid_devnonce_wrap=bool(config.get("valid_devnonce_wrap", False)),
+        valid_devnonce_step=_expect_int("valid_devnonce_step", config.get("valid_devnonce_step", 1), min_value=1),
+        valid_devnonce_wrap=_expect_bool("valid_devnonce_wrap", config.get("valid_devnonce_wrap", False)),
         final_check=str(config.get("final_check", "same_as_last")),
-        result_cache_size=int(config.get("result_cache_size", 10)),
+        result_cache_size=_expect_int("result_cache_size", config.get("result_cache_size", 10), min_value=1),
         final_devnonce=config.get("final_devnonce"),
         devnonce_seed=config.get("devnonce_seed"),
         timing=timing,
@@ -523,21 +522,32 @@ def parse_uplink_forgery_config(config: dict[str, Any]) -> UplinkForgeryConfigV1
             f"Unknown mac_command: {mac_cmd!r}. "
             f"Supported: {sorted(UPLINK_FORGERY_MAC_COMMANDS)}"
         )
+
+    recalculate_mic = _expect_bool("recalculate_mic", config.get("recalculate_mic", False))
+    corrupt_mic = _expect_bool("corrupt_mic", config.get("corrupt_mic", True))
+
+    # Cross-field: recalculate_mic and corrupt_mic are mutually exclusive
+    if recalculate_mic and corrupt_mic:
+        raise ValueError(
+            "recalculate_mic and corrupt_mic cannot both be true — "
+            "recalculate_mic produces a valid MIC; corrupt_mic deliberately breaks it"
+        )
+
     return UplinkForgeryConfigV1(
         forgery_mode=mode,
-        perform_join=bool(config.get("perform_join", True)),
-        baseline_uplink_count=int(config.get("baseline_uplink_count", 5)),
-        uplink_interval_sec=float(config.get("uplink_interval_sec", 5.0)),
+        perform_join=_expect_bool("perform_join", config.get("perform_join", True)),
+        baseline_uplink_count=_expect_int("baseline_uplink_count", config.get("baseline_uplink_count", 5), min_value=0),
+        uplink_interval_sec=_expect_float("uplink_interval_sec", config.get("uplink_interval_sec", 5.0), min_value=0.0),
         target_fcnt=config.get("target_fcnt"),
-        fcnt_delta=int(config.get("fcnt_delta", 10000)),
+        fcnt_delta=_expect_int("fcnt_delta", config.get("fcnt_delta", 10000), min_value=1),
         payload_hex=str(config.get("payload_hex", "01020304")),
         forged_payload_hex=str(config.get("forged_payload_hex", "DEADBEEF")),
-        recalculate_mic=bool(config.get("recalculate_mic", False)),
-        corrupt_mic=bool(config.get("corrupt_mic", True)),
+        recalculate_mic=recalculate_mic,
+        corrupt_mic=corrupt_mic,
         wrong_devaddr=str(config.get("wrong_devaddr", "26000000")),
         mac_command=mac_cmd,
-        fport=int(config.get("fport", 1)),
-        verification_uplink_count=int(config.get("verification_uplink_count", 3)),
+        fport=_expect_int("fport", config.get("fport", 1), min_value=1, max_value=223),
+        verification_uplink_count=_expect_int("verification_uplink_count", config.get("verification_uplink_count", 3), min_value=0),
     )
 
 
@@ -549,27 +559,52 @@ def _expect_str(name: str, value: Any) -> str:
     return value
 
 
-def _expect_int(name: str, value: Any, min_value: int | None = None) -> int:
-    if not isinstance(value, int):
-        raise ValueError(f"{name} must be integer")
+def _expect_int(name: str, value: Any, min_value: int | None = None, max_value: int | None = None) -> int:
+    # Reject booleans — isinstance(True, int) is True in Python
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{name} must be integer (got {type(value).__name__})")
     if min_value is not None and value < min_value:
         raise ValueError(f"{name} must be >= {min_value}")
+    if max_value is not None and value > max_value:
+        raise ValueError(f"{name} must be <= {max_value}")
     return value
+
+
+def _expect_float(name: str, value: Any, min_value: float | None = None, max_value: float | None = None) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be a number (got {type(value).__name__})")
+    f = float(value)
+    if min_value is not None and f < min_value:
+        raise ValueError(f"{name} must be >= {min_value}")
+    if max_value is not None and f > max_value:
+        raise ValueError(f"{name} must be <= {max_value}")
+    return f
 
 
 def _expect_bool(name: str, value: Any) -> bool:
     if not isinstance(value, bool):
-        raise ValueError(f"{name} must be boolean")
+        raise ValueError(f"{name} must be boolean (true/false), got {type(value).__name__}")
     return value
 
 
-def _expect_hex(name: str, value: str, size_bytes: int) -> None:
+def _expect_enum(name: str, value: Any, allowed: frozenset[str] | set[str]) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{name} must be a string, got {type(value).__name__}")
+    if value not in allowed:
+        raise ValueError(f"{name} must be one of {sorted(allowed)!r}, got {value!r}")
+    return value
+
+
+def _expect_hex(name: str, value: Any, size_bytes: int) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{name} must be a hex string, got {type(value).__name__}")
     if len(value) != size_bytes * 2:
-        raise ValueError(f"{name} must be {size_bytes * 2} hex chars")
+        raise ValueError(f"{name} must be {size_bytes * 2} hex chars, got {len(value)}")
     try:
         bytes.fromhex(value)
     except ValueError as exc:
-        raise ValueError(f"{name} must be valid hex") from exc
+        raise ValueError(f"{name} must contain only valid hex characters") from exc
+    return value
 
 
 def load_attack_scenario(path: str) -> AttackScenarioV1:

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 # Registry mapping user-facing profile names to internal validation parameters.
 # Users specify a profile name in their scenario file; the framework resolves
 # the corresponding secure_behavior description and list of security criteria.
@@ -168,16 +167,16 @@ def validate_replay_criterion(
         if verdict is not None:
             if verdict == "protected":
                 return CriterionResult(
-                    criterion, True, f"NS rejected replay (verdict=protected)"
+                    criterion, True, "NS rejected replay (verdict=protected)"
                 )
             elif verdict == "vulnerable":
                 return CriterionResult(
-                    criterion, False, f"⚠️  NS accepted replay (verdict=vulnerable)"
+                    criterion, False, "⚠️  NS accepted replay (verdict=vulnerable)"
                 )
             elif verdict == "possible_vulnerability":
                 return CriterionResult(
                     criterion, False,
-                    f"⚠️  Possible replay acceptance (verdict=possible_vulnerability) — manual review recommended"
+                    "⚠️  Possible replay acceptance (verdict=possible_vulnerability) — manual review recommended"
                 )
             else:
                 # inconclusive or unknown verdict value
@@ -238,7 +237,7 @@ def validate_join_criterion(
         return CriterionResult(criterion, False, "Criterion not applicable for this attack mode")
     
     else:
-        return CriterionResult(criterion, False, f"Criterion not recognized for join abuse attack")
+        return CriterionResult(criterion, False, "Criterion not recognized for join abuse attack")
 
 
 def validate_mac_criterion(
@@ -302,7 +301,7 @@ def validate_mac_criterion(
         )
     
     else:
-        return CriterionResult(criterion, False, f"Criterion not recognized for MAC command abuse")
+        return CriterionResult(criterion, False, "Criterion not recognized for MAC command abuse")
 
 
 def validate_criteria(

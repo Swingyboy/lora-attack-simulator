@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import secrets
 from dataclasses import dataclass, field
-from typing import Any
 from logging import Logger
+from typing import TYPE_CHECKING, Any
 
+from lora_attack_toolkit.config import DeviceConfig
 from lora_attack_toolkit.lorawan.frames import (
     build_join_request,
     build_unconfirmed_data_up,
@@ -12,24 +13,25 @@ from lora_attack_toolkit.lorawan.frames import (
     derive_session_keys,
 )
 from lora_attack_toolkit.lorawan.mac_commands import (
-    CID_LINK_ADR_REQ,
-    CID_LINK_ADR_ANS,
-    CID_RX_PARAM_SETUP_REQ,
-    CID_RX_PARAM_SETUP_ANS,
-    CID_DEV_STATUS_REQ,
     CID_DEV_STATUS_ANS,
-    CID_NEW_CHANNEL_REQ,
-    CID_NEW_CHANNEL_ANS,
-    CID_DUTY_CYCLE_REQ,
-    CID_DUTY_CYCLE_ANS,
-    CID_RX_TIMING_SETUP_REQ,
-    CID_RX_TIMING_SETUP_ANS,
+    CID_DEV_STATUS_REQ,
     CID_DEVICE_TIME_ANS,
+    CID_DUTY_CYCLE_ANS,
+    CID_DUTY_CYCLE_REQ,
+    CID_LINK_ADR_ANS,
+    CID_LINK_ADR_REQ,
+    CID_NEW_CHANNEL_ANS,
+    CID_NEW_CHANNEL_REQ,
+    CID_RX_PARAM_SETUP_ANS,
+    CID_RX_PARAM_SETUP_REQ,
+    CID_RX_TIMING_SETUP_ANS,
+    CID_RX_TIMING_SETUP_REQ,
     MACCommand,
 )
-
 from lora_attack_toolkit.lorawan.radio import EU868RegionProfile, Radio, RegionProfile
-from lora_attack_toolkit.config import DeviceConfig
+
+if TYPE_CHECKING:
+    from lora_attack_toolkit.config import RadioMetadata
 
 
 @dataclass
@@ -185,12 +187,11 @@ class SimulatedDevice:
         Returns:
             :class:`RadioMetadata` with the selected frequency and data-rate.
         """
-        from lora_attack_toolkit.config import RadioMetadata as _RadioMetadata
-
         if self.runtime.radio is None:
             return fallback
         tx = self.runtime.radio.select_uplink_channel(uplink_index)
-        return _RadioMetadata(
+        from lora_attack_toolkit.config import RadioMetadata
+        return RadioMetadata(
             frequency=tx.frequency_hz,
             data_rate=tx.data_rate,
             rssi=fallback.rssi,
@@ -411,8 +412,10 @@ class SimulatedDevice:
             if offset + payload_len > len(data):
                 if self._logger:
                     self._logger.warning(
-                        f"Truncated MAC command: CID=0x{cid:02x}, "
-                        f"expected {payload_len} bytes, got {len(data) - offset}"
+                        "Truncated MAC command: CID=0x%02x, expected %d bytes, got %d",
+                        cid,
+                        payload_len,
+                        len(data) - offset,
                     )
                 break
             
@@ -466,7 +469,7 @@ class SimulatedDevice:
 
             else:
                 if self._logger:
-                    self._logger.warning(f"Unknown MAC command CID: 0x{cmd.cid:02x}")
+                    self._logger.warning("Unknown MAC command CID: 0x%02x", cmd.cid)
         
         return responses
     

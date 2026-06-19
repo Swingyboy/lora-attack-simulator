@@ -20,15 +20,14 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 from lora_attack_toolkit.attacks.base import BaseAttack
+from lora_attack_toolkit.attacks.lifecycle import gateway_lifecycle
 from lora_attack_toolkit.attacks.result import (
     AttackResult,
     Confidence,
     ExecutionStatus,
     SecurityVerdict,
 )
-from lora_attack_toolkit.lorawan.time_utils import interruptible_sleep
-from lora_attack_toolkit.attacks.lifecycle import gateway_lifecycle
-from lora_attack_toolkit.config import UplinkForgeryConfigV1
+from lora_attack_toolkit.config import AttackTiming, UplinkForgeryConfigV1
 from lora_attack_toolkit.lorawan.frames import build_unconfirmed_data_up
 from lora_attack_toolkit.lorawan.join import perform_otaa_join
 from lora_attack_toolkit.lorawan.mac_commands import (
@@ -40,11 +39,10 @@ from lora_attack_toolkit.lorawan.mac_commands import (
     build_device_time_req,
     encode_mac_commands,
 )
-from lora_attack_toolkit.config import AttackTiming
+from lora_attack_toolkit.lorawan.time_utils import interruptible_sleep
 
 if TYPE_CHECKING:
     from lora_attack_toolkit.attacks.context import AttackContext
-    from lora_attack_toolkit.config import RadioMetadata
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -237,8 +235,8 @@ class UplinkForgeryAttack(BaseAttack):
         ctx.logger.info("uplink_forgery_started mode=%s", cfg.forgery_mode)
         try:
             return self._run(ctx, cfg)
-        except Exception as exc:
-            ctx.logger.error("uplink_forgery_failed error=%s", exc, exc_info=True)
+        except Exception as exc:  # noqa: BLE001
+            ctx.logger.exception("uplink_forgery_failed error=%s", exc)
             return AttackResult.failed(
                 attack_name=self.name,
                 attack_type="uplink_forgery",

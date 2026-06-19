@@ -116,7 +116,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import sys
 from datetime import datetime, timezone
@@ -410,7 +409,7 @@ def configure_logging(
     logger.addHandler(file_handler)
     
     # Log configuration
-    logger.info(f"Logging configured: level={level}, file={log_file}")
+    logger.info("Logging configured: level=%s, file=%s", level, log_file)
     if not mask_secrets:
         logger.warning("Secret masking disabled - sensitive data will appear in logs")
 
@@ -435,10 +434,10 @@ def reconfigure_level(level: str, source: str = "cli_override") -> None:
         # Update logger level
         logger = logging.getLogger("lora_attack_toolkit")
         logger.setLevel(getattr(logging, _logging_config.level, logging.INFO))
-        logger.info(f"Log level changed to: {_logging_config.level} (source: {source})")
+        logger.info("Log level changed to: %s (source: %s)", _logging_config.level, source)
     else:
         logger = logging.getLogger("lora_attack_toolkit")
-        logger.debug(f"Log level change to {level} blocked by precedence (current source: {_logging_config.level_source})")
+        logger.debug("Log level change to %s blocked by precedence (current source: %s)", level, _logging_config.level_source)
 
 
 def set_scenario_context(scenario_id: str | None) -> None:

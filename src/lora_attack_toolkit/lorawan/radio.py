@@ -33,7 +33,7 @@ from logging import Logger
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from lora_attack_toolkit.lorawan.mac_commands import MACCommand
+    pass
 
 # ── EU868 index-to-value tables (LoRaWAN 1.0.3 Regional Parameters §2.2) ─────
 
