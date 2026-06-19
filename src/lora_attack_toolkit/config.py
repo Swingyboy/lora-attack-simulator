@@ -12,7 +12,7 @@ core/schema_v1.py, and core/loader.py.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -171,17 +171,31 @@ class ExpectedBehavior:
     - "lorawan_1_0_3_devnonce_validation"
     - "lorawan_uplink_replay_protection"
     - "lorawan_mac_command_validation"
+
+    Inline-profile scenarios (using ``secure_behavior`` + ``security_criteria``
+    keys directly in the JSON) populate *_inline_secure_behavior* and
+    *_inline_criteria* so the loader never needs to mutate the global
+    VALIDATION_PROFILES registry.
     """
     profile: str
+    # Populated by the loader for inline (non-named) profiles.  These take
+    # priority over the registry lookup so loading a scenario cannot mutate
+    # shared global state.
+    _inline_secure_behavior: str | None = field(default=None, compare=False)
+    _inline_criteria: tuple[str, ...] = field(default_factory=tuple, compare=False)
 
     @property
     def secure_behavior(self) -> str:
+        if self._inline_secure_behavior is not None:
+            return self._inline_secure_behavior
         from lora_attack_toolkit.attacks.validation import VALIDATION_PROFILES
         prof = VALIDATION_PROFILES.get(self.profile)
         return prof["secure_behavior"] if prof else self.profile
 
     @property
     def security_criteria(self) -> list[str]:
+        if self._inline_criteria:
+            return list(self._inline_criteria)
         from lora_attack_toolkit.attacks.validation import VALIDATION_PROFILES
         prof = VALIDATION_PROFILES.get(self.profile)
         return prof["security_criteria"] if prof else []
@@ -300,6 +314,16 @@ UPLINK_FORGERY_MAC_COMMANDS = frozenset({
     "DutyCycleAns",
     "RXParamSetupAns",
 })
+
+#: Accepted values for the ``mic_strategy`` config field.
+UPLINK_FORGERY_MIC_STRATEGIES = frozenset({"auto", "valid", "invalid", "original"})
+
+#: Which ``mic_strategy`` values are allowed per forgery mode.
+#: Modes not listed here accept all four strategies.
+_MIC_STRATEGY_ALLOWED: dict[str, frozenset[str]] = {
+    "invalid_mic": frozenset({"auto", "invalid"}),
+    "valid_mic_modified_payload": frozenset({"auto", "valid"}),
+}
 
 
 @dataclass(frozen=True)
@@ -652,13 +676,11 @@ def _load_v1_format(raw: dict[str, Any]) -> AttackScenarioV1:
             "security_criteria",
             expected_data.get("success_criteria", []),
         )
-        from lora_attack_toolkit.attacks.validation import VALIDATION_PROFILES
-        if secure_behavior not in VALIDATION_PROFILES:
-            VALIDATION_PROFILES[secure_behavior] = {
-                "secure_behavior": secure_behavior,
-                "security_criteria": security_criteria,
-            }
-        expected = ExpectedBehavior(profile=secure_behavior)
+        expected = ExpectedBehavior(
+            profile=secure_behavior,
+            _inline_secure_behavior=secure_behavior,
+            _inline_criteria=tuple(security_criteria),
+        )
     else:
         raise ValueError(
             "expected section must contain 'profile' "

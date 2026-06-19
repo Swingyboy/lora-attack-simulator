@@ -5,8 +5,8 @@ from __future__ import annotations
 import unittest
 
 from lora_attack_toolkit.transport.errors import (
-    ConnectionResetError,
     DnsResolutionError,
+    RemoteResetError,
     TemporaryNetworkError,
     TransportError,
     TransportPermanentError,
@@ -20,7 +20,7 @@ class TestExceptionHierarchy(unittest.TestCase):
         for cls in (
             TransportTemporaryError,
             DnsResolutionError,
-            ConnectionResetError,
+            RemoteResetError,
             TemporaryNetworkError,
             TransportUnavailableError,
         ):

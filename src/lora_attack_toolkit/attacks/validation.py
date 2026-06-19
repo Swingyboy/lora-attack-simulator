@@ -127,54 +127,74 @@ def validate_replay_criterion(
 ) -> CriterionResult:
     """
     Validate replay attack criteria.
-    
+
     Supported criteria:
     - "first_uplink_is_sent" - original uplink was captured
     - "replayed_uplinks_with_same_fcnt_are_rejected" - NS rejected replay
     - "ns_maintains_fcnt_validation" - FCnt validation working
     - "replay_attack_is_blocked" - replay not accepted by NS
+
+    When the enhanced replay path is used, ``metrics["verdict"]`` contains a
+    protocol-level verdict derived from RX-window timing and GPS-time correlation
+    of DeviceTimeAns responses — see ``_determine_verdict()`` in replay.py.
+    When only the legacy path is used, ``verdict`` is absent and the result is
+    reported as INCONCLUSIVE rather than emitting a downlink-count heuristic
+    that produces systematic false positives.
     """
     if criterion == "first_uplink_is_sent":
-        has_original = metrics.get("original_fcnt") is not None
+        has_original = metrics.get("original_fcnt") is not None or metrics.get("captured_fcnt") is not None
+        fcnt = metrics.get("original_fcnt", metrics.get("captured_fcnt"))
         if has_original:
             return CriterionResult(
-                criterion, True, f"Original uplink sent with FCnt={metrics.get('original_fcnt')}"
+                criterion, True, f"Original uplink sent with FCnt={fcnt}"
             )
         return CriterionResult(criterion, False, "No original uplink detected")
-    
+
     elif criterion in (
         "replayed_uplinks_with_same_fcnt_are_rejected",
         "replay_attack_is_blocked",
         "ns_maintains_fcnt_validation",
     ):
-        # Check if NS accepted or rejected replay
-        # For now, we infer from downlink count (if NS sends downlink, it accepted)
-        replays_count = metrics.get("replays_count", 0)
+        replays_count = metrics.get("replays_count", metrics.get("replay_count", 0))
         if replays_count == 0:
             return CriterionResult(
                 criterion, False, "No replay packets detected - attack did not execute"
             )
-        
-        # In a real scenario, we'd analyze downlinks specifically for replayed packets
-        # For MVP, we check if there are suspicious downlinks after replay
-        downlinks_count = capture_stats.get("total_downlinks", 0)
-        
-        # Heuristic: If NS sent many downlinks, it may have accepted replays
-        # Secure behavior: minimal/no downlinks after replay (NS ignoring duplicates)
-        if downlinks_count > 1:
-            return CriterionResult(
-                criterion,
-                False,
-                f"⚠️  Possible replay acceptance - {downlinks_count} downlinks observed (manual review recommended)",
-            )
-        
+
+        # If a protocol-level verdict is available (enhanced replay path), use it
+        # directly — it is based on RX-window timing and GPS-time correlation, not
+        # a raw downlink count.
+        verdict = metrics.get("verdict")
+        if verdict is not None:
+            if verdict == "protected":
+                return CriterionResult(
+                    criterion, True, f"NS rejected replay (verdict=protected)"
+                )
+            elif verdict == "vulnerable":
+                return CriterionResult(
+                    criterion, False, f"⚠️  NS accepted replay (verdict=vulnerable)"
+                )
+            elif verdict == "possible_vulnerability":
+                return CriterionResult(
+                    criterion, False,
+                    f"⚠️  Possible replay acceptance (verdict=possible_vulnerability) — manual review recommended"
+                )
+            else:
+                # inconclusive or unknown verdict value
+                return CriterionResult(
+                    criterion, False,
+                    f"Verdict inconclusive ({verdict!r}) — manual review required"
+                )
+
+        # No protocol-level verdict available (legacy path).  Downlink count alone
+        # is not a reliable indicator of acceptance; report as not evaluated.
         return CriterionResult(
-            criterion, True, f"Replay likely rejected - minimal downlink activity ({downlinks_count} downlinks)"
+            criterion, False,
+            "Criterion not fully evaluated — protocol-level verdict unavailable; manual review required"
         )
-    
+
     else:
-        # Unknown criterion - mark as not evaluated
-        return CriterionResult(criterion, False, f"Criterion not recognized for replay attack")
+        return CriterionResult(criterion, False, "Criterion not recognized for replay attack")
 
 
 def validate_join_criterion(
@@ -265,12 +285,15 @@ def validate_mac_criterion(
         if final_data_rate is None or final_tx_power is None:
             return CriterionResult(criterion, False, "ADR state not tracked")
         
-        # Heuristic: SF12 or extreme TX power indicates potential manipulation
-        if final_data_rate == 0 or final_tx_power >= 14:
+        # Detect clearly out-of-spec ADR values.  In EU868 the valid TX-power
+        # range is 0–14 dBm (LoRaWAN 1.0.3 §2.2.3), so only values strictly
+        # above 14 indicate manipulation.  SF12 (DR0) can be legitimate for
+        # range-limited devices, so it is noted but not treated as a hard fail.
+        if final_tx_power > 14:
             return CriterionResult(
                 criterion,
                 False,
-                f"⚠️  Suspicious ADR state - DataRate={final_data_rate}, TXPower={final_tx_power}",
+                f"⚠️  TX power out of spec - TXPower={final_tx_power} dBm exceeds EU868 maximum (14 dBm)",
             )
         
         return CriterionResult(
