@@ -302,7 +302,7 @@ class LoRaWANConsole(cmd2.Cmd):
     
     def _show_logging(self) -> None:
         """Display current logging and output configuration."""
-        from lora_attack_toolkit.logging.logging import get_logging_config
+        from lora_attack_toolkit.logging.setup import get_logging_config
         
         config = get_logging_config()
         
@@ -556,7 +556,7 @@ class LoRaWANConsole(cmd2.Cmd):
     
     def _set_logging_param(self, param_path: str, value_str: str) -> None:
         """Set logging configuration parameter."""
-        from lora_attack_toolkit.logging.logging import reconfigure_level
+        from lora_attack_toolkit.logging.setup import reconfigure_level
         
         param_name = param_path.split(".", 1)[1] if "." in param_path else param_path
         
@@ -767,7 +767,7 @@ class LoRaWANConsole(cmd2.Cmd):
                 cancel_event.set()
 
         try:
-            from lora_attack_toolkit.logging.logging import reconfigure_level
+            from lora_attack_toolkit.logging.setup import reconfigure_level
 
             log_config = self.session.scenario_data.get("logging", {})
             log_level = log_config.get("level", "INFO").upper()

@@ -36,7 +36,7 @@ the highest-precedence source wins.
 
 ### Shell Initialization
 ```python
-from lora_attack_toolkit.logging.logging import configure_logging
+from lora_attack_toolkit.logging.setup import configure_logging
 
 # Framework default (precedence: 0)
 configure_logging(level=\"INFO\")  # Uses source=\"framework_default\"
@@ -44,7 +44,7 @@ configure_logging(level=\"INFO\")  # Uses source=\"framework_default\"
 
 ### CLI Runtime Override
 ```python
-from lora_attack_toolkit.logging.logging import reconfigure_level
+from lora_attack_toolkit.logging.setup import reconfigure_level
 
 # CLI override (precedence: 2 - highest)
 reconfigure_level(\"DEBUG\", source=\"cli_override\")
