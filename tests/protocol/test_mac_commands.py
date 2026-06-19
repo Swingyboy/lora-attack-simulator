@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 
 from lora_attack_toolkit.lorawan.mac_commands import (
+
     CID_DEV_STATUS_REQ,
     CID_DUTY_CYCLE_REQ,
     CID_LINK_ADR_REQ,
@@ -22,6 +23,9 @@ from lora_attack_toolkit.lorawan.mac_commands import (
     encode_mac_commands,
     parse_mac_command,
 )
+import pytest
+
+pytestmark = pytest.mark.unit
 
 
 class TestMACCommandBuilders(unittest.TestCase):

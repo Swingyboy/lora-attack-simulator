@@ -12,11 +12,15 @@ from __future__ import annotations
 import unittest
 
 from lora_attack_toolkit.lorawan.radio import (
+
     EU868RegionProfile,
     EU868_DR_TABLE,
     EU868_TX_POWER_TABLE,
     Radio,
 )
+import pytest
+
+pytestmark = pytest.mark.unit
 
 
 def _make_radio(duty_cycle: bool = False) -> Radio:

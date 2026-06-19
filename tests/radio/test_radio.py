@@ -6,6 +6,9 @@ import unittest
 
 from lora_attack_toolkit.lorawan.radio import EU868RegionProfile
 from lora_attack_toolkit.lorawan.radio import Radio
+import pytest
+
+pytestmark = pytest.mark.unit
 
 
 EU868_BASE = [868_100_000, 868_300_000, 868_500_000]
@@ -222,7 +225,6 @@ class TestDeviceRadioIntegration(unittest.TestCase):
         """Applying JoinAccept with different CFLists must never grow channels unboundedly."""
         from unittest.mock import MagicMock, patch
         from lora_attack_toolkit.lorawan.frames import JoinAcceptData
-
         device = self._make_device()
 
         def make_fake_parsed(cflist_bytes):

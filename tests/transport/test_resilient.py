@@ -14,6 +14,11 @@ from lora_attack_toolkit.transport.errors import (
 )
 from lora_attack_toolkit.transport.resilient import ResilientTransport
 from lora_attack_toolkit.transport.retry import RetryPolicy
+import pytest
+
+pytestmark = pytest.mark.unit
+
+
 
 
 def _make_transport(**kwargs):

@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from lora_attack_toolkit.config import (
+
     _expect_bool,
     _expect_enum,
     _expect_float,
@@ -14,6 +15,9 @@ from lora_attack_toolkit.config import (
     parse_replay_config,
     parse_uplink_forgery_config,
 )
+
+pytestmark = pytest.mark.unit
+
 
 
 # ── Primitive validators ──────────────────────────────────────────────────────

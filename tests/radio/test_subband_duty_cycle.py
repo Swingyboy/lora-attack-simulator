@@ -6,6 +6,10 @@ import pytest
 
 from lora_attack_toolkit.lorawan.radio import EU868RegionProfile, Radio
 
+pytestmark = pytest.mark.unit
+
+
+
 
 def _make_radio(enforcement: bool = True) -> Radio:
     return Radio(EU868RegionProfile(), duty_cycle_enforcement=enforcement)

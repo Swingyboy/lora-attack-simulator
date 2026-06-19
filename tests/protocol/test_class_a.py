@@ -16,6 +16,9 @@ from lora_attack_toolkit.lorawan.class_a import (
 from lora_attack_toolkit.lorawan.radio import EU868RegionProfile, Radio
 from lora_attack_toolkit.lorawan.time_utils import FakeClock
 
+pytestmark = pytest.mark.slow
+
+
 
 def _make_radio(rx1_dr_offset: int = 0, rx1_delay: float = 1.0) -> Radio:
     r = Radio(EU868RegionProfile(), duty_cycle_enforcement=False)
@@ -165,6 +168,7 @@ class TestClassAReceiverCancellation:
             cancel.set()
 
         import threading as _t
+
 
         _t.Thread(target=cancel_soon, daemon=True).start()
 

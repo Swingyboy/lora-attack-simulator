@@ -6,6 +6,7 @@ import time
 import unittest
 
 from lora_attack_toolkit.lorawan.time_utils import (
+
     GPS_EPOCH_UNIX,
     GPS_LEAP_SECONDS,
     FakeClock,
@@ -14,6 +15,9 @@ from lora_attack_toolkit.lorawan.time_utils import (
     gps_to_unix,
     unix_to_gps,
 )
+import pytest
+
+pytestmark = pytest.mark.unit
 
 
 class TestGpsConversion(unittest.TestCase):

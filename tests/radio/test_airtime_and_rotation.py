@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import unittest
 from unittest.mock import MagicMock, patch
+import pytest
+
+pytestmark = pytest.mark.unit
 
 
 # ─── AirtimeCalculator ────────────────────────────────────────────────────────
@@ -226,7 +229,6 @@ class TestSendPeriodicUplinksChannelRotation(unittest.TestCase):
 
     def test_uplink_after_cflist_uses_extended_channels(self) -> None:
         from lora_attack_toolkit.lorawan.join import send_periodic_uplinks
-
         radio = self._eu868_radio()
         cflist = bytearray(16)
         cflist[0:3] = (867_100_000 // 100).to_bytes(3, "little")

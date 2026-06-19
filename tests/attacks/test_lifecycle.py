@@ -11,6 +11,10 @@ import pytest
 from lora_attack_toolkit.attacks.lifecycle import gateway_lifecycle
 from lora_attack_toolkit.lorawan.time_utils import interruptible_sleep
 
+pytestmark = pytest.mark.slow
+
+
+
 
 # ── interruptible_sleep ───────────────────────────────────────────────────────
 

@@ -39,6 +39,9 @@ from lora_attack_toolkit.config import (
     parse_uplink_forgery_config,
 )
 from lora_attack_toolkit.lorawan.frames import build_unconfirmed_data_up
+import pytest
+
+pytestmark = pytest.mark.unit
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -563,7 +566,6 @@ class TestRegressionUplinkReplay(unittest.TestCase):
     def test_replay_channel_selection_uses_device_layer(self) -> None:
         """_select_radio_for_uplink in replay.py must call device.select_uplink_radio."""
         from lora_attack_toolkit.attacks.builtin.replay import _select_radio_for_uplink
-
         device = MagicMock()
         radio = _radio()
         device.select_uplink_radio.return_value = radio

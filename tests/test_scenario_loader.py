@@ -3,6 +3,11 @@ from __future__ import annotations
 import unittest
 
 from lora_attack_toolkit.config import load_attack_scenario
+import pytest
+
+pytestmark = pytest.mark.unit
+
+
 
 
 class ScenarioLoaderTests(unittest.TestCase):

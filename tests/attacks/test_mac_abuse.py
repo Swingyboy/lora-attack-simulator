@@ -13,6 +13,11 @@ from lora_attack_toolkit.runtime.device import SimulatedDevice
 from lora_attack_toolkit.runtime.gateway import GatewaySimulator
 from lora_attack_toolkit.config import RadioMetadata
 from lora_attack_toolkit.config import MACCommandConfigV1
+import pytest
+
+pytestmark = pytest.mark.unit
+
+
 
 
 class TestMACCommandAnalyzer(unittest.TestCase):

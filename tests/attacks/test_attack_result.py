@@ -10,6 +10,9 @@ from lora_attack_toolkit.attacks.result import (
     ExecutionStatus,
     SecurityVerdict,
 )
+import pytest
+
+pytestmark = pytest.mark.unit
 
 
 class TestAttackResultFields(unittest.TestCase):

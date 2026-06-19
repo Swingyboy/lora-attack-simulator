@@ -10,6 +10,10 @@ from lora_attack_toolkit.lorawan.radio import EU868RegionProfile, Radio
 from lora_attack_toolkit.lorawan.join import perform_otaa_join_via_radio
 from lora_attack_toolkit.config import RadioMetadata
 
+pytestmark = pytest.mark.unit
+
+
+
 
 _BASE_CHANNELS = EU868RegionProfile.BASE_UPLINK_CHANNELS_HZ
 
