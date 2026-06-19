@@ -9,7 +9,12 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 from lora_attack_toolkit.attacks.base import BaseAttack
-from lora_attack_toolkit.attacks.result import AttackResult
+from lora_attack_toolkit.attacks.result import (
+    AttackResult,
+    Confidence,
+    ExecutionStatus,
+    SecurityVerdict,
+)
 from lora_attack_toolkit.attacks.analyzer import AttackAnalyzer
 from lora_attack_toolkit.attacks.packet_capture import PacketCapture
 from lora_attack_toolkit.attacks.validation import validate_criteria
@@ -21,6 +26,7 @@ from lora_attack_toolkit.lorawan.mac_commands import (
     decode_device_time_ans,
     encode_mac_commands,
 )
+from lora_attack_toolkit.lorawan.time_utils import unix_to_gps
 from lora_attack_toolkit.config import AttackTiming, RadioMetadata, UplinkReplayConfigV1
 
 if TYPE_CHECKING:
@@ -120,6 +126,17 @@ def _determine_verdict(
         return ReplayVerdict.POSSIBLE_VULNERABILITY
 
     return ReplayVerdict.PROTECTED
+
+
+def _replay_verdict_to_security(verdict: ReplayVerdict) -> tuple[SecurityVerdict, Confidence, bool | None]:
+    """Map a ReplayVerdict to (SecurityVerdict, Confidence, target_protected)."""
+    mapping: dict[ReplayVerdict, tuple[SecurityVerdict, Confidence, bool | None]] = {
+        ReplayVerdict.PROTECTED:             (SecurityVerdict.SECURE,        Confidence.HIGH,   True),
+        ReplayVerdict.POSSIBLE_VULNERABILITY:(SecurityVerdict.VULNERABLE,    Confidence.MEDIUM, False),
+        ReplayVerdict.VULNERABLE:            (SecurityVerdict.VULNERABLE,    Confidence.HIGH,   False),
+        ReplayVerdict.INCONCLUSIVE:          (SecurityVerdict.INCONCLUSIVE,  Confidence.LOW,    None),
+    }
+    return mapping[verdict]
 
 
 # ── Channel selection helper ──────────────────────────────────────────────────
@@ -224,12 +241,9 @@ class UplinkReplayAttack(BaseAttack):
             return self._run_legacy(ctx)
         except Exception as e:
             ctx.logger.error(f"Attack failed: {e}", exc_info=True)
-            return AttackResult(
+            return AttackResult.failed(
                 attack_name=self.name,
                 attack_type="uplink_replay",
-                success=False,
-                message=f"Attack execution failed: {str(e)}",
-                metrics={},
                 error=str(e),
             )
 
@@ -250,12 +264,11 @@ class UplinkReplayAttack(BaseAttack):
             logger=ctx.logger,
         ):
             ctx.gateway.stop()
-            return AttackResult(
+            return AttackResult.failed(
                 attack_name=self.name,
                 attack_type="uplink_replay",
-                success=False,
+                error="OTAA join failed",
                 message="OTAA join failed - cannot proceed with replay",
-                metrics={},
             )
         join_mono = time.monotonic()
         ctx.logger.info("OTAA join successful mono=%.3f", join_mono)
@@ -351,7 +364,7 @@ class UplinkReplayAttack(BaseAttack):
         )
         probe_radio = _select_radio_for_uplink(ctx, probe_fcnt)
         tx_mono = time.monotonic()
-        tx_gps = time.time()
+        tx_gps = unix_to_gps(time.time())
         ctx.gateway.forward_uplink(frame, probe_radio)
         fcnt_captured = ctx.device.runtime.fcnt_up - 1  # == capture_fcnt
         ctx.capture.capture_uplink(
@@ -390,7 +403,7 @@ class UplinkReplayAttack(BaseAttack):
                 replay_radio = _select_radio_for_uplink(ctx, captured.fcnt + i)
                 with gateway_lock:
                     tx_mono = time.monotonic()
-                    tx_gps = time.time()
+                    tx_gps = unix_to_gps(time.time())
                     ctx.gateway.forward_uplink(captured.phy_payload, replay_radio)
                 replay_tx.append(ReplayTxRecord(
                     monotonic_time=tx_mono,
@@ -425,7 +438,7 @@ class UplinkReplayAttack(BaseAttack):
                 normal_radio = _select_radio_for_uplink(ctx, fcnt_before_build)
                 with gateway_lock:
                     tx_mono = time.monotonic()
-                    tx_gps = time.time()
+                    tx_gps = unix_to_gps(time.time())
                     ctx.gateway.forward_uplink(frame, normal_radio)
                 fcnt = ctx.device.runtime.fcnt_up - 1
                 valid_tx.append(ValidUplinkRecord(
@@ -638,16 +651,18 @@ class UplinkReplayAttack(BaseAttack):
             "verdict": verdict.value,
         }
 
+        sv, conf, protected = _replay_verdict_to_security(verdict)
         return AttackResult(
             attack_name=self.name,
             attack_type="uplink_replay",
-            success=True,
+            execution_status=ExecutionStatus.COMPLETED,
+            security_verdict=sv,
+            confidence=conf,
+            target_protected=protected,
             message=f"Replay attack complete: verdict={verdict.value}",
             metrics=metrics,
             captured_packets=len(ctx.capture.uplinks) + len(ctx.capture.downlinks),
         )
-
-    # ── Legacy path (old ReplayConfigV1) ──────────────────────────────────────
 
     def _run_legacy(self, ctx: AttackContext) -> AttackResult:
         config = ctx.config  # ReplayConfigV1
@@ -670,12 +685,11 @@ class UplinkReplayAttack(BaseAttack):
                 logger=ctx.logger,
             )
             if not join_success:
-                return AttackResult(
+                return AttackResult.failed(
                     attack_name=self.name,
                     attack_type="uplink_replay",
-                    success=False,
+                    error="OTAA join failed",
                     message="OTAA join failed - cannot proceed with replay",
-                    metrics={},
                 )
             ctx.logger.info("OTAA join successful")
 
@@ -729,10 +743,15 @@ class UplinkReplayAttack(BaseAttack):
         analyzer = ReplayAnalyzer()
         analysis = analyzer.analyze(ctx.capture, ctx.expected)
 
+        # Map legacy analysis success flag to standardized verdict
+        legacy_success = analysis.get("success", True)
+        sv = SecurityVerdict.SECURE if legacy_success else SecurityVerdict.INCONCLUSIVE
         return AttackResult(
             attack_name=self.name,
             attack_type="uplink_replay",
-            success=analysis["success"],
+            execution_status=ExecutionStatus.COMPLETED,
+            security_verdict=sv,
+            confidence=Confidence.LOW,
             message=analysis["message"],
             metrics=analysis["metrics"],
             captured_packets=len(ctx.capture.uplinks) + len(ctx.capture.downlinks),

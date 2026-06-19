@@ -197,6 +197,94 @@ class SimulatedDevice:
             snr=fallback.snr,
         )
 
+    def validate_downlink(self, phy_payload: bytes) -> dict[str, Any]:
+        """Validate a received downlink frame without mutating device state.
+
+        Checks, in order:
+        1. Minimum frame length.
+        2. Supported MType (must be a downlink: 0b011 = UnconfirmedDataDown, 0b101 = ConfirmedDataDown).
+        3. DevAddr matches the session's DevAddr.
+        4. MIC is valid.
+        5. FCntDown is not stale (frame counter is ≥ the expected next downlink counter).
+
+        Args:
+            phy_payload: Raw PHYPayload bytes.
+
+        Returns:
+            Dict with validation results::
+
+                {
+                    "valid": bool,              # True only when ALL checks pass
+                    "reject_reason": str | None, # First failure reason or None
+                    "mtype": int,
+                    "dev_addr_match": bool,
+                    "valid_mic": bool,
+                    "fcnt_ok": bool,
+                    "fcnt": int,                # 16-bit FCntDown from frame
+                }
+        """
+        result: dict[str, Any] = {
+            "valid": False,
+            "reject_reason": None,
+            "mtype": -1,
+            "dev_addr_match": False,
+            "valid_mic": False,
+            "fcnt_ok": False,
+            "fcnt": -1,
+        }
+
+        if len(phy_payload) < 12:
+            result["reject_reason"] = f"frame_too_short:{len(phy_payload)}"
+            return result
+
+        mhdr = phy_payload[0]
+        mtype = (mhdr >> 5) & 0x07
+        result["mtype"] = mtype
+
+        # Supported downlink MTypes: 3 = UnconfirmedDataDown, 5 = ConfirmedDataDown
+        if mtype not in (3, 5):
+            result["reject_reason"] = f"unsupported_mtype:{mtype}"
+            return result
+
+        # DevAddr check (bytes 1-4 little-endian)
+        frame_dev_addr_le = phy_payload[1:5]
+        dev_addr_match = (frame_dev_addr_le == self.runtime.dev_addr_le)
+        result["dev_addr_match"] = dev_addr_match
+        if not dev_addr_match:
+            result["reject_reason"] = "devaddr_mismatch"
+            return result
+
+        # FCntDown (16-bit, bytes 6-7)
+        fcnt = int.from_bytes(phy_payload[6:8], "little")
+        result["fcnt"] = fcnt
+
+        # MIC validation
+        from lora_attack_toolkit.lorawan.crypto import data_mic
+        mic_start = len(phy_payload) - 4
+        expected_mic = data_mic(
+            nwk_s_key=self.runtime.nwk_s_key,
+            msg=phy_payload[:mic_start],
+            direction=1,
+            dev_addr_le=self.runtime.dev_addr_le,
+            fcnt_up=fcnt,
+        )
+        valid_mic = (expected_mic == phy_payload[mic_start:])
+        result["valid_mic"] = valid_mic
+        if not valid_mic:
+            result["reject_reason"] = "invalid_mic"
+            return result
+
+        # FCntDown freshness (must be ≥ expected)
+        expected_fcnt_down = self.runtime.fcnt_down
+        fcnt_ok = (fcnt >= expected_fcnt_down)
+        result["fcnt_ok"] = fcnt_ok
+        if not fcnt_ok:
+            result["reject_reason"] = f"stale_fcnt:got={fcnt},expected>={expected_fcnt_down}"
+            return result
+
+        result["valid"] = True
+        return result
+
     def parse_downlink(self, phy_payload: bytes) -> dict[str, Any]:
         """
         Parse a downlink frame and extract MAC commands.
@@ -383,62 +471,64 @@ class SimulatedDevice:
         return responses
     
     def _apply_link_adr_req(self, cmd: MACCommand) -> MACCommand:
-        """Apply LinkADRReq and return LinkADRAns."""
-        if len(cmd.payload) < 4:
-            # Invalid payload, reject
-            status = 0x00  # All bits 0 = reject
-            return MACCommand(cid=CID_LINK_ADR_ANS, payload=bytes([status]))
-        
-        # Parse LinkADRReq
-        data_rate_tx_power = cmd.payload[0]
-        data_rate = (data_rate_tx_power >> 4) & 0x0F
-        tx_power = data_rate_tx_power & 0x0F
-        ch_mask = int.from_bytes(cmd.payload[1:3], byteorder="little")
-        redundancy = cmd.payload[3]
-        nb_trans = redundancy & 0x0F
-        
-        # Update device state
-        old_state = self.runtime.adr.to_dict()
-        self.runtime.adr.data_rate = data_rate
-        self.runtime.adr.tx_power = tx_power
-        self.runtime.adr.ch_mask = ch_mask
-        self.runtime.adr.nb_trans = nb_trans
-        
+        """Apply LinkADRReq: delegates to Radio for validation, returns LinkADRAns."""
+        radio = self.runtime.radio
+        if radio is not None:
+            status = radio.apply_link_adr_req(cmd.payload)
+            if status == 0x07:
+                # Mirror accepted state into DeviceRuntime.adr for legacy consumers
+                if len(cmd.payload) >= 4:
+                    dr_tx = cmd.payload[0]
+                    ch_mask = int.from_bytes(cmd.payload[1:3], "little")
+                    redundancy = cmd.payload[3]
+                    dr_idx = (dr_tx >> 4) & 0x0F
+                    tp_idx = dr_tx & 0x0F
+                    nb_trans = redundancy & 0x0F
+                    if dr_idx != 0x0F:
+                        self.runtime.adr.data_rate = dr_idx
+                    if tp_idx != 0x0F:
+                        self.runtime.adr.tx_power = tp_idx
+                    self.runtime.adr.ch_mask = ch_mask
+                    if nb_trans > 0:
+                        self.runtime.adr.nb_trans = nb_trans
+        else:
+            # No Radio object — fall back to legacy direct-mutation behaviour
+            if len(cmd.payload) < 4:
+                return MACCommand(cid=CID_LINK_ADR_ANS, payload=bytes([0x00]))
+            dr_tx = cmd.payload[0]
+            ch_mask = int.from_bytes(cmd.payload[1:3], "little")
+            redundancy = cmd.payload[3]
+            self.runtime.adr.data_rate = (dr_tx >> 4) & 0x0F
+            self.runtime.adr.tx_power = dr_tx & 0x0F
+            self.runtime.adr.ch_mask = ch_mask
+            self.runtime.adr.nb_trans = redundancy & 0x0F
+            status = 0x07
         if self._logger:
             self._logger.info(
-                f"Applied LinkADRReq: DR={data_rate}, TXPower={tx_power}, "
-                f"ChMask=0x{ch_mask:04x}, NbTrans={nb_trans}",
-                extra={"old_radio_state": old_state, "new_radio_state": self.runtime.adr.to_dict()}
+                "LinkADRReq status=0x%02x dr=%d tx_power=%d ch_mask=0x%04x",
+                status,
+                self.runtime.adr.data_rate,
+                self.runtime.adr.tx_power,
+                self.runtime.adr.ch_mask,
             )
-        
-        # LinkADRAns: 1 byte status (bit 0: power ACK, bit 1: data rate ACK, bit 2: channel mask ACK)
-        status = 0x07  # All ACKs set (accept all parameters)
         return MACCommand(cid=CID_LINK_ADR_ANS, payload=bytes([status]))
     
     def _apply_rx_param_setup_req(self, cmd: MACCommand) -> MACCommand:
-        """Apply RXParamSetupReq and return RXParamSetupAns."""
-        if len(cmd.payload) < 4:
-            status = 0x00  # Reject
-            return MACCommand(cid=CID_RX_PARAM_SETUP_ANS, payload=bytes([status]))
-        
-        # Parse RXParamSetupReq
-        dl_settings = cmd.payload[0]
-        rx1_dr_offset = (dl_settings >> 4) & 0x07
-        rx2_data_rate = dl_settings & 0x0F
-        frequency = int.from_bytes(cmd.payload[1:4], byteorder="little")
-        
-        # Update device state
-        self.runtime.adr.rx1_dr_offset = rx1_dr_offset
-        self.runtime.adr.rx2_data_rate = rx2_data_rate
-        
-        if self._logger:
-            self._logger.info(
-                f"Applied RXParamSetupReq: RX1DRoffset={rx1_dr_offset}, "
-                f"RX2DataRate={rx2_data_rate}, Frequency={frequency}Hz"
-            )
-        
-        # RXParamSetupAns: 1 byte status
-        status = 0x07  # All bits set (channel ACK, RX2 data rate ACK, RX1DRoffset ACK)
+        """Apply RXParamSetupReq: delegates to Radio, returns RXParamSetupAns."""
+        radio = self.runtime.radio
+        if radio is not None:
+            status = radio.apply_rx_param_setup_req(cmd.payload)
+            if status == 0x07 and len(cmd.payload) >= 4:
+                dl_settings = cmd.payload[0]
+                self.runtime.adr.rx1_dr_offset = (dl_settings >> 4) & 0x07
+                self.runtime.adr.rx2_data_rate = dl_settings & 0x0F
+        else:
+            if len(cmd.payload) < 4:
+                return MACCommand(cid=CID_RX_PARAM_SETUP_ANS, payload=bytes([0x00]))
+            dl_settings = cmd.payload[0]
+            self.runtime.adr.rx1_dr_offset = (dl_settings >> 4) & 0x07
+            self.runtime.adr.rx2_data_rate = dl_settings & 0x0F
+            status = 0x07
         return MACCommand(cid=CID_RX_PARAM_SETUP_ANS, payload=bytes([status]))
     
     def _apply_dev_status_req(self, cmd: MACCommand) -> MACCommand:
@@ -453,42 +543,33 @@ class SimulatedDevice:
         return MACCommand(cid=CID_DEV_STATUS_ANS, payload=bytes([battery, margin]))
     
     def _apply_new_channel_req(self, cmd: MACCommand) -> MACCommand:
-        """Apply NewChannelReq and return NewChannelAns."""
-        if len(cmd.payload) < 5:
-            status = 0x00  # Reject
-            return MACCommand(cid=CID_NEW_CHANNEL_ANS, payload=bytes([status]))
-        
-        # For now, accept but don't modify channels
-        if self._logger:
-            self._logger.info("Received NewChannelReq (accepted but not applied)")
-        
-        status = 0x03  # Both bits set (channel frequency OK, data rate range OK)
+        """Apply NewChannelReq: delegates to Radio, returns NewChannelAns."""
+        radio = self.runtime.radio
+        if radio is not None:
+            status = radio.apply_new_channel_req(cmd.payload)
+        else:
+            if len(cmd.payload) < 5:
+                return MACCommand(cid=CID_NEW_CHANNEL_ANS, payload=bytes([0x00]))
+            status = 0x03
         return MACCommand(cid=CID_NEW_CHANNEL_ANS, payload=bytes([status]))
     
     def _apply_duty_cycle_req(self, cmd: MACCommand) -> MACCommand:
-        """Apply DutyCycleReq and return DutyCycleAns."""
-        if len(cmd.payload) < 1:
-            return MACCommand(cid=CID_DUTY_CYCLE_ANS, payload=b"")
-        
-        max_duty_cycle = cmd.payload[0]
-        self.runtime.adr.duty_cycle = max_duty_cycle
-        
-        if self._logger:
-            self._logger.info(f"Applied DutyCycleReq: MaxDCycle={max_duty_cycle}")
-        
+        """Apply DutyCycleReq: delegates to Radio, returns DutyCycleAns."""
+        radio = self.runtime.radio
+        if radio is not None:
+            radio.apply_duty_cycle_req(cmd.payload)
+        if len(cmd.payload) >= 1:
+            self.runtime.adr.duty_cycle = cmd.payload[0] & 0x0F
         return MACCommand(cid=CID_DUTY_CYCLE_ANS, payload=b"")
     
     def _apply_rx_timing_setup_req(self, cmd: MACCommand) -> MACCommand:
-        """Apply RXTimingSetupReq and return RXTimingSetupAns."""
-        if len(cmd.payload) < 1:
-            return MACCommand(cid=CID_RX_TIMING_SETUP_ANS, payload=b"")
-        
-        delay = cmd.payload[0] & 0x0F
-        self.runtime.adr.rx1_delay = delay if delay > 0 else 1  # 0 means 1 second
-        
-        if self._logger:
-            self._logger.info(f"Applied RXTimingSetupReq: RX1Delay={self.runtime.adr.rx1_delay}s")
-        
+        """Apply RXTimingSetupReq: delegates to Radio, returns RXTimingSetupAns."""
+        radio = self.runtime.radio
+        if radio is not None:
+            radio.apply_rx_timing_setup_req(cmd.payload)
+        if len(cmd.payload) >= 1:
+            delay = cmd.payload[0] & 0x0F
+            self.runtime.adr.rx1_delay = delay if delay > 0 else 1
         return MACCommand(cid=CID_RX_TIMING_SETUP_ANS, payload=b"")
 
 

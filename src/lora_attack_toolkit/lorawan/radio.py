@@ -35,6 +35,30 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from lora_attack_toolkit.lorawan.mac_commands import MACCommand
 
+# ── EU868 index-to-value tables (LoRaWAN 1.0.3 Regional Parameters §2.2) ─────
+
+#: EU868 data-rate index → data-rate string (DR0–DR5 are valid; 6-15 RFU).
+EU868_DR_TABLE: dict[int, str] = {
+    0: "SF12BW125",
+    1: "SF11BW125",
+    2: "SF10BW125",
+    3: "SF9BW125",
+    4: "SF8BW125",
+    5: "SF7BW125",
+}
+
+#: EU868 TX power index → dBm value (index 0–7; LoRaWAN 1.0.3 §2.2.3).
+EU868_TX_POWER_TABLE: dict[int, int] = {
+    0: 14,
+    1: 12,
+    2: 10,
+    3: 8,
+    4: 6,
+    5: 4,
+    6: 2,
+    7: 0,
+}
+
 
 # ─── On-air time calculator ───────────────────────────────────────────────────
 
@@ -194,6 +218,17 @@ class Radio:
         self._data_rate: str = region.DEFAULT_DATA_RATE
         self._tx_power: int = region.DEFAULT_TX_POWER
 
+        # ── RX window state (LoRaWAN 1.0.3 §7.2.2 EU868 defaults) ───────────
+        self._rx1_dr_offset: int = 0          # RX1DRoffset (0-7)
+        self._rx2_data_rate_idx: int = 0      # RX2 data-rate index
+        self._rx2_frequency_hz: int = 869_525_000  # EU868 default 869.525 MHz
+        self._rx1_delay_sec: float = 1.0      # RECEIVE_DELAY1 (seconds)
+        self._nb_trans: int = 1               # Unconfirmed uplink repetitions (1-15)
+
+        # ── Active channel mask (bit i set ↔ channel i is enabled) ───────────
+        # EU868 base channels 0-2 are always enabled; bits 0-7 default on.
+        self._ch_mask: int = 0x00FF
+
         # Duty-cycle availability: freq_hz → earliest next-TX epoch time
         self._channel_available_after: dict[int, float] = {}
 
@@ -213,6 +248,31 @@ class Radio:
     @property
     def region_name(self) -> str:
         return self._region.REGION_NAME
+
+    @property
+    def rx1_delay_sec(self) -> float:
+        """RX1 window delay in seconds."""
+        return self._rx1_delay_sec
+
+    @property
+    def rx2_frequency_hz(self) -> int:
+        """RX2 window centre frequency (Hz)."""
+        return self._rx2_frequency_hz
+
+    @property
+    def rx2_data_rate_idx(self) -> int:
+        """RX2 data-rate index."""
+        return self._rx2_data_rate_idx
+
+    @property
+    def rx1_dr_offset(self) -> int:
+        """RX1 data-rate offset."""
+        return self._rx1_dr_offset
+
+    @property
+    def ch_mask(self) -> int:
+        """Active channel mask (bit i set ↔ channel i is enabled)."""
+        return self._ch_mask
 
     def supports_duty_cycle(self) -> bool:
         """Return ``True`` if duty-cycle enforcement is active for this region."""
@@ -391,18 +451,261 @@ class Radio:
         return self._tx_power
 
     # ------------------------------------------------------------------
-    # Future extension points
+    # MAC command application
     # ------------------------------------------------------------------
 
-    def apply_mac_command(self, command: "MACCommand") -> None:
-        """Apply a radio-affecting MAC command (future: LinkADRReq, NewChannelReq…)."""
+    def apply_link_adr_req(self, payload: bytes) -> int:
+        """Apply a LinkADRReq payload and return the ANS status byte.
 
-    def apply_adr_settings(
-        self,
-        data_rate: int | None = None,
-        tx_power: int | None = None,
-    ) -> None:
-        """Apply ADR-driven data-rate and TX-power changes (future)."""
+        Payload layout (4 bytes, LoRaWAN 1.0.3 §5.2):
+        - Byte 0: DataRate_TXPower (DR bits 7-4, TXPower bits 3-0)
+        - Byte 1-2: ChMask (little-endian)
+        - Byte 3: Redundancy (ChMaskCntl bits 6-4, NbTrans bits 3-0)
+
+        Status byte bit map:
+        - bit 0: PowerACK — TX power index was acceptable
+        - bit 1: DataRateACK — data-rate index was acceptable
+        - bit 2: ChannelMaskACK — channel mask was acceptable
+
+        All three bits must be 1 for the command to be applied.  If any bit
+        is 0 the previous state is preserved.
+
+        Returns:
+            ACK byte (0x07 = all accepted, 0x00 = all rejected).
+        """
+        if len(payload) < 4:
+            self._logger.warning("apply_link_adr_req: payload too short (%d bytes)", len(payload))
+            return 0x00
+
+        dr_tx = payload[0]
+        ch_mask = int.from_bytes(payload[1:3], "little")
+        redundancy = payload[3]
+
+        dr_idx = (dr_tx >> 4) & 0x0F
+        tp_idx = dr_tx & 0x0F
+        ch_mask_cntl = (redundancy >> 4) & 0x07
+        nb_trans = redundancy & 0x0F
+
+        # Validate data-rate (EU868 valid range 0-5; 0xF = keep-current)
+        dr_ack = 0
+        new_dr: str | None = None
+        if dr_idx == 0x0F:
+            dr_ack = 1
+            new_dr = self._data_rate  # keep current
+        elif dr_idx in EU868_DR_TABLE:
+            dr_ack = 1
+            new_dr = EU868_DR_TABLE[dr_idx]
+        else:
+            self._logger.debug("apply_link_adr_req: invalid DR index %d", dr_idx)
+
+        # Validate TX power (EU868 valid range 0-7; 0xF = keep-current)
+        tp_ack = 0
+        new_tx_power: int | None = None
+        if tp_idx == 0x0F:
+            tp_ack = 1
+            new_tx_power = self._tx_power  # keep current
+        elif tp_idx in EU868_TX_POWER_TABLE:
+            tp_ack = 1
+            new_tx_power = EU868_TX_POWER_TABLE[tp_idx]
+        else:
+            self._logger.debug("apply_link_adr_req: invalid TX power index %d", tp_idx)
+
+        # Validate channel mask (ChMaskCntl 0 = use ChMask directly for ch 0-15)
+        ch_mask_ack = 0
+        new_ch_mask: int | None = None
+        if ch_mask_cntl == 0:
+            # Ensure at least one base channel remains enabled
+            base_bits = (1 << len(self._base_uplink_channels_hz)) - 1
+            if ch_mask & base_bits:
+                ch_mask_ack = 1
+                new_ch_mask = ch_mask
+            else:
+                self._logger.debug(
+                    "apply_link_adr_req: ch_mask 0x%04x would disable all base channels",
+                    ch_mask,
+                )
+        elif ch_mask_cntl == 6:
+            # All channels on
+            ch_mask_ack = 1
+            new_ch_mask = 0xFFFF
+        else:
+            # Other ChMaskCntl values not supported in EU868 base spec
+            self._logger.debug(
+                "apply_link_adr_req: unsupported ChMaskCntl %d", ch_mask_cntl
+            )
+
+        status = (ch_mask_ack << 2) | (dr_ack << 1) | tp_ack
+        if status == 0x07:
+            # All three accepted — apply changes
+            assert new_dr is not None
+            assert new_tx_power is not None
+            assert new_ch_mask is not None
+            self._data_rate = new_dr
+            self._tx_power = new_tx_power
+            self._ch_mask = new_ch_mask
+            if nb_trans > 0:
+                self._nb_trans = nb_trans
+            self._logger.info(
+                "apply_link_adr_req: accepted dr=%s tx_power=%d ch_mask=0x%04x nb_trans=%d",
+                self._data_rate,
+                self._tx_power,
+                self._ch_mask,
+                self._nb_trans,
+            )
+        else:
+            self._logger.info(
+                "apply_link_adr_req: rejected status=0x%02x (dr_ack=%d tp_ack=%d ch_ack=%d)",
+                status,
+                dr_ack,
+                tp_ack,
+                ch_mask_ack,
+            )
+        return status
+
+    def apply_rx_param_setup_req(self, payload: bytes) -> int:
+        """Apply an RXParamSetupReq payload and return the ANS status byte.
+
+        Payload layout (4 bytes, LoRaWAN 1.0.3 §5.4):
+        - Byte 0: DLSettings (RFU bit 7, RX1DRoffset bits 6-4, RX2DataRate bits 3-0)
+        - Byte 1-3: Frequency (24-bit little-endian, 100 Hz units)
+
+        Status byte:
+        - bit 0: ChannelACK — RX2 frequency is usable
+        - bit 1: RX2DataRateACK — RX2 DR is valid
+        - bit 2: RX1DRoffsetACK — RX1 DR offset is valid
+
+        All three bits must be 1 for the command to be applied.
+
+        Returns:
+            ACK byte (0x07 = all accepted).
+        """
+        if len(payload) < 4:
+            self._logger.warning("apply_rx_param_setup_req: payload too short")
+            return 0x00
+
+        dl_settings = payload[0]
+        rx1_dr_offset = (dl_settings >> 4) & 0x07
+        rx2_dr_idx = dl_settings & 0x0F
+        freq_hz = int.from_bytes(payload[1:4], "little") * 100
+
+        # Validate RX1 DR offset (LoRaWAN 1.0.3 §5.4: 0-5 for EU868)
+        rx1_offset_ack = 1 if 0 <= rx1_dr_offset <= 5 else 0
+
+        # Validate RX2 DR index
+        rx2_dr_ack = 1 if rx2_dr_idx in EU868_DR_TABLE else 0
+
+        # Validate RX2 frequency
+        ch_ack = 1 if self._region.FREQ_MIN_HZ <= freq_hz <= self._region.FREQ_MAX_HZ else 0
+
+        status = (rx1_offset_ack << 2) | (rx2_dr_ack << 1) | ch_ack
+        if status == 0x07:
+            self._rx1_dr_offset = rx1_dr_offset
+            self._rx2_data_rate_idx = rx2_dr_idx
+            self._rx2_frequency_hz = freq_hz
+            self._logger.info(
+                "apply_rx_param_setup_req: accepted rx1_offset=%d rx2_dr=%d rx2_freq=%d",
+                rx1_dr_offset,
+                rx2_dr_idx,
+                freq_hz,
+            )
+        else:
+            self._logger.info(
+                "apply_rx_param_setup_req: rejected status=0x%02x", status
+            )
+        return status
+
+    def apply_new_channel_req(self, payload: bytes) -> int:
+        """Apply a NewChannelReq payload and return the ANS status byte.
+
+        Payload layout (5 bytes, LoRaWAN 1.0.3 §5.6):
+        - Byte 0: ChIndex (channel index 0-15)
+        - Byte 1-3: Freq (24-bit little-endian, 100 Hz units; 0 = disable)
+        - Byte 4: DrRange (MaxDR bits 7-4, MinDR bits 3-0)
+
+        Status byte:
+        - bit 0: ChannelFreqOK — frequency is within region range
+        - bit 1: DataRateRangeOK — DR range is valid
+
+        Returns:
+            ACK byte (0x03 = accepted).
+        """
+        if len(payload) < 5:
+            self._logger.warning("apply_new_channel_req: payload too short")
+            return 0x00
+
+        ch_index = payload[0]
+        freq_hz = int.from_bytes(payload[1:4], "little") * 100
+        dr_range = payload[4]
+        max_dr = (dr_range >> 4) & 0x0F
+        min_dr = dr_range & 0x0F
+
+        # Validate frequency (0 = disable channel)
+        if freq_hz == 0:
+            freq_ok = 1
+            # Remove channel if it was a CFList channel
+            if freq_hz in self._cflist_channels_hz:
+                self._cflist_channels_hz.remove(freq_hz)
+        elif self._region.FREQ_MIN_HZ <= freq_hz <= self._region.FREQ_MAX_HZ:
+            freq_ok = 1
+        else:
+            freq_ok = 0
+
+        # Validate DR range
+        dr_ok = 1 if (min_dr in EU868_DR_TABLE and max_dr in EU868_DR_TABLE and min_dr <= max_dr) else 0
+
+        status = (dr_ok << 1) | freq_ok
+        if status == 0x03 and freq_hz > 0:
+            # Only add channels beyond the base 3 (ch_index >= 3 per LoRaWAN spec)
+            if ch_index >= len(self._base_uplink_channels_hz):
+                if freq_hz not in self._base_uplink_channels_hz and freq_hz not in self._cflist_channels_hz:
+                    self._cflist_channels_hz.append(freq_hz)
+                    self._logger.info(
+                        "apply_new_channel_req: added ch_index=%d freq=%d", ch_index, freq_hz
+                    )
+        return status
+
+    def apply_rx_timing_setup_req(self, payload: bytes) -> None:
+        """Apply an RXTimingSetupReq payload.
+
+        Payload layout (1 byte, LoRaWAN 1.0.3 §5.7):
+        - Byte 0: Settings (Delay bits 3-0; actual RX1 delay = (value if value > 0 else 1) seconds)
+
+        This command always succeeds; the device sends RXTimingSetupAns with no payload.
+        """
+        if len(payload) < 1:
+            self._logger.warning("apply_rx_timing_setup_req: empty payload")
+            return
+        delay_val = payload[0] & 0x0F
+        # Per spec: Del=0 means 1 s
+        self._rx1_delay_sec = float(delay_val) if delay_val > 0 else 1.0
+        self._logger.info(
+            "apply_rx_timing_setup_req: rx1_delay=%.1f s", self._rx1_delay_sec
+        )
+
+    def apply_duty_cycle_req(self, payload: bytes) -> None:
+        """Apply a DutyCycleReq payload.
+
+        The MaxDCycle field (bits 3-0) encodes the maximum aggregate duty cycle
+        as ``1 / 2^MaxDCycle``.  Value 0 means no restriction (default).
+
+        This implementation records the configured duty cycle but does not
+        currently enforce it at the per-sub-band level (the sub-band enforcement
+        in :meth:`record_transmission` continues to apply).
+        """
+        if len(payload) < 1:
+            self._logger.warning("apply_duty_cycle_req: empty payload")
+            return
+        max_dcycle = payload[0] & 0x0F
+        if max_dcycle == 0:
+            effective = 1.0
+        else:
+            effective = 1.0 / (2 ** max_dcycle)
+        self._logger.info(
+            "apply_duty_cycle_req: max_dcycle=%d effective_fraction=%.6f",
+            max_dcycle,
+            effective,
+        )
+        # Future: use effective to gate transmissions at the aggregate level.
 
     # ------------------------------------------------------------------
     # Internal helpers

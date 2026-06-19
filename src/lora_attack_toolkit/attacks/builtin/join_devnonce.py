@@ -11,7 +11,12 @@ from typing import TYPE_CHECKING, Any
 from lora_attack_toolkit.attacks.analyzer import AttackAnalyzer
 from lora_attack_toolkit.attacks.base import BaseAttack
 from lora_attack_toolkit.attacks.packet_capture import PacketCapture
-from lora_attack_toolkit.attacks.result import AttackResult
+from lora_attack_toolkit.attacks.result import (
+    AttackResult,
+    Confidence,
+    ExecutionStatus,
+    SecurityVerdict,
+)
 from lora_attack_toolkit.attacks.validation import validate_criteria
 from lora_attack_toolkit.lorawan.frames import build_join_request
 
@@ -128,7 +133,10 @@ class JoinDevNonceAttack(BaseAttack):
                 ctx.capture.metadata["devnonce_validation"] = metrics
                 return AttackResult(
                     attack_name=self.name, attack_type=self.name,
-                    success=False, interrupted=True,
+                    execution_status=ExecutionStatus.CANCELLED,
+                    security_verdict=SecurityVerdict.INCONCLUSIVE,
+                    confidence=Confidence.LOW,
+                    interrupted=True,
                     message="Attack interrupted by user",
                     metrics=metrics,
                     captured_packets=len(ctx.capture.uplinks) + len(ctx.capture.downlinks),
@@ -156,7 +164,9 @@ class JoinDevNonceAttack(BaseAttack):
                 return AttackResult(
                     attack_name=self.name,
                     attack_type=self.name,
-                    success=False,
+                    execution_status=ExecutionStatus.COMPLETED,
+                    security_verdict=SecurityVerdict.INCONCLUSIVE,
+                    confidence=Confidence.LOW,
                     message=f"Final DevNonce check was not executed: {reason}",
                     metrics=metrics,
                     captured_packets=len(ctx.capture.uplinks) + len(ctx.capture.downlinks),
@@ -193,7 +203,10 @@ class JoinDevNonceAttack(BaseAttack):
                 ctx.capture.metadata["devnonce_validation"] = metrics
                 return AttackResult(
                     attack_name=self.name, attack_type=self.name,
-                    success=False, interrupted=True,
+                    execution_status=ExecutionStatus.CANCELLED,
+                    security_verdict=SecurityVerdict.INCONCLUSIVE,
+                    confidence=Confidence.LOW,
+                    interrupted=True,
                     message="Attack interrupted by user",
                     metrics=metrics,
                     captured_packets=len(ctx.capture.uplinks) + len(ctx.capture.downlinks),
@@ -221,24 +234,35 @@ class JoinDevNonceAttack(BaseAttack):
             else:
                 message = f"{prefix}Network Server rejected the final JoinRequest with DevNonce {devnonce_int}"
 
+            # NS rejected the replay DevNonce → target is secure (protected against DevNonce replay)
+            # NS accepted the replay DevNonce → target is vulnerable
+            if final_result.join_accepted:
+                sv = SecurityVerdict.VULNERABLE
+                protected = False
+                conf = Confidence.HIGH
+            else:
+                sv = SecurityVerdict.SECURE
+                protected = True
+                conf = Confidence.HIGH
+
             return AttackResult(
                 attack_name=self.name,
                 attack_type=self.name,
-                success=not final_result.join_accepted,
+                execution_status=ExecutionStatus.COMPLETED,
+                security_verdict=sv,
+                confidence=conf,
+                target_protected=protected,
                 message=message,
                 metrics=metrics,
                 captured_packets=len(ctx.capture.uplinks) + len(ctx.capture.downlinks),
             )
         except Exception as exc:
             ctx.logger.error(f"Attack failed: {exc}", exc_info=True)
-            return AttackResult(
+            return AttackResult.failed(
                 attack_name=self.name,
                 attack_type=self.name,
-                success=False,
-                message=f"Attack execution failed: {exc}",
-                metrics={},
                 error=str(exc),
-                captured_packets=len(ctx.capture.uplinks) + len(ctx.capture.downlinks),
+                metrics={},
             )
         finally:
             ctx.gateway.stop()

@@ -280,14 +280,14 @@ class TestJoinDevNonceAttack(unittest.TestCase):
         ctx = replace(self.ctx, input=replace(self.ctx.input, typed_config=config))
         result = attack.run(ctx)
 
-        self.assertFalse(result.success)
+        from lora_attack_toolkit.attacks.result import SecurityVerdict
+        self.assertEqual(result.security_verdict, SecurityVerdict.INCONCLUSIVE)
         self.assertIn("not executed", result.message)
         self.assertFalse(result.metrics["final_check_executed"])
         # final join step should not have been called
         attack._execute_join_step.assert_not_called()
 
     def test_replay_first_uses_first_accepted_not_first_attempted(self) -> None:
-        """replay_first uses first accepted DevNonce even if the first attempt failed."""
         attack = JoinDevNonceAttack()
         config = replace(self.config, valid_join_count=3, final_check="replay_first")
 
@@ -321,7 +321,8 @@ class TestJoinDevNonceAttack(unittest.TestCase):
         ctx = replace(self.ctx, input=replace(self.ctx.input, typed_config=config))
         result = attack.run(ctx)
 
-        self.assertFalse(result.success)
+        from lora_attack_toolkit.attacks.result import SecurityVerdict
+        self.assertEqual(result.security_verdict, SecurityVerdict.INCONCLUSIVE)
         self.assertIn("not executed", result.message)
         self.assertFalse(result.metrics["final_check_executed"])
         attack._execute_join_step.assert_not_called()

@@ -20,7 +20,12 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 from lora_attack_toolkit.attacks.base import BaseAttack
-from lora_attack_toolkit.attacks.result import AttackResult
+from lora_attack_toolkit.attacks.result import (
+    AttackResult,
+    Confidence,
+    ExecutionStatus,
+    SecurityVerdict,
+)
 from lora_attack_toolkit.config import UplinkForgeryConfigV1
 from lora_attack_toolkit.lorawan.frames import build_unconfirmed_data_up
 from lora_attack_toolkit.lorawan.join import perform_otaa_join
@@ -187,6 +192,20 @@ def determine_forgery_verdict(
     return ForgeryVerdict.INCONCLUSIVE
 
 
+def _forgery_verdict_to_security(
+    verdict: ForgeryVerdict,
+) -> tuple[SecurityVerdict, Confidence, bool | None]:
+    """Map ForgeryVerdict to (SecurityVerdict, Confidence, target_protected)."""
+    mapping: dict[ForgeryVerdict, tuple[SecurityVerdict, Confidence, bool | None]] = {
+        ForgeryVerdict.REJECTED:          (SecurityVerdict.SECURE,       Confidence.HIGH,   True),
+        ForgeryVerdict.IGNORED:           (SecurityVerdict.SECURE,       Confidence.MEDIUM, True),
+        ForgeryVerdict.ACCEPTED:          (SecurityVerdict.VULNERABLE,   Confidence.HIGH,   False),
+        ForgeryVerdict.ACCEPTED_EXPECTED: (SecurityVerdict.NOT_APPLICABLE, Confidence.HIGH, None),
+        ForgeryVerdict.INCONCLUSIVE:      (SecurityVerdict.INCONCLUSIVE, Confidence.LOW,    None),
+    }
+    return mapping[verdict]
+
+
 # ── Attack ────────────────────────────────────────────────────────────────────
 
 
@@ -218,12 +237,9 @@ class UplinkForgeryAttack(BaseAttack):
             return self._run(ctx, cfg)
         except Exception as exc:
             ctx.logger.error("uplink_forgery_failed error=%s", exc, exc_info=True)
-            return AttackResult(
+            return AttackResult.failed(
                 attack_name=self.name,
                 attack_type="uplink_forgery",
-                success=False,
-                message=f"Attack execution failed: {exc}",
-                metrics={},
                 error=str(exc),
             )
 
@@ -244,12 +260,11 @@ class UplinkForgeryAttack(BaseAttack):
                 logger=ctx.logger,
             ):
                 ctx.gateway.stop()
-                return AttackResult(
+                return AttackResult.failed(
                     attack_name=self.name,
                     attack_type="uplink_forgery",
-                    success=False,
+                    error="OTAA join failed",
                     message="OTAA join failed — cannot proceed with forgery",
-                    metrics={},
                 )
             ctx.logger.info("uplink_forgery_join_succeeded")
 
@@ -507,10 +522,14 @@ class UplinkForgeryAttack(BaseAttack):
             "verdict_label": label,
         }
 
+        sv, conf, protected = _forgery_verdict_to_security(verdict)
         return AttackResult(
             attack_name=self.name,
             attack_type="uplink_forgery",
-            success=True,
+            execution_status=ExecutionStatus.COMPLETED,
+            security_verdict=sv,
+            confidence=conf,
+            target_protected=protected,
             message=f"Uplink forgery [{evidence.forgery_mode}]: {label}",
             metrics=metrics,
         )

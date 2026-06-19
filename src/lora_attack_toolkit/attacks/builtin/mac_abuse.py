@@ -6,7 +6,12 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from lora_attack_toolkit.attacks.base import BaseAttack
-from lora_attack_toolkit.attacks.result import AttackResult
+from lora_attack_toolkit.attacks.result import (
+    AttackResult,
+    Confidence,
+    ExecutionStatus,
+    SecurityVerdict,
+)
 from lora_attack_toolkit.attacks.analyzer import AttackAnalyzer
 from lora_attack_toolkit.attacks.packet_capture import PacketCapture
 from lora_attack_toolkit.attacks.validation import validate_criteria
@@ -158,12 +163,11 @@ class MACCommandAbuse(BaseAttack):
             )
             
             if not join_success:
-                return AttackResult(
+                return AttackResult.failed(
                     attack_name=self.name,
                     attack_type="mac_command_injection",
-                    success=False,
+                    error="OTAA join failed",
                     message="OTAA join failed - cannot proceed",
-                    metrics={},
                 )
             
             ctx.logger.info("OTAA join successful")
@@ -253,10 +257,15 @@ class MACCommandAbuse(BaseAttack):
             analyzer = MACCommandAnalyzer()
             analysis = analyzer.analyze(ctx.capture, ctx.expected)
             
+            # Map legacy analysis success to standardized verdict
+            legacy_success = analysis.get("success", True)
+            sv = SecurityVerdict.SECURE if legacy_success else SecurityVerdict.INCONCLUSIVE
             return AttackResult(
                 attack_name=self.name,
                 attack_type="mac_command_injection",
-                success=analysis["success"],
+                execution_status=ExecutionStatus.COMPLETED,
+                security_verdict=sv,
+                confidence=Confidence.LOW,
                 message=analysis["message"],
                 metrics=analysis["metrics"],
                 captured_packets=len(ctx.capture.uplinks) + len(ctx.capture.downlinks),
@@ -266,12 +275,9 @@ class MACCommandAbuse(BaseAttack):
             
         except Exception as e:
             ctx.logger.error(f"Attack failed: {e}", exc_info=True)
-            return AttackResult(
+            return AttackResult.failed(
                 attack_name=self.name,
                 attack_type="mac_command_injection",
-                success=False,
-                message=f"Attack execution failed: {str(e)}",
-                metrics={},
                 error=str(e),
             )
     
