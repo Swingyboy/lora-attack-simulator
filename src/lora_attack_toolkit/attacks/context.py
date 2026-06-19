@@ -56,7 +56,7 @@ class AttackInput:
     - Clear contract for what each attack needs
     """
     
-    # Typed attack configuration (from schema_v1.py parsers)
+    # Typed attack configuration (from lora_attack_toolkit.config parsers)
     typed_config: Any  # ReplayConfigV1, JoinDevNonceConfigV1, etc
     
     # Expected behavior / security criteria

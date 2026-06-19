@@ -5,8 +5,7 @@ This module is the single source of truth for:
 - Attack scenario schema v1.0 dataclasses
 - JSON scenario loading and validation
 
-Previously spread across core/base_types.py, core/schema.py,
-core/schema_v1.py, and core/loader.py.
+All *ConfigV1 dataclasses and parse_*_config() functions live here.
 """
 
 from __future__ import annotations
