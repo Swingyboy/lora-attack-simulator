@@ -66,6 +66,11 @@ class DevNonceResultCache:
         self.all_accepted_devnonces.add(result.dev_nonce)
 
 
+# LEGACY (unused): JoinDevNonceAnalyzer was intended to post-process capture
+# metadata but is never instantiated in the active run() path.  It is safe to
+# delete once any tests that reference it directly are removed or migrated.
+# No test currently imports or calls it; removal is purely cosmetic cleanup.
+
 class JoinDevNonceAnalyzer(AttackAnalyzer):
     """Analyze DevNonce validation results from capture metadata."""
 

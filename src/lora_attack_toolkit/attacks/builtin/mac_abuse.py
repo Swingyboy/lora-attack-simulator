@@ -35,6 +35,12 @@ if TYPE_CHECKING:
 
 from lora_attack_toolkit.config import MACCommandConfigV1
 
+# LEGACY analysis path: MACCommandAnalyzer is the current production analyzer
+# used in MACCommandInjectionAttack.run().  It infers verdict from downlink
+# counts and ADR state — a heuristic approach.
+# A future replacement should decode each received downlink frame and check
+# MAC command payloads directly rather than counting packets.
+# Do not remove until the run() path is updated to a protocol-level analyzer.
 
 class MACCommandAnalyzer(AttackAnalyzer):
     """Analyzer for MAC command abuse attack results."""
