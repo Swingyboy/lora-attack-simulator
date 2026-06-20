@@ -509,9 +509,20 @@ def parse_uplink_forgery_config(config: dict[str, Any]) -> UplinkForgeryConfigV1
             "recalculate_mic produces a valid MIC; corrupt_mic deliberately breaks it"
         )
 
+    perform_join = _expect_bool("perform_join", config.get("perform_join", True))
+    if not perform_join:
+        # Frozen scope is OTAA only; there is no config surface for supplying a
+        # pre-provisioned ABP session (DevAddr + session keys). Reject rather
+        # than running against an empty/invalid session.
+        raise ValueError(
+            "attack.config.perform_join=false is not supported: the frozen scope is OTAA "
+            "only and provides no way to supply a complete pre-provisioned session "
+            "(DevAddr, NwkSKey, AppSKey)"
+        )
+
     return UplinkForgeryConfigV1(
         forgery_mode=mode,
-        perform_join=_expect_bool("perform_join", config.get("perform_join", True)),
+        perform_join=perform_join,
         baseline_uplink_count=_expect_int(
             "baseline_uplink_count", config.get("baseline_uplink_count", 5), min_value=0
         ),
@@ -594,6 +605,65 @@ def _expect_hex(name: str, value: Any, size_bytes: int) -> str:
     return value
 
 
+def _reject_unknown_keys(path: str, data: dict[str, Any], allowed: set[str]) -> None:
+    """Raise ValueError listing any keys in ``data`` outside ``allowed``.
+
+    Strict-scope validation: unknown / obsolete fields are rejected rather than
+    silently ignored, so stale README fields cannot fall back to defaults.
+    """
+    unknown = sorted(set(data) - allowed)
+    if unknown:
+        prefix = f"{path}." if path else ""
+        allowed_str = ", ".join(sorted(allowed))
+        raise ValueError(
+            f"unknown field(s) {', '.join(prefix + k for k in unknown)}; "
+            f"allowed {path or 'top-level'} fields: {allowed_str}"
+        )
+
+
+#: Allowed keys per scenario section (strict frozen-scope validation).
+_ALLOWED_TOP_KEYS = {
+    "scenario",
+    "target",
+    "gateway",
+    "device",
+    "attack",
+    "expected",
+    "logging",
+    # Optional metadata, ignored by the loader (resolved from the registry).
+    "schema_version",
+    "id",
+    "title",
+    "category",
+    "type",
+    "name",
+    "description",
+    "version",
+}
+_ALLOWED_SCENARIO_KEYS = {"description", "timeout_sec"}
+_ALLOWED_TARGET_KEYS = {"name", "transport", "host", "port"}
+_ALLOWED_GATEWAY_KEYS = {"gateway_eui", "pull_data_interval_sec", "radio"}
+_ALLOWED_RADIO_KEYS = {"region", "frequency_hz", "data_rate", "rssi", "snr"}
+_ALLOWED_DEVICE_KEYS = {
+    "name",
+    "lorawan_version",
+    "region",
+    "class",
+    "device_class",
+    "activation",
+    "duty_cycle_enforcement",
+}
+_ALLOWED_ACTIVATION_KEYS = {"mode", "dev_eui", "join_eui", "app_key"}
+_ALLOWED_ATTACK_KEYS = {"type", "config"}
+_ALLOWED_EXPECTED_KEYS = {
+    "profile",
+    "secure_behavior",
+    "security_criteria",
+    "success_criteria",
+}
+_ALLOWED_LOGGING_KEYS = {"level", "log_phy_payload", "log_semtech_udp"}
+
+
 def load_attack_scenario(path: str) -> AttackScenarioV1:
     """Load attack scenario from JSON file.
 
@@ -622,6 +692,9 @@ def load_attack_scenario(path: str) -> AttackScenarioV1:
 
 def _load_v1_format(raw: dict[str, Any]) -> AttackScenarioV1:
     """Load attack scenario in v1.0 format."""
+    if not isinstance(raw, dict):
+        raise ValueError("scenario root must be a JSON object")
+    _reject_unknown_keys("", raw, _ALLOWED_TOP_KEYS)
     try:
         target_data = raw["target"]
         gateway_data = raw["gateway"]
@@ -633,6 +706,18 @@ def _load_v1_format(raw: dict[str, Any]) -> AttackScenarioV1:
         raise ValueError(f"missing required section: {exc.args[0]}") from exc
 
     scenario_data = raw.get("scenario", {})
+    _reject_unknown_keys("scenario", scenario_data, _ALLOWED_SCENARIO_KEYS)
+    _reject_unknown_keys("target", target_data, _ALLOWED_TARGET_KEYS)
+    _reject_unknown_keys("gateway", gateway_data, _ALLOWED_GATEWAY_KEYS)
+    _reject_unknown_keys("gateway.radio", gateway_data.get("radio", {}), _ALLOWED_RADIO_KEYS)
+    _reject_unknown_keys("device", device_data, _ALLOWED_DEVICE_KEYS)
+    _reject_unknown_keys(
+        "device.activation", device_data.get("activation", {}), _ALLOWED_ACTIVATION_KEYS
+    )
+    _reject_unknown_keys("attack", attack_data, _ALLOWED_ATTACK_KEYS)
+    _reject_unknown_keys("expected", expected_data, _ALLOWED_EXPECTED_KEYS)
+    _reject_unknown_keys("logging", logging_data, _ALLOWED_LOGGING_KEYS)
+
     scenario = ScenarioMeta(
         description=scenario_data.get("description", ""),
         timeout_sec=float(scenario_data.get("timeout_sec", 30.0)),

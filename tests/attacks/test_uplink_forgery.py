@@ -157,7 +157,7 @@ class TestParseUplinkForgeryConfig(unittest.TestCase):
     def test_explicit_values(self) -> None:
         raw = {
             "forgery_mode": "fcnt_jump_forward",
-            "perform_join": False,
+            "perform_join": True,
             "baseline_uplink_count": 3,
             "uplink_interval_sec": 1.0,
             "target_fcnt": 999,
@@ -173,11 +173,15 @@ class TestParseUplinkForgeryConfig(unittest.TestCase):
         }
         cfg = parse_uplink_forgery_config(raw)
         self.assertEqual(cfg.forgery_mode, "fcnt_jump_forward")
-        self.assertFalse(cfg.perform_join)
+        self.assertTrue(cfg.perform_join)
         self.assertEqual(cfg.target_fcnt, 999)
         self.assertTrue(cfg.recalculate_mic)
         self.assertFalse(cfg.corrupt_mic)
         self.assertEqual(cfg.mac_command, "LinkCheckReq")
+
+    def test_perform_join_false_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            parse_uplink_forgery_config({"forgery_mode": "invalid_mic", "perform_join": False})
 
 
 # ── 2. Registry registration ──────────────────────────────────────────────────

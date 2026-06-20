@@ -75,3 +75,32 @@ class FrozenScopeValidationTests(unittest.TestCase):
         self.assertIsInstance(device.runtime.radio, Radio)
         assert device.runtime.radio is not None
         self.assertFalse(device.runtime.radio.supports_duty_cycle())
+
+    def test_unknown_top_level_field_rejected(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            self._load_mutated(lambda d: d.__setitem__("bogus", 1))
+        self.assertIn("bogus", str(ctx.exception))
+
+    def test_unknown_device_field_rejected(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            self._load_mutated(lambda d: d["device"].__setitem__("frobnicate", True))
+        self.assertIn("device.frobnicate", str(ctx.exception))
+
+    def test_unknown_target_field_rejected(self) -> None:
+        with self.assertRaises(ValueError) as ctx:
+            self._load_mutated(lambda d: d["target"].__setitem__("scheme", "tcp"))
+        self.assertIn("target.scheme", str(ctx.exception))
+
+
+class BundledScenarioTests(unittest.TestCase):
+    """Every bundled example scenario must load under strict validation."""
+
+    def test_all_examples_load(self) -> None:
+        examples_dir = Path(__file__).resolve().parents[1] / "examples" / "attacks"
+        files = sorted(examples_dir.glob("*.json"))
+        self.assertTrue(files, "no bundled example scenarios found")
+        for path in files:
+            with self.subTest(scenario=path.name):
+                scenario = load_attack_scenario(str(path))
+                self.assertEqual(scenario.device.region, "EU868")
+                self.assertEqual(scenario.target.transport, "semtech_udp")
