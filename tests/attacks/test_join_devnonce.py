@@ -209,7 +209,9 @@ class TestJoinDevNonceAttack(unittest.TestCase):
         result = attack.run(self.ctx)
 
         self.assertTrue(result.success)
-        final_call = attack._execute_join_step.call_args_list[-1]
+        final_call = next(
+            c for c in attack._execute_join_step.call_args_list if c.kwargs["phase"] == "final"
+        )
         self.assertEqual(final_call.kwargs["dev_nonce"], b"\x02\x00")
         self.assertEqual(final_call.kwargs["phase"], "final")
 
@@ -232,9 +234,10 @@ class TestJoinDevNonceAttack(unittest.TestCase):
         )
 
         self.assertTrue(result.success)
-        self.assertEqual(
-            attack._execute_join_step.call_args_list[-1].kwargs["dev_nonce"], b"\x09\x00"
+        final_call = next(
+            c for c in attack._execute_join_step.call_args_list if c.kwargs["phase"] == "final"
         )
+        self.assertEqual(final_call.kwargs["dev_nonce"], b"\x09\x00")
 
     def test_run_replay_first_uses_first_devnonce(self) -> None:
         attack = JoinDevNonceAttack()
@@ -256,9 +259,10 @@ class TestJoinDevNonceAttack(unittest.TestCase):
         )
 
         self.assertTrue(result.success)
-        self.assertEqual(
-            attack._execute_join_step.call_args_list[-1].kwargs["dev_nonce"], b"\x01\x00"
+        final_call = next(
+            c for c in attack._execute_join_step.call_args_list if c.kwargs["phase"] == "final"
         )
+        self.assertEqual(final_call.kwargs["dev_nonce"], b"\x01\x00")
 
     # --- Memory-depth scenario tests ---
 
@@ -328,7 +332,9 @@ class TestJoinDevNonceAttack(unittest.TestCase):
         ctx = replace(self.ctx, input=replace(self.ctx.input, typed_config=config))
         attack.run(ctx)
 
-        final_call = attack._execute_join_step.call_args_list[-1]
+        final_call = next(
+            c for c in attack._execute_join_step.call_args_list if c.kwargs["phase"] == "final"
+        )
         self.assertEqual(final_call.kwargs["dev_nonce"], b"\x02\x00")
 
     def test_lower_than_last_with_zero_devnonce_skips_final_check(self) -> None:
@@ -371,6 +377,87 @@ class TestJoinDevNonceAttack(unittest.TestCase):
         self.assertFalse(result.metrics["generation_partial"])
         self.assertTrue(result.metrics["final_check_executed"])
         self.assertNotIn("partial", result.message)
+
+    def test_rejected_final_with_control_ok_is_secure(self) -> None:
+        """Tested DevNonce rejected but a fresh control join accepted → SECURE."""
+        from lora_attack_toolkit.attacks.result import Confidence, SecurityVerdict
+
+        attack = JoinDevNonceAttack()
+
+        def fake_generation(ctx, config, timing, cache):
+            cache.store(_step(b"\x02\x00", accepted=True, ts=1.0))
+
+        def fake_step(ctx, config, timing, dev_nonce, attempt_index, phase):
+            # final (replayed DevNonce) rejected; control (fresh DevNonce) accepted
+            return _step(dev_nonce, accepted=(phase == "control"), ts=2.0)
+
+        attack._execute_generation_phase = Mock(side_effect=fake_generation)
+        attack._execute_join_step = Mock(side_effect=fake_step)
+
+        result = attack.run(self.ctx)
+
+        self.assertEqual(result.security_verdict, SecurityVerdict.SECURE)
+        self.assertEqual(result.confidence, Confidence.HIGH)
+        self.assertTrue(result.target_protected)
+        self.assertTrue(result.metrics["control_probe_executed"])
+        self.assertTrue(result.metrics["control_probe_accepted"])
+
+    def test_rejected_final_with_control_silent_is_inconclusive(self) -> None:
+        """Tested DevNonce and the control join both unanswered → INCONCLUSIVE."""
+        from lora_attack_toolkit.attacks.result import Confidence, SecurityVerdict
+
+        attack = JoinDevNonceAttack()
+
+        def fake_generation(ctx, config, timing, cache):
+            cache.store(_step(b"\x02\x00", accepted=True, ts=1.0))
+
+        attack._execute_generation_phase = Mock(side_effect=fake_generation)
+        # Every join step (final + control) is unanswered → target may be down.
+        attack._execute_join_step = Mock(
+            side_effect=lambda **kw: _step(kw["dev_nonce"], accepted=False, ts=2.0)
+        )
+
+        result = attack.run(self.ctx)
+
+        self.assertEqual(result.security_verdict, SecurityVerdict.INCONCLUSIVE)
+        self.assertEqual(result.confidence, Confidence.LOW)
+        self.assertIsNone(result.target_protected)
+        self.assertTrue(result.metrics["control_probe_executed"])
+        self.assertFalse(result.metrics["control_probe_accepted"])
+
+    def test_accepted_final_is_vulnerable_without_control(self) -> None:
+        """Tested DevNonce accepted → VULNERABLE; no control probe is sent."""
+        from lora_attack_toolkit.attacks.result import SecurityVerdict
+
+        attack = JoinDevNonceAttack()
+
+        def fake_generation(ctx, config, timing, cache):
+            cache.store(_step(b"\x02\x00", accepted=True, ts=1.0))
+
+        attack._execute_generation_phase = Mock(side_effect=fake_generation)
+        attack._execute_join_step = Mock(
+            side_effect=lambda **kw: _step(kw["dev_nonce"], accepted=True, ts=2.0)
+        )
+
+        result = attack.run(self.ctx)
+
+        self.assertEqual(result.security_verdict, SecurityVerdict.VULNERABLE)
+        self.assertFalse(result.target_protected)
+        self.assertFalse(result.metrics["control_probe_executed"])
+        # Only the final join step runs (no control phase).
+        phases = [c.kwargs["phase"] for c in attack._execute_join_step.call_args_list]
+        self.assertNotIn("control", phases)
+
+    def test_control_devnonce_is_fresh(self) -> None:
+        """The control probe must use a DevNonce not seen in generation or final."""
+        attack = JoinDevNonceAttack()
+        cache = DevNonceResultCache(max_size=10)
+        cache.store(_step(b"\x00\x00", accepted=True))
+        cache.store(_step(b"\x01\x00", accepted=True))
+        final_devnonce = b"\x02\x00"
+        control = attack._select_control_devnonce(cache, final_devnonce)
+        self.assertNotIn(control, cache.all_accepted_devnonces)
+        self.assertNotEqual(control, final_devnonce)
 
     def test_execute_join_step_sets_runtime_dev_nonce(self) -> None:
         """runtime.dev_nonce must be set before process_downlink is called."""

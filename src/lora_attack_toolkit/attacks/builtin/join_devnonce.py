@@ -232,6 +232,32 @@ class JoinDevNonceAttack(BaseAttack):
                     captured_packets=len(ctx.capture.uplinks) + len(ctx.capture.downlinks),
                 )
 
+            # Control probe: when the tested (replayed/invalid) DevNonce was
+            # rejected, a "no JoinAccept" result is only meaningful if the path
+            # and target are actually up. Send a known-valid JoinRequest with a
+            # guaranteed-fresh DevNonce as a control; its outcome gates the
+            # negative verdict so we never assert SECURE against a dead target.
+            control_executed = False
+            control_devnonce: bytes | None = None
+            control_accepted: bool | None = None
+            if not final_result.join_accepted and not ctx.cancel_event.is_set():
+                control_executed = True
+                control_devnonce = self._select_control_devnonce(generation_cache, final_devnonce)
+                inter_delay = ctx.timeout
+                if inter_delay > 0:
+                    self._sleep_until(
+                        ctx.clock, ctx.clock.monotonic() + inter_delay, ctx.cancel_event
+                    )
+                control_result = self._execute_join_step(
+                    ctx=ctx,
+                    config=config,
+                    timing=timing,
+                    dev_nonce=control_devnonce,
+                    attempt_index=config.valid_join_count + 2,
+                    phase="control",
+                )
+                control_accepted = control_result.join_accepted
+
             metrics = self._build_metrics(
                 config=config,
                 timing=timing,
@@ -244,6 +270,10 @@ class JoinDevNonceAttack(BaseAttack):
                 resolved_devnonce_start=resolved_start,
                 selection_meta=selection_meta,
             )
+            metrics["control_probe_executed"] = control_executed
+            if control_executed and control_devnonce is not None:
+                metrics["control_probe_devnonce"] = control_devnonce.hex()
+                metrics["control_probe_accepted"] = control_accepted
             ctx.capture.metadata["devnonce_validation"] = metrics
 
             prefix = (
@@ -253,21 +283,36 @@ class JoinDevNonceAttack(BaseAttack):
             )
             devnonce_int = int.from_bytes(final_devnonce, "little")
 
-            if final_result.join_accepted:
-                message = f"{prefix}Network Server accepted the final JoinRequest with DevNonce {devnonce_int}"
-            else:
-                message = f"{prefix}Network Server rejected the final JoinRequest with DevNonce {devnonce_int}"
-
-            # NS rejected the replay DevNonce → target is secure (protected against DevNonce replay)
-            # NS accepted the replay DevNonce → target is vulnerable
+            # Verdict gating:
+            #   accepted              → VULNERABLE (NS accepted the replayed DevNonce)
+            #   rejected + control ok → SECURE     (rejection is meaningful, path up)
+            #   rejected + control bad→ INCONCLUSIVE (target may be unreachable)
             if final_result.join_accepted:
                 sv = SecurityVerdict.VULNERABLE
                 protected = False
                 conf = Confidence.HIGH
-            else:
+                message = (
+                    f"{prefix}Network Server accepted the final JoinRequest "
+                    f"with DevNonce {devnonce_int}"
+                )
+            elif control_accepted:
                 sv = SecurityVerdict.SECURE
                 protected = True
                 conf = Confidence.HIGH
+                message = (
+                    f"{prefix}Network Server rejected the final JoinRequest with DevNonce "
+                    f"{devnonce_int}; control join (fresh DevNonce) was accepted, so the "
+                    f"rejection is meaningful"
+                )
+            else:
+                sv = SecurityVerdict.INCONCLUSIVE
+                protected = None
+                conf = Confidence.LOW
+                message = (
+                    f"{prefix}Network Server did not answer the final JoinRequest with DevNonce "
+                    f"{devnonce_int}; the control join (fresh DevNonce) was also unanswered, so "
+                    f"the target may be unreachable — result is inconclusive"
+                )
 
             return AttackResult(
                 attack_name=self.name,
@@ -539,6 +584,23 @@ class JoinDevNonceAttack(BaseAttack):
                 return True
 
         return False
+
+    def _select_control_devnonce(
+        self, cache: DevNonceResultCache, final_devnonce: bytes
+    ) -> bytes:
+        """Pick a guaranteed-fresh DevNonce for the control probe.
+
+        Returns the lowest 16-bit DevNonce that was neither accepted during the
+        generation phase nor used as the tested final DevNonce, so a reachable
+        Network Server is expected to answer it.
+        """
+        used = set(cache.all_accepted_devnonces)
+        used.add(final_devnonce)
+        for value in range(0x10000):
+            candidate = value.to_bytes(2, "little")
+            if candidate not in used:
+                return candidate
+        raise ValueError("No unused DevNonce available for the control probe")
 
     def _select_final_devnonce(
         self, config: "JoinDevNonceConfigV1", cache: DevNonceResultCache
