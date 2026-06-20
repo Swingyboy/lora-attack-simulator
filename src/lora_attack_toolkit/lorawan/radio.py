@@ -26,7 +26,6 @@ from __future__ import annotations
 import logging
 import math
 import re
-import time as _time
 from abc import ABC
 from dataclasses import dataclass
 from logging import Logger
@@ -377,39 +376,36 @@ class Radio:
     def select_join_channel(self, attempt_index: int, now: float | None = None) -> RadioTxParams:
         """Return TX parameters for the given JoinRequest attempt (0-based).
 
-        When *now* is provided and duty-cycle enforcement is active the method:
+        Channel selection is *read-only*: it never reserves airtime. When *now*
+        is provided and duty-cycle enforcement is active the method:
 
         1. Prefers the natural round-robin channel if available.
         2. Falls back to any other available channel.
-        3. Waits (sleeps) until the earliest channel becomes free if all are
-           busy, then returns that channel.
+        3. Returns the earliest-available channel if all are busy (without
+           blocking).
 
-        .. note::
-            The selected channel is reserved with a conservative
-            ``JOIN_REQUEST_SIZE_BYTES`` airtime estimate.  Callers with the
-            actual frame size may call :meth:`record_transmission` afterwards.
+        Airtime must be committed exactly once via :meth:`record_transmission`
+        after the JoinRequest is actually transmitted.
         """
         channels_hz = self._base_uplink_channels_hz  # join channels = base channels
         if now is None or not self.supports_duty_cycle():
             freq = channels_hz[attempt_index % len(channels_hz)]
             return RadioTxParams(freq, self._data_rate, self._tx_power)
-        return self._select_with_duty_cycle(
-            channels_hz, attempt_index, now, self._region.JOIN_REQUEST_SIZE_BYTES
-        )
+        return self._select_with_duty_cycle(channels_hz, attempt_index, now)
 
     def select_uplink_channel(self, uplink_index: int, now: float | None = None) -> RadioTxParams:
         """Return TX parameters for the given uplink (0-based).
 
-        Duty-cycle behaviour is identical to :meth:`select_join_channel`.
-        The conservative reservation uses ``MIN_UPLINK_SIZE_BYTES``.
+        Read-only duty-cycle behaviour is identical to
+        :meth:`select_join_channel`: selection never reserves airtime. Airtime
+        is committed once via :meth:`record_transmission` after the uplink is
+        transmitted.
         """
         channels_hz = self.get_active_uplink_channels()
         if now is None or not self.supports_duty_cycle():
             freq = channels_hz[uplink_index % len(channels_hz)]
             return RadioTxParams(freq, self._data_rate, self._tx_power)
-        return self._select_with_duty_cycle(
-            channels_hz, uplink_index, now, self._region.MIN_UPLINK_SIZE_BYTES
-        )
+        return self._select_with_duty_cycle(channels_hz, uplink_index, now)
 
     def get_next_uplink_channel(self) -> int:
         """Return the next uplink channel frequency (Hz) via round-robin.
@@ -783,14 +779,19 @@ class Radio:
         channels_hz: list[int],
         index: int,
         now: float,
-        payload_size: int,
     ) -> RadioTxParams:
-        """Select a channel honouring duty-cycle, then reserve it."""
+        """Select a channel honouring duty-cycle availability — *read-only*.
+
+        Channel selection is a pure decision and never reserves airtime: it
+        returns the preferred round-robin channel when it is currently
+        transmittable, otherwise the first other available channel, otherwise
+        the earliest-available channel. Airtime is committed exactly once by the
+        caller via :meth:`record_transmission` after the frame is actually sent.
+        """
         preferred = channels_hz[index % len(channels_hz)]
 
         if self.can_transmit(preferred, now):
             self._log_selected(preferred)
-            self._reserve(preferred, payload_size, now)
             return RadioTxParams(preferred, self._data_rate, self._tx_power)
 
         self._log_unavailable(preferred)
@@ -800,29 +801,17 @@ class Radio:
                 continue
             if self.can_transmit(freq, now):
                 self._log_selected(freq)
-                self._reserve(freq, payload_size, now)
                 return RadioTxParams(freq, self._data_rate, self._tx_power)
             self._log_unavailable(freq)
 
-        # All busy — wait for the earliest
+        # All channels busy: return the earliest-available one. Selection never
+        # blocks or reserves — the caller decides whether/when to transmit.
         earliest = min(
             channels_hz,
             key=lambda f: self.next_available_time(f, now),
         )
-        wait_sec = self.next_available_time(earliest, now) - now
-        if wait_sec > 0:
-            self._logger.info("Waiting %.1fs for next available channel", wait_sec)
-            _time.sleep(wait_sec)
-
-        actual_now = _time.monotonic()
         self._log_selected(earliest)
-        self._reserve(earliest, payload_size, actual_now)
         return RadioTxParams(earliest, self._data_rate, self._tx_power)
-
-    def _reserve(self, freq_hz: int, payload_size: int, now: float) -> None:
-        """Record a conservative transmission reservation for duty-cycle tracking."""
-        airtime = AirtimeCalculator.calculate(self._data_rate, payload_size)
-        self.record_transmission(freq_hz, airtime, now)
 
     def _log_selected(self, freq_hz: int) -> None:
         self._logger.debug("radio_channel_selected freq_hz=%d", freq_hz)

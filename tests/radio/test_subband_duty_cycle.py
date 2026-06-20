@@ -171,3 +171,53 @@ class TestHoppingAcrossSubbands:
         assert not radio.can_transmit(_CH_G1_C, now=1.0)
         # g3 untouched → free
         assert radio.can_transmit(_CH_G3, now=1.0)
+
+
+class TestSelectionIsReadOnly:
+    """Task 4: channel selection is side-effect-free; airtime is committed once."""
+
+    def test_uplink_selection_alone_reserves_nothing(self) -> None:
+        radio = _make_radio()
+        for i in range(5):
+            radio.select_uplink_channel(i, now=0.0)
+        # Selection must not mutate any duty-cycle state.
+        assert radio._subband_available_after == {}
+        assert radio._aggregate_available_after == 0.0
+        # Every base channel remains transmittable — nothing was reserved.
+        assert radio.can_transmit(_CH_G1_A, now=0.0)
+        assert radio.can_transmit(_CH_G1_B, now=0.0)
+        assert radio.can_transmit(_CH_G1_C, now=0.0)
+
+    def test_join_selection_alone_reserves_nothing(self) -> None:
+        radio = _make_radio()
+        for i in range(4):
+            radio.select_join_channel(i, now=0.0)
+        assert radio._subband_available_after == {}
+        assert radio._aggregate_available_after == 0.0
+
+    def test_selection_when_all_busy_does_not_block_or_reserve(self) -> None:
+        radio = _make_radio()
+        # Saturate the g1 sub-band so every base channel is busy.
+        radio.record_transmission(_CH_G1_A, airtime_sec=1.0, now=0.0)
+        busy_until = dict(radio._subband_available_after)
+        # Selecting while all channels are busy returns a channel without
+        # blocking and without further mutating reservation state.
+        tx = radio.select_uplink_channel(0, now=1.0)
+        assert tx.frequency_hz in (_CH_G1_A, _CH_G1_B, _CH_G1_C)
+        assert radio._subband_available_after == busy_until
+
+    def test_n_transmissions_reserve_exactly_n_budgets(self) -> None:
+        radio = _make_radio()
+        airtime = 0.05
+        dc = radio._get_duty_cycle(_CH_G1_A)
+        per_tx_cooldown = airtime / dc
+        # Commit N back-to-back transmissions on the same sub-band, each at the
+        # moment the previous cooldown expires. The total busy-until must equal
+        # exactly N airtime budgets — no double counting, no missed reservation.
+        now = 0.0
+        n = 4
+        for _ in range(n):
+            radio.record_transmission(_CH_G1_A, airtime_sec=airtime, now=now)
+            now = radio.next_available_time(_CH_G1_A, now=now)
+        key = radio._get_subband_key(_CH_G1_A)
+        assert radio._subband_available_after[key] == pytest.approx(n * per_tx_cooldown)

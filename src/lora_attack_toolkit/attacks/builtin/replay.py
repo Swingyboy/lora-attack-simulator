@@ -253,6 +253,7 @@ class UplinkReplayAttack(BaseAttack):
             radio_meta = _select_radio_for_uplink(ctx, current_fcnt)
             tx_mono = ctx.clock.monotonic()
             ctx.gateway.forward_uplink(frame, radio_meta)
+            ctx.device.record_uplink_airtime(radio_meta, len(frame), tx_mono)
             ctx.capture.capture_uplink(
                 phy_payload=frame,
                 fcnt=current_fcnt,
@@ -318,6 +319,7 @@ class UplinkReplayAttack(BaseAttack):
         tx_mono = ctx.clock.monotonic()
         tx_gps = ctx.clock.gps_time()
         ctx.gateway.forward_uplink(frame, probe_radio)
+        ctx.device.record_uplink_airtime(probe_radio, len(frame), tx_mono)
         fcnt_captured = ctx.device.runtime.fcnt_up - 1  # == capture_fcnt
         ctx.capture.capture_uplink(
             phy_payload=frame,
@@ -360,6 +362,9 @@ class UplinkReplayAttack(BaseAttack):
                     tx_mono = ctx.clock.monotonic()
                     tx_gps = ctx.clock.gps_time()
                     ctx.gateway.forward_uplink(captured.phy_payload, replay_radio)
+                    ctx.device.record_uplink_airtime(
+                        replay_radio, len(captured.phy_payload), tx_mono
+                    )
                 replay_tx.append(
                     ReplayTxRecord(
                         monotonic_time=tx_mono,
@@ -401,6 +406,7 @@ class UplinkReplayAttack(BaseAttack):
                     tx_mono = ctx.clock.monotonic()
                     tx_gps = ctx.clock.gps_time()
                     ctx.gateway.forward_uplink(frame, normal_radio)
+                    ctx.device.record_uplink_airtime(normal_radio, len(frame), tx_mono)
                 fcnt = ctx.device.runtime.fcnt_up - 1
                 valid_tx.append(
                     ValidUplinkRecord(

@@ -342,6 +342,7 @@ class UplinkForgeryAttack(BaseAttack):
             )
             radio = ctx.device.select_uplink_radio(fcnt, ctx.radio)
             ctx.gateway.forward_uplink(frame, radio)
+            ctx.device.record_uplink_airtime(radio, len(frame), ctx.clock.monotonic())
             ctx.capture.capture_uplink(phy_payload=frame, fcnt=fcnt, packet_type="data_up")
             ctx.logger.info(
                 "uplink_forgery_baseline_uplink_sent index=%d fcnt=%d freq_hz=%d",
@@ -455,6 +456,7 @@ class UplinkForgeryAttack(BaseAttack):
         tx_time = ctx.clock.unix_time()
         tx_mono = ctx.clock.monotonic()
         ctx.gateway.forward_uplink(frame, radio)
+        ctx.device.record_uplink_airtime(radio, len(frame), tx_mono)
         ctx.capture.capture_uplink(phy_payload=frame, fcnt=fcnt_used, packet_type="data_up")
 
         ctx.logger.info(
@@ -554,6 +556,7 @@ class UplinkForgeryAttack(BaseAttack):
         radio = ctx.device.select_uplink_radio(fcnt, ctx.radio)
         tx_mono = ctx.clock.monotonic()
         ctx.gateway.forward_uplink(frame, radio)
+        ctx.device.record_uplink_airtime(radio, len(frame), tx_mono)
         ctx.capture.capture_uplink(phy_payload=frame, fcnt=fcnt, packet_type="data_up")
         ctx.logger.info("uplink_forgery_control_probe_sent fcnt=%d freq_hz=%d", fcnt, radio.frequency)
 
@@ -617,6 +620,7 @@ class UplinkForgeryAttack(BaseAttack):
             )
             radio = ctx.device.select_uplink_radio(fcnt, ctx.radio)
             ctx.gateway.forward_uplink(frame, radio)
+            ctx.device.record_uplink_airtime(radio, len(frame), ctx.clock.monotonic())
             ctx.capture.capture_uplink(phy_payload=frame, fcnt=fcnt, packet_type="data_up")
             ctx.logger.info(
                 "uplink_forgery_verification_uplink_sent index=%d fcnt=%d freq_hz=%d",

@@ -28,7 +28,12 @@ from lora_attack_toolkit.lorawan.mac_commands import (
     CID_RX_TIMING_SETUP_REQ,
     MACCommand,
 )
-from lora_attack_toolkit.lorawan.radio import EU868RegionProfile, Radio, RegionProfile
+from lora_attack_toolkit.lorawan.radio import (
+    AirtimeCalculator,
+    EU868RegionProfile,
+    Radio,
+    RegionProfile,
+)
 
 if TYPE_CHECKING:
     from lora_attack_toolkit.config import RadioMetadata
@@ -256,6 +261,31 @@ class SimulatedDevice:
             rssi=fallback.rssi,
             snr=fallback.snr,
         )
+
+    def record_uplink_airtime(
+        self,
+        radio: "RadioMetadata",
+        frame_len: int,
+        now: float,
+    ) -> None:
+        """Commit airtime for one transmitted uplink — the single duty-cycle write.
+
+        Channel selection (:meth:`select_uplink_radio`) is side-effect-free, so
+        this is the only place attack code reserves airtime. It must be called
+        exactly once after each uplink is actually forwarded, so attacks do not
+        bypass duty-cycle enforcement. No-op unless a duty-cycle-enforcing
+        :class:`Radio` is configured (so unit-test mocks are unaffected).
+
+        Args:
+            radio: :class:`RadioMetadata` of the frame that was transmitted
+                (provides frequency and data-rate for the airtime estimate).
+            frame_len: Length in bytes of the transmitted PHYPayload.
+            now: Monotonic timestamp of the transmission (``ctx.clock.monotonic()``).
+        """
+        radio_obj = self.runtime.radio
+        if isinstance(radio_obj, Radio) and radio_obj.supports_duty_cycle():
+            airtime = AirtimeCalculator.calculate(radio.data_rate, frame_len)
+            radio_obj.record_transmission(radio.frequency, airtime, now)
 
     def validate_downlink(self, phy_payload: bytes) -> dict[str, Any]:
         """Validate a received downlink frame without mutating device state.

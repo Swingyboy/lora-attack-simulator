@@ -217,13 +217,8 @@ def send_periodic_uplinks(
 
             gateway.forward_uplink(uplink, uplink_radio)
 
-            # Record actual airtime so Radio can enforce duty-cycle correctly.
-            if (
-                isinstance(device.runtime.radio, Radio)
-                and device.runtime.radio.supports_duty_cycle()
-            ):
-                airtime = AirtimeCalculator.calculate(uplink_radio.data_rate, len(uplink))
-                device.runtime.radio.record_transmission(uplink_radio.frequency, airtime, now)
+            # Commit airtime exactly once (selection above is read-only).
+            device.record_uplink_airtime(uplink_radio, len(uplink), now)
 
             device.runtime.uplink_index += 1
             sent_count += 1

@@ -467,6 +467,7 @@ class JoinDevNonceAttack(BaseAttack):
         )
 
         ctx.gateway.forward_uplink(join_request, radio)
+        ctx.device.record_uplink_airtime(radio, len(join_request), ctx.clock.monotonic())
         ctx.capture.capture_uplink(
             phy_payload=join_request,
             packet_type="join_request",
