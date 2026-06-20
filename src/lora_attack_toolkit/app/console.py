@@ -127,7 +127,7 @@ class LoRaWANConsole(cmd2.Cmd):
 
         Usage:
             show scenarios             - List all available attack scenarios
-            show scenarios <category>  - Filter by category (replay, join_devnonce, mac_abuse)
+            show scenarios <category>  - Filter by category (replay, join_devnonce, forgery)
             show options              - Show current scenario parameters (requires active scenario)
             show options verbose      - Show extended metadata for each parameter
             show logging              - Show current logging configuration
@@ -189,7 +189,7 @@ class LoRaWANConsole(cmd2.Cmd):
             scenarios = [s for s in scenarios if s.category == category_filter]
             if not scenarios:
                 print(f"No scenarios found for category: {category_filter}")
-                print("Available categories: replay, join_devnonce, mac_abuse")
+                print("Available categories: replay, join_devnonce, forgery")
                 return
 
         print("\nAvailable Attack Scenarios:")

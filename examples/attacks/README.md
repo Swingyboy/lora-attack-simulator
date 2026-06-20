@@ -76,11 +76,6 @@ Attack metadata (id, title, category) is resolved internally from the registry â
 - **Validation profile**: `lorawan_uplink_replay_protection`
 - **Description**: Captures a legitimate uplink then replays it to test frame counter validation.
 
-### mac-link-adr-v1.json
-- **Attack type**: `mac_command_injection`
-- **Validation profile**: `lorawan_mac_command_validation`
-- **Description**: Injects a LinkADRReq MAC command to test ADR parameter handling.
-
 ---
 
 ## Running Scenarios

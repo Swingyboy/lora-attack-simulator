@@ -9,13 +9,11 @@ from __future__ import annotations
 import logging
 
 from lora_attack_toolkit.attacks.builtin.join_devnonce import JoinDevNonceAttack
-from lora_attack_toolkit.attacks.builtin.mac_abuse import MACCommandAbuse
 from lora_attack_toolkit.attacks.builtin.replay import UplinkReplayAttack
 from lora_attack_toolkit.attacks.builtin.uplink_forgery import UplinkForgeryAttack
 from lora_attack_toolkit.attacks.registry import AttackRegistry, AttackSpec
 from lora_attack_toolkit.config import (
     parse_join_devnonce_config,
-    parse_mac_command_config,
     parse_replay_config,
     parse_uplink_forgery_config,
 )
@@ -79,19 +77,11 @@ def register_builtin_attacks() -> None:
         )
     )
 
-    # MAC Command Injection/Abuse
-    _register_builtin(
-        AttackSpec(
-            name="mac_command_injection",
-            attack_class=MACCommandAbuse,
-            config_parser=parse_mac_command_config,
-            aliases=["mac_malformed"],
-            title="MAC Command Injection",
-            category="mac_abuse",
-            attack_id="mac-command-injection-v1",
-            description="Inject legitimate or malformed MAC commands",
-        )
-    )
+    # MAC Command Injection/Abuse — DESIGNED BUT NOT SHIPPED.
+    # Excluded from the registered attack set because, within the current scope,
+    # it cannot demonstrate a valid threat model (it never transmits an
+    # authenticated frame nor validates a target response). The implementation
+    # is retained under lora_attack_toolkit.experimental for documentation only.
 
     # Uplink Forgery Attack
     _register_builtin(

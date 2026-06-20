@@ -137,31 +137,14 @@ Tests frame counter validation:
 }
 ```
 
-### MAC Command Abuse
+### MAC Command Abuse (designed, not shipped)
 
-Tests MAC command handling:
-
-```json
-{
-  "scenario": {
-    "timeout_sec": 30
-  },
-  "attack": {
-    "type": "mac_command_injection",
-    "config": {
-      "command_type": "LinkADRReq",
-      "malformed": false,
-      "parameters": {
-        "data_rate": 5,
-        "tx_power": 2
-      }
-    }
-  },
-  "expected": {
-    "profile": "lorawan_mac_command_validation"
-  }
-}
-```
+> **Not part of the shipped attack set.** A MAC-command abuse attack was designed
+> but excluded because, within the current scope (simulated device + Network
+> Server under test over Semtech UDP), it could not demonstrate a valid threat
+> model: it never transmits an authenticated frame nor validates a target
+> response. The prototype implementation is retained under
+> `lora_attack_toolkit.experimental` for documentation and future work only.
 
 ## Writing Custom Attacks
 

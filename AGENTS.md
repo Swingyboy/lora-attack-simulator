@@ -73,7 +73,6 @@ src/lora_attack_toolkit/
 │   └── builtin/             # Concrete attack implementations
 │       ├── join_devnonce.py
 │       ├── replay.py
-│       ├── mac_abuse.py
 │       └── uplink_forgery.py
 │
 ├── runtime/                 # Device and gateway simulators
@@ -204,10 +203,13 @@ belongs in `device/`, `lorawan/`, or `radio/`.
 |------|------|----------|-------------|
 | `join_devnonce` | `builtin/join_devnonce.py` | `join_devnonce` | DevNonce replay and monotonicity validation |
 | `uplink_replay` | `builtin/replay.py` | `replay` | Capture and retransmit a valid uplink frame |
-| `mac_command_injection` | `builtin/mac_abuse.py` | `mac_abuse` | Inject legitimate or malformed MAC commands |
 | `uplink_forgery` | `builtin/uplink_forgery.py` | `forgery` | Forged uplinks with manipulated MIC, FCnt, DevAddr |
 
-Aliases: `mac_command_injection` is also registered as `mac_malformed`.
+> `mac_command_injection` was **designed but not shipped** (see
+> `experimental/mac_abuse.py`). It is not registered and has no example
+> scenario, because within the current scope it cannot demonstrate a valid
+> threat model (no authenticated frame is transmitted and no target response is
+> validated).
 
 ---
 
