@@ -499,7 +499,22 @@ class TestGpsTimeCorrelation(unittest.TestCase):
         )
         self.assertEqual(verdict, ReplayVerdict.POSSIBLE_VULNERABILITY)
 
-    def test_analyze_enhanced_gps_match_increases_metrics(self) -> None:
+    def test_ambiguous_verdict_maps_to_inconclusive(self) -> None:
+        """Item 4: weak-only (ambiguous) correlation must not assert a vulnerability."""
+        from lora_attack_toolkit.attacks.builtin.replay import _replay_verdict_to_security
+        from lora_attack_toolkit.attacks.result import SecurityVerdict
+
+        sv, _conf, protected = _replay_verdict_to_security(ReplayVerdict.POSSIBLE_VULNERABILITY)
+        self.assertEqual(sv, SecurityVerdict.INCONCLUSIVE)
+        self.assertIsNone(protected)
+
+    def test_strong_match_maps_to_vulnerable(self) -> None:
+        from lora_attack_toolkit.attacks.builtin.replay import _replay_verdict_to_security
+        from lora_attack_toolkit.attacks.result import SecurityVerdict
+
+        sv, _conf, protected = _replay_verdict_to_security(ReplayVerdict.VULNERABLE)
+        self.assertEqual(sv, SecurityVerdict.VULNERABLE)
+        self.assertFalse(protected)
         """_analyze_enhanced counts GPS replay matches in metrics."""
         now = time.monotonic()
         gps_now = time.time()

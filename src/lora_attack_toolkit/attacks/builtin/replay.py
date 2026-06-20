@@ -130,13 +130,19 @@ def _determine_verdict(
 def _replay_verdict_to_security(
     verdict: ReplayVerdict,
 ) -> tuple[SecurityVerdict, Confidence, bool | None]:
-    """Map a ReplayVerdict to (SecurityVerdict, Confidence, target_protected)."""
+    """Map a ReplayVerdict to (SecurityVerdict, Confidence, target_protected).
+
+    A VULNERABLE verdict requires a response *strongly* attributable to the
+    replayed PHYPayload (RX-window AND GPS match, with no normal uplink also
+    matching). Ambiguous (weak-only) correlations are reported as INCONCLUSIVE
+    rather than asserting a vulnerability on unattributable evidence.
+    """
     mapping: dict[ReplayVerdict, tuple[SecurityVerdict, Confidence, bool | None]] = {
         ReplayVerdict.PROTECTED: (SecurityVerdict.SECURE, Confidence.HIGH, True),
         ReplayVerdict.POSSIBLE_VULNERABILITY: (
-            SecurityVerdict.VULNERABLE,
-            Confidence.MEDIUM,
-            False,
+            SecurityVerdict.INCONCLUSIVE,
+            Confidence.LOW,
+            None,
         ),
         ReplayVerdict.VULNERABLE: (SecurityVerdict.VULNERABLE, Confidence.HIGH, False),
         ReplayVerdict.INCONCLUSIVE: (SecurityVerdict.INCONCLUSIVE, Confidence.LOW, None),
@@ -563,7 +569,6 @@ class UplinkReplayAttack(BaseAttack):
         strong_replay_matches = 0
         weak_replay_matches = 0
         device_time_answers = 0
-        downlinks_decodable = True
         probe_received_dt_ans = False
 
         # Check probe's own RX window for DeviceTimeAns
@@ -581,12 +586,6 @@ class UplinkReplayAttack(BaseAttack):
         for dl in downlink_rx:
             if dl.device_time_ans is not None:
                 device_time_answers += 1
-
-            # Try to decode; flag if a downlink payload is non-empty but unparseable
-            if dl.raw_payload and not dl.decoded_mac_commands and dl.device_time_ans is None:
-                # Non-empty but nothing decoded — mark as non-decodable for this record
-                # (we still continue; overall decodable flag stays True unless zero parsed)
-                pass
 
             rx_replay_match = False
             gps_replay_match = False
@@ -621,6 +620,23 @@ class UplinkReplayAttack(BaseAttack):
         # Conservative: assume only the probe triggers one
         expected_normal_answers = 1
 
+        # Derive evidence-quality flags from observations rather than assuming
+        # them (Item 4: no hard-coded gps_available / downlinks_decodable).
+        non_empty_downlinks = [dl for dl in downlink_rx if dl.raw_payload]
+        undecodable_downlinks = [
+            dl
+            for dl in non_empty_downlinks
+            if not dl.decoded_mac_commands and dl.device_time_ans is None
+        ]
+        # If downlinks arrived but none of them could be decoded, the evidence
+        # is untrustworthy and the result must be inconclusive.
+        downlinks_decodable = not (
+            non_empty_downlinks and len(undecodable_downlinks) == len(non_empty_downlinks)
+        )
+        # GPS correlation is only available when the target actually answered
+        # with a DeviceTimeAns carrying a GPS timestamp.
+        gps_available = device_time_answers > 0
+
         verdict = _determine_verdict(
             strong_matches=strong_replay_matches,
             weak_matches=weak_replay_matches,
@@ -628,7 +644,7 @@ class UplinkReplayAttack(BaseAttack):
             expected_normal_answers=expected_normal_answers,
             probe_received_device_time_ans=probe_received_dt_ans,
             downlinks_decodable=downlinks_decodable,
-            gps_available=True,
+            gps_available=gps_available,
         )
 
         ctx.logger.info("ignored_pre_probe_downlink count=0")
@@ -668,6 +684,8 @@ class UplinkReplayAttack(BaseAttack):
             ),
             "strong_replay_matches": strong_replay_matches,
             "weak_replay_matches": weak_replay_matches,
+            "downlinks_decodable": downlinks_decodable,
+            "gps_available": gps_available,
             "verdict": verdict.value,
         }
 
