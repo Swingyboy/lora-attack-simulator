@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import unittest
 
-from lora_attack_toolkit.transport.errors import (
+import pytest
 
+from lora_attack_toolkit.transport.errors import (
     DnsResolutionError,
     RemoteResetError,
     TemporaryNetworkError,
@@ -14,7 +15,6 @@ from lora_attack_toolkit.transport.errors import (
     TransportTemporaryError,
     TransportUnavailableError,
 )
-import pytest
 
 pytestmark = pytest.mark.unit
 

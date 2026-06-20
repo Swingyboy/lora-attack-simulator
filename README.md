@@ -158,20 +158,20 @@ from lora_attack_toolkit.attacks.result import AttackResult
 
 class CustomAttack(BaseAttack):
     name = "custom_attack"
-    
+
     def run(self, ctx):
         """Execute attack using context services."""
         config = ctx.config
-        
+
         ctx.gateway.start()
         ctx.logger.info("Starting custom attack")
-        
+
         uplink = ctx.device.build_data_uplink(...)
         ctx.gateway.forward_uplink(uplink, ctx.radio)
         ctx.capture.capture_uplink(uplink, ...)
-        
+
         ctx.gateway.stop()
-        
+
         return AttackResult(
             attack_name=self.name,
             attack_type="custom",
@@ -263,7 +263,7 @@ AttackRegistry.register(
 
 `timeout_sec` controls the wait interval between consecutive messages:
 - JoinRequest → JoinRequest
-- JoinRequest → Uplink  
+- JoinRequest → Uplink
 - Uplink → Uplink
 
 ### Validation Profiles
@@ -394,6 +394,6 @@ LoRAT is intended for authorized security testing only. Users are responsible fo
 
 ---
 
-**Version**: 0.2.0  
-**Status**: Active Development  
+**Version**: 0.2.0
+**Status**: Active Development
 **Maintainer**: [@Swingyboy](https://github.com/Swingyboy)

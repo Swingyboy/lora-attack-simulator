@@ -7,6 +7,9 @@ from dataclasses import replace
 from logging import getLogger
 from unittest.mock import MagicMock, Mock
 
+import pytest
+
+from lora_attack_toolkit.attacks.bootstrap import register_builtin_attacks
 from lora_attack_toolkit.attacks.builtin.join_devnonce import (
     DevNonceResultCache,
     JoinDevNonceAttack,
@@ -15,13 +18,14 @@ from lora_attack_toolkit.attacks.builtin.join_devnonce import (
 from lora_attack_toolkit.attacks.context import AttackContext, AttackInput, AttackServices
 from lora_attack_toolkit.attacks.packet_capture import PacketCapture
 from lora_attack_toolkit.attacks.registry import AttackRegistry
-from lora_attack_toolkit.attacks.bootstrap import register_builtin_attacks
-from lora_attack_toolkit.config import RadioMetadata
-from lora_attack_toolkit.config import JoinDevNonceConfigV1, parse_join_devnonce_config
+from lora_attack_toolkit.config import (
+    JoinDevNonceConfigV1,
+    RadioMetadata,
+    parse_join_devnonce_config,
+)
+from lora_attack_toolkit.lorawan.time_utils import FakeClock
 from lora_attack_toolkit.runtime.device import DownlinkResult, SimulatedDevice
 from lora_attack_toolkit.runtime.gateway import GatewaySimulator
-from lora_attack_toolkit.lorawan.time_utils import FakeClock
-import pytest
 
 pytestmark = pytest.mark.unit
 
@@ -694,6 +698,7 @@ class TestDevNonceGeneration(unittest.TestCase):
         )
 
         import random as _random
+
         expected_start = _random.Random(42).randint(0, 0xFFFF)
 
         def fake_generation(ctx, cfg, timing, cache):

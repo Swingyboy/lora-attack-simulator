@@ -56,7 +56,7 @@ A scenario file describes everything needed to execute one attack:
 }
 ```
 
-**`scenario.timeout_sec`** is the only pacing parameter.  
+**`scenario.timeout_sec`** is the only pacing parameter.
 It controls the wait interval between consecutive messages (JoinRequest→JoinRequest, JoinAccept→Uplink, Uplink→Uplink).
 
 Attack metadata (id, title, category) is resolved internally from the registry — it does not belong in the scenario file.
@@ -68,7 +68,7 @@ Attack metadata (id, title, category) is resolved internally from the registry �
 ### join-devnonce-v1.json
 - **Attack type**: `join_devnonce`
 - **Validation profile**: `lorawan_1_0_3_devnonce_validation`
-- **Description**: Validates DevNonce replay and rollback protection.  
+- **Description**: Validates DevNonce replay and rollback protection.
   Sends N valid JoinRequests then attempts a disallowed final DevNonce.
 
 ### uplink-replay-v1.json

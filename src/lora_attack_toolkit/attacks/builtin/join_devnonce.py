@@ -193,9 +193,7 @@ class JoinDevNonceAttack(BaseAttack):
                 ctx.logger.debug(
                     "Inter-message delay: %.1fs before final DevNonce check", inter_delay
                 )
-                self._sleep_until(
-                    ctx.clock, ctx.clock.monotonic() + inter_delay, ctx.cancel_event
-                )
+                self._sleep_until(ctx.clock, ctx.clock.monotonic() + inter_delay, ctx.cancel_event)
 
             final_result = self._execute_join_step(
                 ctx=ctx,
@@ -536,9 +534,7 @@ class JoinDevNonceAttack(BaseAttack):
         for window_name, window_start_offset, window_size in windows:
             if ctx.cancel_event.is_set():
                 return False
-            if not self._sleep_until(
-                ctx.clock, start + window_start_offset, ctx.cancel_event
-            ):
+            if not self._sleep_until(ctx.clock, start + window_start_offset, ctx.cancel_event):
                 return False
             window_deadline = start + window_start_offset + window_size
 
@@ -589,9 +585,7 @@ class JoinDevNonceAttack(BaseAttack):
 
         return False
 
-    def _select_control_devnonce(
-        self, cache: DevNonceResultCache, final_devnonce: bytes
-    ) -> bytes:
+    def _select_control_devnonce(self, cache: DevNonceResultCache, final_devnonce: bytes) -> bytes:
         """Pick a guaranteed-fresh DevNonce for the control probe.
 
         Returns the lowest 16-bit DevNonce that was neither accepted during the

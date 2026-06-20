@@ -4,21 +4,19 @@ from __future__ import annotations
 
 import logging
 import unittest
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock
+
+import pytest
 
 from lora_attack_toolkit.transport.errors import (
     DnsResolutionError,
     TemporaryNetworkError,
     TransportPermanentError,
-    TransportUnavailableError,
 )
 from lora_attack_toolkit.transport.resilient import ResilientTransport
 from lora_attack_toolkit.transport.retry import RetryPolicy
-import pytest
 
 pytestmark = pytest.mark.unit
-
-
 
 
 def _make_transport(**kwargs):

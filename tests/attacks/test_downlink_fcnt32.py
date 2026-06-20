@@ -5,9 +5,10 @@ from __future__ import annotations
 import struct
 import unittest
 
+import pytest
+
 from lora_attack_toolkit.lorawan.crypto import data_mic
 from lora_attack_toolkit.runtime.device import SimulatedDevice
-import pytest
 
 pytestmark = pytest.mark.unit
 
@@ -48,7 +49,9 @@ class TestDownlinkFCnt32(unittest.TestCase):
         device = _make_device()
         device.runtime.fcnt_down = 0x0000FFFE
 
-        result = device.process_downlink(_build_downlink(device, wire_fcnt=0x0001, mic_fcnt=0x00010001))
+        result = device.process_downlink(
+            _build_downlink(device, wire_fcnt=0x0001, mic_fcnt=0x00010001)
+        )
 
         self.assertTrue(result.accepted)
         self.assertEqual(result.fcnt_32, 0x00010001)
@@ -58,7 +61,9 @@ class TestDownlinkFCnt32(unittest.TestCase):
         device = _make_device()
         device.runtime.fcnt_down = 0x00010005
 
-        result = device.process_downlink(_build_downlink(device, wire_fcnt=0x0005, mic_fcnt=0x00010005))
+        result = device.process_downlink(
+            _build_downlink(device, wire_fcnt=0x0005, mic_fcnt=0x00010005)
+        )
 
         self.assertFalse(result.accepted)
         self.assertFalse(result.fcnt_ok)

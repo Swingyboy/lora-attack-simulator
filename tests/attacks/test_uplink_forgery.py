@@ -16,7 +16,10 @@ import json
 import unittest
 from logging import getLogger
 from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
+
+import pytest
 
 from lora_attack_toolkit.attacks.builtin.uplink_forgery import (
     ForgeryEvidence,
@@ -31,16 +34,18 @@ from lora_attack_toolkit.attacks.context import AttackContext, AttackInput, Atta
 from lora_attack_toolkit.attacks.packet_capture import PacketCapture
 from lora_attack_toolkit.attacks.registry import AttackRegistry
 from lora_attack_toolkit.config import (
-    RadioMetadata,
     UPLINK_FORGERY_MAC_COMMANDS,
     UPLINK_FORGERY_MODES,
+    RadioMetadata,
     UplinkForgeryConfigV1,
     load_attack_scenario,
     parse_uplink_forgery_config,
 )
 from lora_attack_toolkit.lorawan.frames import build_unconfirmed_data_up
 from lora_attack_toolkit.lorawan.time_utils import FakeClock
-import pytest
+
+if TYPE_CHECKING:
+    from lora_attack_toolkit.attacks.result import AttackResult
 
 pytestmark = pytest.mark.unit
 
@@ -510,8 +515,7 @@ class TestDetermineVerdict(unittest.TestCase):
 
 
 class TestUplinkForgeryAttackRun(unittest.TestCase):
-    def _run_mode(self, mode: str, **kw) -> AttackResult:  # type: ignore[name-defined]
-        from lora_attack_toolkit.attacks.result import AttackResult
+    def _run_mode(self, mode: str, **kw) -> AttackResult:
 
         cfg = _cfg(forgery_mode=mode, **kw)
         ctx = _make_ctx(cfg)
@@ -617,7 +621,8 @@ class TestForgeryAttributionWiring(unittest.TestCase):
         )
         evidence = self._evidence(ctx, tx_offset=1.0)  # rx_mono is 1.0s after tx → RX1 window
         total, attributable, unattributable = UplinkForgeryAttack()._drain_and_attribute(
-            ctx, evidence  # type: ignore[arg-type]
+            ctx,
+            evidence,  # type: ignore[arg-type]
         )
         self.assertEqual((total, attributable, unattributable), (1, 1, 0))
 
@@ -628,7 +633,8 @@ class TestForgeryAttributionWiring(unittest.TestCase):
         )
         evidence = self._evidence(ctx, tx_offset=20.0)  # far outside any RX window
         total, attributable, unattributable = UplinkForgeryAttack()._drain_and_attribute(
-            ctx, evidence  # type: ignore[arg-type]
+            ctx,
+            evidence,  # type: ignore[arg-type]
         )
         self.assertEqual((total, attributable, unattributable), (1, 0, 1))
 
@@ -639,7 +645,8 @@ class TestForgeryAttributionWiring(unittest.TestCase):
         )
         evidence = self._evidence(ctx, tx_offset=1.0)
         total, attributable, unattributable = UplinkForgeryAttack()._drain_and_attribute(
-            ctx, evidence  # type: ignore[arg-type]
+            ctx,
+            evidence,  # type: ignore[arg-type]
         )
         self.assertEqual((total, attributable, unattributable), (1, 0, 1))
 
@@ -686,6 +693,7 @@ class TestRegressionUplinkReplay(unittest.TestCase):
     def test_replay_channel_selection_uses_device_layer(self) -> None:
         """_select_radio_for_uplink in replay.py must call device.select_uplink_radio."""
         from lora_attack_toolkit.attacks.builtin.replay import _select_radio_for_uplink
+
         device = MagicMock()
         radio = _radio()
         device.select_uplink_radio.return_value = radio

@@ -6,7 +6,10 @@ import threading
 import time
 import unittest
 from logging import getLogger
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from lora_attack_toolkit.attacks.builtin.replay import (
     CapturedUplinkRecord,
@@ -14,19 +17,17 @@ from lora_attack_toolkit.attacks.builtin.replay import (
     ReplayTxRecord,
     ReplayVerdict,
     UplinkReplayAttack,
-    ValidUplinkRecord,
     _determine_verdict,
     _gps_match,
     _in_rx_window,
 )
 from lora_attack_toolkit.attacks.context import AttackContext, AttackInput, AttackServices
-from lora_attack_toolkit.attacks.packet_capture import CapturedPacket, PacketCapture
+from lora_attack_toolkit.attacks.packet_capture import PacketCapture
 from lora_attack_toolkit.config import (
     RadioMetadata,
     UplinkReplayConfigV1,
     parse_replay_config,
 )
-from lora_attack_toolkit.lorawan.time_utils import FakeClock
 from lora_attack_toolkit.lorawan.mac_commands import (
     CID_DEVICE_TIME_ANS,
     DeviceTimeAnsData,
@@ -35,8 +36,11 @@ from lora_attack_toolkit.lorawan.mac_commands import (
     decode_device_time_ans,
     encode_mac_commands,
 )
+from lora_attack_toolkit.lorawan.time_utils import FakeClock
 from lora_attack_toolkit.runtime.device import DownlinkResult
-import pytest
+
+if TYPE_CHECKING:
+    from lora_attack_toolkit.runtime.device import SimulatedDevice
 
 pytestmark = pytest.mark.unit
 
@@ -287,7 +291,6 @@ class TestUplinkInterval(unittest.TestCase):
 
     def test_uplink_interval_between_verification_uplinks(self) -> None:
         interval = 0.1
-        normal_ts: list[float] = []
 
         cfg = _cfg(
             capture_fcnt=0,
@@ -301,7 +304,6 @@ class TestUplinkInterval(unittest.TestCase):
         # Track build_data_uplink calls as proxy for normal uplink timing.
         # Record the fake clock so the verification-uplink gaps are exactly
         # `interval` (the attack paces them via ctx.clock.sleep(interval)).
-        original_side = ctx.device.build_data_uplink.side_effect
         _fcnt = [0]
         sent: list[tuple[float, bytes]] = []
 
@@ -408,8 +410,8 @@ class TestDeviceTimeAnsDecoding(unittest.TestCase):
         This is a regression test for the fcnt= / fcnt_up= keyword mismatch
         that caused a silent TypeError and made dt_ans always 0.
         """
-        from lora_attack_toolkit.runtime.device import SimulatedDevice
         from lora_attack_toolkit.lorawan.crypto import data_mic as _data_mic
+        from lora_attack_toolkit.runtime.device import SimulatedDevice
 
         nwk_s_key = b"\x10" * 16
         dev_addr_le = b"\xaa\xbb\xcc\xdd"
@@ -812,7 +814,6 @@ class TestChannelRotation(unittest.TestCase):
 
     def test_falls_back_to_ctx_radio_when_no_radio_object(self) -> None:
         """When device has no Radio, select_uplink_radio returns the fallback unchanged."""
-        from lora_attack_toolkit.attacks.builtin.replay import _select_radio_for_uplink
 
         cfg = _cfg()
         ctx = _make_ctx(cfg)
@@ -826,7 +827,7 @@ class TestChannelRotation(unittest.TestCase):
 
     def test_uses_radio_select_uplink_channel_when_real_radio(self) -> None:
         """When device has a real Radio, select_uplink_radio uses it for channel selection."""
-        from lora_attack_toolkit.lorawan.radio import Radio, EU868RegionProfile
+        from lora_attack_toolkit.lorawan.radio import EU868RegionProfile, Radio
 
         radio_fallback = _radio()
 
@@ -843,7 +844,7 @@ class TestChannelRotation(unittest.TestCase):
 
     def test_channel_rotates_across_calls(self) -> None:
         """Consecutive uplink_index values produce round-robin channels."""
-        from lora_attack_toolkit.lorawan.radio import Radio, EU868RegionProfile
+        from lora_attack_toolkit.lorawan.radio import EU868RegionProfile, Radio
 
         radio_fallback = _radio()
 
@@ -879,7 +880,6 @@ class TestMACCommandAcknowledgment(unittest.TestCase):
         ctx = _make_ctx(cfg)
         from lora_attack_toolkit.lorawan.mac_commands import (
             MACCommand,
-            CID_LINK_ADR_ANS,
         )
 
         # Return a mock LinkADRReq command in process_downlink
@@ -903,8 +903,8 @@ class TestMACCommandAcknowledgment(unittest.TestCase):
     def test_mac_responses_are_queued_and_included_in_uplink(self) -> None:
         """After _downlink_loop calls apply_mac_commands, responses appear in next uplink FOpts."""
         from lora_attack_toolkit.lorawan.mac_commands import (
-            MACCommand,
             CID_LINK_ADR_ANS,
+            MACCommand,
             encode_mac_commands,
         )
 
@@ -933,7 +933,8 @@ class TestMACCommandAcknowledgment(unittest.TestCase):
 
     def test_mac_responses_are_queued_and_logged(self) -> None:
         """apply_mac_commands is called when downlink carries MAC commands."""
-        from lora_attack_toolkit.lorawan.mac_commands import MACCommand, CID_LINK_ADR_ANS
+        from lora_attack_toolkit.lorawan.mac_commands import CID_LINK_ADR_ANS, MACCommand
+
         link_adr_ans = MACCommand(cid=CID_LINK_ADR_ANS, payload=bytes([0x07]))
         cfg = _cfg(capture_fcnt=0, replay_count=1, verification_uplink_count=1)
         ctx = self._make_ctx_with_mac_cmds(cfg, [link_adr_ans])

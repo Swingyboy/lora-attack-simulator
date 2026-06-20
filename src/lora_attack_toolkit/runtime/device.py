@@ -377,7 +377,9 @@ class SimulatedDevice:
         result["valid"] = True
         return result
 
-    def process_downlink(self, phy_payload: bytes, *, expect_join: bool = False) -> "DownlinkResult":
+    def process_downlink(
+        self, phy_payload: bytes, *, expect_join: bool = False
+    ) -> "DownlinkResult":
         if expect_join:
             result = self._empty_downlink_result(
                 mtype=((phy_payload[0] >> 5) & 0x07) if phy_payload else -1,

@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import unittest
 
+import pytest
+
 from lora_attack_toolkit.attacks.result import (
     AttackResult,
     Confidence,
     ExecutionStatus,
     SecurityVerdict,
 )
-import pytest
 
 pytestmark = pytest.mark.unit
 
@@ -294,7 +295,9 @@ class TestReproducibilityMetadata(unittest.TestCase):
         self.assertEqual(repro["region"], "EU868")
         self.assertEqual(repro["verdict"], "inconclusive")
         self.assertEqual(repro["confidence"], "low")
-        self.assertEqual(repro["control_probe"], {"control_probe_ran": True, "control_probe_ok": True})
+        self.assertEqual(
+            repro["control_probe"], {"control_probe_ran": True, "control_probe_ok": True}
+        )
         self.assertTrue(repro["warnings"])
         # Hash is deterministic for the same scenario.
         repro2 = build_reproducibility(

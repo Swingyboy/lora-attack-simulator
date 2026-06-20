@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import socket
 import unittest
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from lora_attack_toolkit.transport.errors import (
     DnsResolutionError,
@@ -12,11 +14,8 @@ from lora_attack_toolkit.transport.errors import (
     TransportUnavailableError,
 )
 from lora_attack_toolkit.transport.udp import UdpTransport
-import pytest
 
 pytestmark = pytest.mark.unit
-
-
 
 
 _FAKE_ADDR_INFO = [(socket.AF_INET, socket.SOCK_DGRAM, 0, "", ("1.2.3.4", 1700))]

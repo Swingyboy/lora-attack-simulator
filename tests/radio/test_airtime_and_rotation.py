@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import unittest
 from unittest.mock import MagicMock, patch
+
 import pytest
 
 pytestmark = pytest.mark.unit
@@ -55,13 +56,14 @@ class TestJoinDevNonceAttackChannelRotation(unittest.TestCase):
 
     def setUp(self) -> None:
         from logging import getLogger
+
         from lora_attack_toolkit.attacks.builtin.join_devnonce import JoinDevNonceAttack
         from lora_attack_toolkit.attacks.context import AttackContext, AttackInput, AttackServices
         from lora_attack_toolkit.attacks.packet_capture import PacketCapture
         from lora_attack_toolkit.config import RadioMetadata, parse_join_devnonce_config
-        from lora_attack_toolkit.runtime.device import SimulatedDevice
         from lora_attack_toolkit.lorawan.radio import EU868RegionProfile, Radio
         from lora_attack_toolkit.lorawan.time_utils import FakeClock
+        from lora_attack_toolkit.runtime.device import SimulatedDevice
 
         self.attack = JoinDevNonceAttack()
         self.config = parse_join_devnonce_config(
@@ -148,7 +150,7 @@ class TestSendPeriodicUplinksChannelRotation(unittest.TestCase):
     """Tests for uplink channel selection in send_periodic_uplinks."""
 
     def _make_device(self, radio=None):
-        from lora_attack_toolkit.runtime.device import SimulatedDevice, DeviceRuntime
+        from lora_attack_toolkit.runtime.device import DeviceRuntime, SimulatedDevice
 
         device = MagicMock(spec=SimulatedDevice)
         device.runtime = MagicMock(spec=DeviceRuntime)
@@ -217,6 +219,7 @@ class TestSendPeriodicUplinksChannelRotation(unittest.TestCase):
 
     def test_uplink_after_cflist_uses_extended_channels(self) -> None:
         from lora_attack_toolkit.lorawan.join import send_periodic_uplinks
+
         radio = self._eu868_radio()
         cflist = bytearray(16)
         cflist[0:3] = (867_100_000 // 100).to_bytes(3, "little")

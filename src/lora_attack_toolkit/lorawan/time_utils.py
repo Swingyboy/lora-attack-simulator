@@ -105,9 +105,7 @@ class SimClock(Protocol):
         """
         ...
 
-    def sleep(
-        self, seconds: float, cancel_event: Optional["_threading.Event"] = None
-    ) -> bool:
+    def sleep(self, seconds: float, cancel_event: Optional["_threading.Event"] = None) -> bool:
         """Sleep for *seconds*, returning ``True`` if the full duration elapsed.
 
         Returns ``False`` when *cancel_event* is set before the duration
@@ -129,9 +127,7 @@ class WallClock:
     def gps_time(self) -> float:
         return unix_to_gps(_time.time())
 
-    def sleep(
-        self, seconds: float, cancel_event: Optional["_threading.Event"] = None
-    ) -> bool:
+    def sleep(self, seconds: float, cancel_event: Optional["_threading.Event"] = None) -> bool:
         return interruptible_sleep(seconds, cancel_event)
 
 
@@ -170,9 +166,7 @@ class FakeClock:
     def gps_time(self) -> float:
         return unix_to_gps(self._unix)
 
-    def sleep(
-        self, seconds: float, cancel_event: Optional["_threading.Event"] = None
-    ) -> bool:
+    def sleep(self, seconds: float, cancel_event: Optional["_threading.Event"] = None) -> bool:
         """Advance the fake clock by *seconds* without blocking.
 
         Honours *cancel_event* (returns ``False`` if it is set) so cancellation

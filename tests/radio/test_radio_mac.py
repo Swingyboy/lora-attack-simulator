@@ -11,14 +11,14 @@ from __future__ import annotations
 
 import unittest
 
-from lora_attack_toolkit.lorawan.radio import (
+import pytest
 
-    EU868RegionProfile,
+from lora_attack_toolkit.lorawan.radio import (
     EU868_DR_TABLE,
     EU868_TX_POWER_TABLE,
+    EU868RegionProfile,
     Radio,
 )
-import pytest
 
 pytestmark = pytest.mark.unit
 

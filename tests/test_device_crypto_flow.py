@@ -6,13 +6,13 @@ import logging
 import unittest
 from unittest.mock import patch
 
+import pytest
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-from lora_attack_toolkit.transport.in_memory import InMemoryTransport
+from lora_attack_toolkit.config import RadioMetadata
 from lora_attack_toolkit.runtime.device import SimulatedDevice
 from lora_attack_toolkit.runtime.gateway import GatewaySimulator
-from lora_attack_toolkit.config import RadioMetadata
-import pytest
+from lora_attack_toolkit.transport.in_memory import InMemoryTransport
 
 pytestmark = pytest.mark.unit
 
@@ -27,6 +27,7 @@ def _build_join_accept(app_key_hex: str, dev_addr_hex: str) -> bytes:
     plain_wo_mic = app_nonce + net_id + dev_addr_le + dl_settings + rx_delay
 
     from lora_attack_toolkit.lorawan.crypto import aes_cmac_4
+
     mhdr = bytes([0x20])
     mic = aes_cmac_4(app_key, mhdr + plain_wo_mic)
     plain = plain_wo_mic + mic

@@ -191,7 +191,9 @@ def determine_forgery_verdict(
         return ForgeryVerdict.ACCEPTED_EXPECTED
 
     if forgery_mode == "mac_command_forgery" and mic_strategy == "recalculated":
-        return ForgeryVerdict.ACCEPTED_EXPECTED if attributable_accept else ForgeryVerdict.INCONCLUSIVE
+        return (
+            ForgeryVerdict.ACCEPTED_EXPECTED if attributable_accept else ForgeryVerdict.INCONCLUSIVE
+        )
 
     # Modes whose forged frame should be rejected by a secure Network Server.
     if attributable_accept:
@@ -199,7 +201,9 @@ def determine_forgery_verdict(
     if saw_unattributable:
         return ForgeryVerdict.INCONCLUSIVE
     if control_probe_ok:
-        return ForgeryVerdict.IGNORED if forgery_mode == "wrong_devaddr" else ForgeryVerdict.REJECTED
+        return (
+            ForgeryVerdict.IGNORED if forgery_mode == "wrong_devaddr" else ForgeryVerdict.REJECTED
+        )
     return ForgeryVerdict.INCONCLUSIVE
 
 
@@ -561,7 +565,9 @@ class UplinkForgeryAttack(BaseAttack):
         ctx.gateway.forward_uplink(frame, radio)
         ctx.device.record_uplink_airtime(radio, len(frame), tx_mono)
         ctx.capture.capture_uplink(phy_payload=frame, fcnt=fcnt, packet_type="data_up")
-        ctx.logger.info("uplink_forgery_control_probe_sent fcnt=%d freq_hz=%d", fcnt, radio.frequency)
+        ctx.logger.info(
+            "uplink_forgery_control_probe_sent fcnt=%d freq_hz=%d", fcnt, radio.frequency
+        )
 
         poll = 0.3
         deadline = tx_mono + _DEFAULT_TIMING.rx2_delay_sec + _DEFAULT_TIMING.rx2_window_sec + 1.0
@@ -586,7 +592,9 @@ class UplinkForgeryAttack(BaseAttack):
     def _build_rationale(self, evidence: ForgeryEvidence) -> str:
         """Explain the verdict in terms of the attribution / control-probe evidence."""
         if evidence.verdict == ForgeryVerdict.ACCEPTED_EXPECTED:
-            return "Frame carries a valid MIC (attacker holds session keys); acceptance is expected."
+            return (
+                "Frame carries a valid MIC (attacker holds session keys); acceptance is expected."
+            )
         if evidence.verdict == ForgeryVerdict.ACCEPTED:
             return (
                 "A validated downlink attributable to the forged uplink "

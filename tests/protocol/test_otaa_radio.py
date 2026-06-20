@@ -6,13 +6,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from lora_attack_toolkit.lorawan.radio import EU868RegionProfile, Radio
-from lora_attack_toolkit.lorawan.join import perform_otaa_join_via_radio
 from lora_attack_toolkit.config import RadioMetadata
+from lora_attack_toolkit.lorawan.join import perform_otaa_join_via_radio
+from lora_attack_toolkit.lorawan.radio import EU868RegionProfile, Radio
 
 pytestmark = pytest.mark.unit
-
-
 
 
 _BASE_CHANNELS = EU868RegionProfile.BASE_UPLINK_CHANNELS_HZ
@@ -76,8 +74,6 @@ class TestPerformOtaaJoinViaRadio:
             dev.apply_join_accept.return_value = None
             gw = _mock_gateway()
             captured_freq: list[int] = []
-
-            original_forward = gw.forward_uplink.side_effect
 
             def capture(frame: bytes, meta: RadioMetadata, _f=captured_freq) -> None:
                 _f.append(meta.frequency)

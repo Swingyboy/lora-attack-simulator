@@ -162,7 +162,6 @@ def _encode_pending_ans(pending: list[MACCommand]) -> bytes:
     return encode_mac_commands(pending)[:_FOPTS_MAX]
 
 
-
 # ── Attack ────────────────────────────────────────────────────────────────────
 
 

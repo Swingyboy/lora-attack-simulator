@@ -5,9 +5,10 @@ from __future__ import annotations
 import struct
 import unittest
 
+import pytest
+
 from lora_attack_toolkit.lorawan.crypto import data_mic
 from lora_attack_toolkit.runtime.device import SimulatedDevice
-import pytest
 
 pytestmark = pytest.mark.unit
 

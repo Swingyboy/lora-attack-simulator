@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import unittest
 
-from lora_attack_toolkit.lorawan.mac_commands import (
+import pytest
 
+from lora_attack_toolkit.lorawan.mac_commands import (
     CID_DEV_STATUS_REQ,
     CID_DUTY_CYCLE_REQ,
     CID_LINK_ADR_REQ,
     CID_NEW_CHANNEL_REQ,
     CID_RX_PARAM_SETUP_REQ,
     CID_RX_TIMING_SETUP_REQ,
-    MACCommand,
     build_dev_status_req,
     build_duty_cycle_req,
     build_link_adr_req,
@@ -23,7 +23,6 @@ from lora_attack_toolkit.lorawan.mac_commands import (
     encode_mac_commands,
     parse_mac_command,
 )
-import pytest
 
 pytestmark = pytest.mark.unit
 
