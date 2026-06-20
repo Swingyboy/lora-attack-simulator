@@ -36,4 +36,6 @@ def gateway_lifecycle(gateway: "GatewaySimulator") -> Generator[None, None, None
         try:
             gateway.stop()
         except Exception as exc:  # noqa: BLE001
+            # Cleanup resilience: a failure while stopping the gateway must be
+            # suppressed so the original exception (if any) propagates cleanly.
             _logger.warning("gateway_lifecycle: stop failed: %s", exc)

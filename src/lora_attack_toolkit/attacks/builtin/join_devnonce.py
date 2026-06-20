@@ -326,6 +326,9 @@ class JoinDevNonceAttack(BaseAttack):
                 captured_packets=len(ctx.capture.uplinks) + len(ctx.capture.downlinks),
             )
         except Exception as exc:  # noqa: BLE001
+            # Top-level attack boundary: any unexpected failure becomes a
+            # structured execution error (not a security verdict) so the runner
+            # never crashes. Logged at error with full traceback.
             ctx.logger.exception("Attack failed: %s", exc)
             return AttackResult.failed(
                 attack_name=self.name,

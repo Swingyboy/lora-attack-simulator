@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import struct
 import threading
 from dataclasses import dataclass, field
 from enum import Enum
@@ -181,6 +182,9 @@ class UplinkReplayAttack(BaseAttack):
         try:
             return self._run_enhanced(ctx, ctx.config)
         except Exception as e:  # noqa: BLE001
+            # Top-level attack boundary: any unexpected failure becomes a
+            # structured execution error (not a security verdict) so the runner
+            # never crashes. Logged at error with full traceback.
             ctx.logger.exception("Attack failed: %s", e)
             return AttackResult.failed(
                 attack_name=self.name,
@@ -285,7 +289,9 @@ class UplinkReplayAttack(BaseAttack):
                             len(result.applied_mac_commands),
                             current_fcnt,
                         )
-                except Exception as exc:  # noqa: BLE001  # downlink processing can raise many types
+                except (ValueError, KeyError, struct.error, IndexError) as exc:
+                    # Malformed downlink bytes only — unexpected exceptions
+                    # (real defects) propagate to run()'s top-level handler.
                     ctx.logger.warning("pre_probe_downlink_parse_error: %s", exc)
             remaining_sleep = max(0.0, cfg.uplink_interval_sec - _pre_probe_rx_timeout)
             if remaining_sleep > 0:
@@ -467,7 +473,9 @@ class UplinkReplayAttack(BaseAttack):
                                 len(result.applied_mac_commands),
                                 mono,
                             )
-                except Exception as exc:  # noqa: BLE001  # downlink processing can raise many types
+                except (ValueError, KeyError, struct.error, IndexError) as exc:
+                    # Malformed downlink bytes only — unexpected exceptions
+                    # (real defects) propagate to run()'s top-level handler.
                     ctx.logger.warning("downlink_parse_error: %s", exc)
                 with downlink_lock:
                     downlink_rx.append(
