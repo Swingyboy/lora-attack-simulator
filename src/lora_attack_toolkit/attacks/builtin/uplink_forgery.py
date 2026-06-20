@@ -49,6 +49,11 @@ _DEFAULT_TIMING = AttackTiming()
 _RX_DRAIN_SEC = _DEFAULT_TIMING.rx2_delay_sec + _DEFAULT_TIMING.rx2_window_sec + 0.5
 _FOPTS_MAX = 15  # LoRaWAN FOpts maximum length in bytes
 
+# LoRaWAN 1.0.x MAC spec §4.3.1.5: the Network Server accepts an uplink whose
+# FCnt is ahead of the last value by at most MAX_FCNT_GAP. Accepting a
+# within-gap forward jump is therefore *expected* behaviour, not a vulnerability.
+MAX_FCNT_GAP = 16384
+
 # ── Verdict ───────────────────────────────────────────────────────────────────
 
 
@@ -56,6 +61,7 @@ class ForgeryVerdict(str, Enum):
     REJECTED = "rejected"
     ACCEPTED = "accepted"
     ACCEPTED_EXPECTED = "accepted_expected"
+    POLICY_FINDING = "policy_finding"
     IGNORED = "ignored"
     INCONCLUSIVE = "inconclusive"
 
@@ -76,6 +82,8 @@ class ForgeryEvidence:
     radio_data_rate: str
     tx_timestamp: float
     tx_monotonic: float = 0.0
+    fcnt_jump: int = 0
+    """Configured forward FCnt jump (fcnt_used - last baseline FCnt); 0 if N/A."""
     downlink_received: bool = False
     downlink_count: int = 0
     attributable_accept: bool = False
@@ -156,6 +164,7 @@ def determine_forgery_verdict(
     attributable_accept: bool,
     saw_unattributable: bool,
     control_probe_ok: bool,
+    fcnt_jump: int | None = None,
 ) -> ForgeryVerdict:
     """Classify the Network Server response to a forged uplink.
 
@@ -186,6 +195,14 @@ def determine_forgery_verdict(
 
     ``mac_command_forgery`` with a recalculated (valid) MIC
         ``ACCEPTED_EXPECTED`` when attributable, else ``INCONCLUSIVE``.
+
+    ``fcnt_jump_forward`` with a recalculated (valid) MIC
+        Acceptance is a FCnt-window *policy* question, not a MIC failure.
+        LoRaWAN 1.0.x tolerates forward gaps up to :data:`MAX_FCNT_GAP`
+        (16384), so accepting a within-gap jump is ``ACCEPTED_EXPECTED``
+        (expected behaviour). A jump *at or beyond* the gap is reported as a
+        ``POLICY_FINDING`` — a flagged observation rather than an automatic
+        vulnerability, since 1.0.3 defines no explicit device-side rule.
     """
     if forgery_mode == "valid_mic_modified_payload":
         return ForgeryVerdict.ACCEPTED_EXPECTED
@@ -194,6 +211,18 @@ def determine_forgery_verdict(
         return (
             ForgeryVerdict.ACCEPTED_EXPECTED if attributable_accept else ForgeryVerdict.INCONCLUSIVE
         )
+
+    if (
+        forgery_mode == "fcnt_jump_forward"
+        and mic_strategy == "recalculated"
+        and attributable_accept
+    ):
+        # Valid-MIC forward jump accepted: a robustness/policy observation.
+        if fcnt_jump is None:
+            return ForgeryVerdict.INCONCLUSIVE
+        if fcnt_jump >= MAX_FCNT_GAP:
+            return ForgeryVerdict.POLICY_FINDING
+        return ForgeryVerdict.ACCEPTED_EXPECTED
 
     # Modes whose forged frame should be rejected by a secure Network Server.
     if attributable_accept:
@@ -216,6 +245,8 @@ def _forgery_verdict_to_security(
         ForgeryVerdict.IGNORED: (SecurityVerdict.SECURE, Confidence.MEDIUM, True),
         ForgeryVerdict.ACCEPTED: (SecurityVerdict.VULNERABLE, Confidence.HIGH, False),
         ForgeryVerdict.ACCEPTED_EXPECTED: (SecurityVerdict.NOT_APPLICABLE, Confidence.HIGH, None),
+        # A within-gap policy observation: flagged for review, not auto-vulnerable.
+        ForgeryVerdict.POLICY_FINDING: (SecurityVerdict.INCONCLUSIVE, Confidence.MEDIUM, None),
         ForgeryVerdict.INCONCLUSIVE: (SecurityVerdict.INCONCLUSIVE, Confidence.LOW, None),
     }
     return mapping[verdict]
@@ -324,6 +355,7 @@ class UplinkForgeryAttack(BaseAttack):
                 attributable_accept=evidence.attributable_accept,
                 saw_unattributable=evidence.unattributable_downlink,
                 control_probe_ok=evidence.control_probe_ok,
+                fcnt_jump=evidence.fcnt_jump,
             )
             evidence.rationale = self._build_rationale(evidence)
 
@@ -484,6 +516,7 @@ class UplinkForgeryAttack(BaseAttack):
             radio_data_rate=radio.data_rate,
             tx_timestamp=tx_time,
             tx_monotonic=tx_mono,
+            fcnt_jump=max(0, fcnt_used - current_fcnt) if mode == "fcnt_jump_forward" else 0,
         )
 
     def _drain_and_attribute(
@@ -592,6 +625,12 @@ class UplinkForgeryAttack(BaseAttack):
     def _build_rationale(self, evidence: ForgeryEvidence) -> str:
         """Explain the verdict in terms of the attribution / control-probe evidence."""
         if evidence.verdict == ForgeryVerdict.ACCEPTED_EXPECTED:
+            if evidence.forgery_mode == "fcnt_jump_forward":
+                return (
+                    f"Forward FCnt jump of {evidence.fcnt_jump} is within MAX_FCNT_GAP "
+                    f"({MAX_FCNT_GAP}); a valid-MIC within-gap jump being accepted is expected "
+                    "LoRaWAN 1.0.x behaviour, not a vulnerability."
+                )
             return (
                 "Frame carries a valid MIC (attacker holds session keys); acceptance is expected."
             )
@@ -599,6 +638,13 @@ class UplinkForgeryAttack(BaseAttack):
             return (
                 "A validated downlink attributable to the forged uplink "
                 "(in its RX1/RX2 window) was observed — the target accepted the forgery."
+            )
+        if evidence.verdict == ForgeryVerdict.POLICY_FINDING:
+            return (
+                f"Forward FCnt jump of {evidence.fcnt_jump} (>= MAX_FCNT_GAP "
+                f"{MAX_FCNT_GAP}) was accepted with a valid MIC. LoRaWAN 1.0.3 defines no "
+                "explicit device-side gap rule, so this is flagged as a FCnt-window policy "
+                "observation for review, not an automatic vulnerability."
             )
         if evidence.verdict in {ForgeryVerdict.REJECTED, ForgeryVerdict.IGNORED}:
             return (
@@ -654,6 +700,9 @@ class UplinkForgeryAttack(BaseAttack):
             ForgeryVerdict.ACCEPTED: "Accepted (potentially vulnerable)",
             ForgeryVerdict.ACCEPTED_EXPECTED: (
                 "Accepted (expected — attacker possesses session keys)"
+            ),
+            ForgeryVerdict.POLICY_FINDING: (
+                "Accepted (FCnt-gap policy observation — review NS FCnt-window policy)"
             ),
             ForgeryVerdict.IGNORED: "Ignored (expected secure behaviour)",
             ForgeryVerdict.INCONCLUSIVE: "Inconclusive",

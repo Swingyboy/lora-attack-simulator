@@ -22,11 +22,13 @@ from unittest.mock import MagicMock
 import pytest
 
 from lora_attack_toolkit.attacks.builtin.uplink_forgery import (
+    MAX_FCNT_GAP,
     ForgeryEvidence,
     ForgeryVerdict,
     UplinkForgeryAttack,
     _apply_mic_strategy,
     _build_mac_command_fopts,
+    _forgery_verdict_to_security,
     corrupt_mic,
     determine_forgery_verdict,
 )
@@ -507,6 +509,38 @@ class TestDetermineVerdict(unittest.TestCase):
     def test_unknown_mode_no_evidence_inconclusive(self) -> None:
         self.assertEqual(
             determine_forgery_verdict("unknown", "recalculated", False, False, False),
+            ForgeryVerdict.INCONCLUSIVE,
+        )
+
+    def test_fcnt_jump_valid_mic_within_gap_not_vulnerable(self) -> None:
+        # Valid-MIC forward jump below MAX_FCNT_GAP accepted → expected, not vulnerable.
+        from lora_attack_toolkit.attacks.result import SecurityVerdict
+
+        verdict = determine_forgery_verdict(
+            "fcnt_jump_forward", "recalculated", True, False, False, fcnt_jump=MAX_FCNT_GAP - 1
+        )
+        self.assertEqual(verdict, ForgeryVerdict.ACCEPTED_EXPECTED)
+        sv, _, _ = _forgery_verdict_to_security(verdict)
+        self.assertNotEqual(sv, SecurityVerdict.VULNERABLE)
+
+    def test_fcnt_jump_valid_mic_beyond_gap_policy_finding(self) -> None:
+        # Valid-MIC forward jump at/beyond MAX_FCNT_GAP accepted → flagged policy finding,
+        # but not auto-vulnerable (1.0.3 defines no explicit device-side rule).
+        from lora_attack_toolkit.attacks.result import SecurityVerdict
+
+        verdict = determine_forgery_verdict(
+            "fcnt_jump_forward", "recalculated", True, False, False, fcnt_jump=MAX_FCNT_GAP + 5
+        )
+        self.assertEqual(verdict, ForgeryVerdict.POLICY_FINDING)
+        sv, _, _ = _forgery_verdict_to_security(verdict)
+        self.assertNotEqual(sv, SecurityVerdict.VULNERABLE)
+
+    def test_fcnt_jump_valid_mic_unknown_jump_inconclusive(self) -> None:
+        # Valid-MIC forward jump accepted but jump size unknown → INCONCLUSIVE.
+        self.assertEqual(
+            determine_forgery_verdict(
+                "fcnt_jump_forward", "recalculated", True, False, False, fcnt_jump=None
+            ),
             ForgeryVerdict.INCONCLUSIVE,
         )
 
