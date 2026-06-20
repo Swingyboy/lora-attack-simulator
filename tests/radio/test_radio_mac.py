@@ -228,6 +228,35 @@ class TestRadioNewChannelReq(unittest.TestCase):
         status = radio.apply_new_channel_req(b"\x03\xff\xff")
         self.assertEqual(status, 0x00)
 
+    def test_remove_channel_by_index(self) -> None:
+        """freq=0 disables the channel identified by ch_index (not by freq value)."""
+        radio = _make_radio()
+
+        def _add(ch_index: int, freq_hz: int) -> int:
+            payload = (
+                bytes([ch_index]) + (freq_hz // 100).to_bytes(3, "little") + bytes([(5 << 4) | 0])
+            )
+            return radio.apply_new_channel_req(payload)
+
+        self.assertEqual(_add(3, 867_100_000), 0x03)
+        self.assertEqual(_add(4, 867_300_000), 0x03)
+        self.assertIn(867_300_000, radio.get_active_uplink_channels())
+
+        # Remove ch_index=4 (freq field is 0).
+        status = radio.apply_new_channel_req(bytes([4]) + (0).to_bytes(3, "little") + bytes([0]))
+        self.assertEqual(status & 0x01, 1)
+        active = radio.get_active_uplink_channels()
+        self.assertNotIn(867_300_000, active)
+        self.assertIn(867_100_000, active)  # ch_index=3 untouched
+
+    def test_remove_base_channel_rejected(self) -> None:
+        """A NewChannelReq removing a mandatory base channel (ch_index 0-2) is refused."""
+        radio = _make_radio()
+        before = radio.get_active_uplink_channels()
+        status = radio.apply_new_channel_req(bytes([0]) + (0).to_bytes(3, "little") + bytes([0]))
+        self.assertEqual(status & 0x01, 0)  # ChannelFreqOK clear — removal rejected
+        self.assertEqual(radio.get_active_uplink_channels(), before)
+
 
 class TestRadioDutyCycleReq(unittest.TestCase):
     """DutyCycleReq is logged/stored without crashing."""

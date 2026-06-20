@@ -691,12 +691,36 @@ class Radio:
         max_dr = (dr_range >> 4) & 0x0F
         min_dr = dr_range & 0x0F
 
-        # Validate frequency (0 = disable channel)
+        base_len = len(self._base_uplink_channels_hz)
+
+        # Validate frequency (0 = disable/remove the channel identified by ch_index)
         if freq_hz == 0:
             freq_ok = 1
-            # Remove channel if it was a CFList channel
-            if freq_hz in self._cflist_channels_hz:
-                self._cflist_channels_hz.remove(freq_hz)
+            if ch_index < base_len:
+                # Mandatory base channels (0-2) cannot be removed via NewChannelReq.
+                # They may still be disabled by a LinkADRReq channel mask.
+                self._logger.warning(
+                    "apply_new_channel_req: refusing to remove mandatory base channel ch_index=%d",
+                    ch_index,
+                )
+                freq_ok = 0
+            else:
+                cflist_pos = ch_index - base_len
+                if 0 <= cflist_pos < len(self._cflist_channels_hz):
+                    removed = self._cflist_channels_hz.pop(cflist_pos)
+                    # Keep the channel-mask bits aligned with channel positions:
+                    # drop bit ``ch_index`` and shift higher bits down by one.
+                    low = self._ch_mask & ((1 << ch_index) - 1)
+                    high = (self._ch_mask >> (ch_index + 1)) << ch_index
+                    self._ch_mask = low | high
+                    self._logger.info(
+                        "apply_new_channel_req: removed ch_index=%d freq=%d", ch_index, removed
+                    )
+                else:
+                    self._logger.info(
+                        "apply_new_channel_req: ch_index=%d has no channel to remove (no-op)",
+                        ch_index,
+                    )
         elif self._region.FREQ_MIN_HZ <= freq_hz <= self._region.FREQ_MAX_HZ:
             freq_ok = 1
         else:
