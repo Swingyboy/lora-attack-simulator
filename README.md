@@ -4,12 +4,16 @@
 
 LoRAT enables security researchers and network operators to validate LoRaWAN Network Server implementations against protocol-level attacks and abuse scenarios.
 
+> **Scope.** LoRAT is a focused research prototype for security testing of
+> LoRaWAN Network Servers using Class A, OTAA, EU868, LoRaWAN 1.0.3, and the
+> Semtech UDP Packet Forwarder protocol.
+
 ## Features
 
 - **Attack Plugin Architecture**: Extensible attack system with typed configurations
-- **Built-in Attack Library**: Join DevNonce validation, uplink replay, MAC command abuse
+- **Built-in Attack Library**: Join DevNonce validation, uplink replay, and uplink forgery
 - **Interactive Shell**: Real-time attack execution with scenario management
-- **Protocol Validation**: Test DevNonce handling, frame counter validation, MAC command processing
+- **Protocol Validation**: Test DevNonce handling, frame counter validation, and MIC verification
 - **Comprehensive Logging**: Structured logs with attack traces and metrics
 - **Type-Safe Configuration**: JSON schemas with typed Python models
 
@@ -154,7 +158,12 @@ LoRAT uses a plugin architecture. Create a new attack in 3 steps:
 
 ```python
 from lora_attack_toolkit.attacks.base import BaseAttack
-from lora_attack_toolkit.attacks.result import AttackResult
+from lora_attack_toolkit.attacks.result import (
+    AttackResult,
+    Confidence,
+    ExecutionStatus,
+    SecurityVerdict,
+)
 
 class CustomAttack(BaseAttack):
     name = "custom_attack"
@@ -175,11 +184,18 @@ class CustomAttack(BaseAttack):
         return AttackResult(
             attack_name=self.name,
             attack_type="custom",
-            success=True,
             message="Attack completed",
+            execution_status=ExecutionStatus.COMPLETED,
+            security_verdict=SecurityVerdict.INCONCLUSIVE,
+            confidence=Confidence.LOW,
             metrics={},
         )
 ```
+
+> `AttackResult` reports an `execution_status` (did the attack run?) and a
+> `security_verdict` (`SECURE` / `VULNERABLE` / `INCONCLUSIVE`) with a
+> `confidence`. There is no boolean `success` field — absent or unattributable
+> evidence must be reported as `INCONCLUSIVE`, never coerced to a pass/fail.
 
 ### 2. Register Attack
 
@@ -275,7 +291,11 @@ Built-in profiles:
 |---------|-------------|
 | `lorawan_1_0_3_devnonce_validation` | LoRaWAN 1.0.3 DevNonce replay protection |
 | `lorawan_uplink_replay_protection` | Uplink frame counter replay protection |
-| `lorawan_mac_command_validation` | MAC command syntax and ADR state validation |
+| `lorawan_uplink_forgery_protection` | Uplink MIC / FCnt / DevAddr forgery rejection |
+
+> The `lorawan_mac_command_validation` profile exists only for the experimental,
+> unregistered MAC-command attack (see *MAC Command Abuse — designed, not
+> shipped*) and is not part of the shipped attack set.
 
 ### Device Configuration
 
@@ -369,6 +389,19 @@ LoRAT follows SOLID principles:
 - Python 3.12+
 - Virtual environment recommended
 - No external LoRaWAN server required for testing (uses built-in simulators)
+
+## Known Limitations
+
+LoRAT is a research prototype with a deliberately frozen scope:
+
+- **Transports**: Semtech UDP Packet Forwarder only (MQTT / WebSocket not implemented). The transport is a limited packet forwarder simulator.
+- **Region**: EU868 only.
+- **Device class**: Class A only.
+- **Activation**: OTAA only (ABP not supported).
+- **LoRaWAN version**: 1.0.3 only.
+- **Attacks**: `join_devnonce`, `uplink_replay`, `uplink_forgery`. The MAC-command abuse attack is designed but not shipped (kept under `lora_attack_toolkit.experimental`, unregistered).
+
+Scenarios outside this scope (e.g. `region: US915`, `class: C`, ABP activation) are rejected at config-parse time with an explicit error.
 
 ## License
 
