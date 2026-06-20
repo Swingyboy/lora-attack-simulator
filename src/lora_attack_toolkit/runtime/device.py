@@ -293,96 +293,6 @@ class SimulatedDevice:
             airtime = AirtimeCalculator.calculate(radio.data_rate, frame_len)
             radio_obj.record_transmission(radio.frequency, airtime, now)
 
-    def validate_downlink(self, phy_payload: bytes) -> dict[str, Any]:
-        """Validate a received downlink frame without mutating device state.
-
-        Checks, in order:
-        1. Minimum frame length.
-        2. Supported MType (must be a downlink: 0b011 = UnconfirmedDataDown, 0b101 = ConfirmedDataDown).
-        3. DevAddr matches the session's DevAddr.
-        4. MIC is valid.
-        5. FCntDown is not stale (frame counter is ≥ the expected next downlink counter).
-
-        Args:
-            phy_payload: Raw PHYPayload bytes.
-
-        Returns:
-            Dict with validation results::
-
-                {
-                    "valid": bool,              # True only when ALL checks pass
-                    "reject_reason": str | None, # First failure reason or None
-                    "mtype": int,
-                    "dev_addr_match": bool,
-                    "valid_mic": bool,
-                    "fcnt_ok": bool,
-                    "fcnt": int,                # 16-bit FCntDown from frame
-                }
-        """
-        result: dict[str, Any] = {
-            "valid": False,
-            "reject_reason": None,
-            "mtype": -1,
-            "dev_addr_match": False,
-            "valid_mic": False,
-            "fcnt_ok": False,
-            "fcnt": -1,
-        }
-
-        if len(phy_payload) < 12:
-            result["reject_reason"] = f"frame_too_short:{len(phy_payload)}"
-            return result
-
-        mhdr = phy_payload[0]
-        mtype = (mhdr >> 5) & 0x07
-        result["mtype"] = mtype
-
-        # Supported downlink MTypes: 3 = UnconfirmedDataDown, 5 = ConfirmedDataDown
-        if mtype not in (3, 5):
-            result["reject_reason"] = f"unsupported_mtype:{mtype}"
-            return result
-
-        # DevAddr check (bytes 1-4 little-endian)
-        frame_dev_addr_le = phy_payload[1:5]
-        dev_addr_match = frame_dev_addr_le == self.runtime.dev_addr_le
-        result["dev_addr_match"] = dev_addr_match
-        if not dev_addr_match:
-            result["reject_reason"] = "devaddr_mismatch"
-            return result
-
-        # FCntDown reconstruction from 16-bit wire value to 32-bit runtime value
-        received_low16 = int.from_bytes(phy_payload[6:8], "little")
-        fcnt = self._reconstruct_downlink_counter(received_low16)
-        result["fcnt"] = fcnt
-
-        # MIC validation
-        from lora_attack_toolkit.lorawan.crypto import data_mic
-
-        mic_start = len(phy_payload) - 4
-        expected_mic = data_mic(
-            nwk_s_key=self.runtime.nwk_s_key,
-            msg=phy_payload[:mic_start],
-            direction=1,
-            dev_addr_le=self.runtime.dev_addr_le,
-            fcnt_up=fcnt,
-        )
-        valid_mic = expected_mic == phy_payload[mic_start:]
-        result["valid_mic"] = valid_mic
-        if not valid_mic:
-            result["reject_reason"] = "invalid_mic"
-            return result
-
-        # FCntDown freshness (must be strictly newer than the last accepted)
-        expected_fcnt_down = self.runtime.fcnt_down
-        fcnt_ok = fcnt > expected_fcnt_down
-        result["fcnt_ok"] = fcnt_ok
-        if not fcnt_ok:
-            result["reject_reason"] = f"stale_fcnt:got={fcnt},expected>{expected_fcnt_down}"
-            return result
-
-        result["valid"] = True
-        return result
-
     def process_downlink(
         self, phy_payload: bytes, *, expect_join: bool = False
     ) -> "DownlinkResult":
@@ -619,9 +529,6 @@ class SimulatedDevice:
             "mac_commands": all_mac_commands,
             "valid_mic": valid_mic,
         }
-
-    def parse_downlink(self, phy_payload: bytes) -> dict[str, Any]:
-        return self._parse_downlink(phy_payload)
 
     def _parse_mac_commands(self, data: bytes) -> list[MACCommand]:
         """Parse MAC commands from byte stream."""

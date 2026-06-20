@@ -448,7 +448,7 @@ class TestDeviceTimeAnsDecoding(unittest.TestCase):
         dev.runtime.nwk_s_key = nwk_s_key
         dev.runtime.app_s_key = b"\x00" * 16
 
-        parsed = dev.parse_downlink(phy_payload)
+        parsed = dev._parse_downlink(phy_payload)
 
         self.assertTrue(parsed["valid_mic"], "MIC should be valid")
         mac_cmds = parsed["mac_commands"]

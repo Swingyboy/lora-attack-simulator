@@ -101,7 +101,6 @@ def _make_ctx(cfg: UplinkForgeryConfigV1) -> AttackContext:
     device.runtime.app_s_key = _APP_S_KEY
     device.runtime.radio = None
     device.build_data_uplink.side_effect = _build_uplink
-    device.parse_downlink.return_value = {"mac_commands": []}
     # select_uplink_radio delegates to the real method signature; mock it to
     # return the fallback radio unchanged (no Radio configured).
     device.select_uplink_radio.side_effect = lambda fcnt, fallback: fallback
