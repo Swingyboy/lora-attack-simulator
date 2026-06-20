@@ -85,6 +85,41 @@ class DeviceCryptoFlowTests(unittest.TestCase):
         self.assertGreaterEqual(len(transport.sent_packets), 2)
         gateway.stop()
 
+    def test_gateway_await_downlink_structured_decodes_metadata(self) -> None:
+        from lora_attack_toolkit.runtime.gateway import ReceivedDownlink
+
+        app_key = "00112233445566778899aabbccddeeff"
+        join_accept = _build_join_accept(app_key, "26011BDA")
+
+        transport = InMemoryTransport()
+        gateway = GatewaySimulator(
+            gateway_eui="0102030405060708",
+            transport=transport,
+            logger=logging.getLogger("test"),
+        )
+
+        token = b"\x12\x34"
+        txpk = {
+            "data": base64.b64encode(join_accept).decode(),
+            "freq": 869.525,
+            "datr": "SF12BW125",
+            "tmst": 123456,
+        }
+        pull_resp = bytes([2]) + token + bytes([0x03]) + json.dumps({"txpk": txpk}).encode()
+
+        gateway.start()
+        transport.queue_incoming(pull_resp)
+        dl = gateway.await_downlink_structured(timeout_sec=0.5)
+        gateway.stop()
+
+        self.assertIsInstance(dl, ReceivedDownlink)
+        assert dl is not None
+        self.assertEqual(dl.phy_payload, join_accept)
+        self.assertEqual(dl.frequency_hz, 869_525_000)
+        self.assertEqual(dl.data_rate, "SF12BW125")
+        self.assertEqual(dl.concentrator_timestamp, 123456)
+        self.assertEqual(dl.token, b"\x12\x34")
+
     def test_gateway_wraps_uplink_as_push_data(self) -> None:
         transport = InMemoryTransport()
         gateway = GatewaySimulator(

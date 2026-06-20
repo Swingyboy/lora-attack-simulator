@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import base64
 import time
+from dataclasses import dataclass, field
 from logging import Logger
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from lora_attack_toolkit.config import RadioMetadata
 from lora_attack_toolkit.lorawan.semtech_udp import (
@@ -19,6 +20,28 @@ from lora_attack_toolkit.transport.resilient import ResilientTransport
 from lora_attack_toolkit.transport.retry import RetryPolicy
 from lora_attack_toolkit.transport.transport import TransportClient
 from lora_attack_toolkit.transport.udp import UdpTransport
+
+
+@dataclass(frozen=True)
+class ReceivedDownlink:
+    """A downlink decoded from a Semtech ``PULL_RESP`` ``txpk`` object.
+
+    Carries the metadata needed for RX-window matching, attribution evidence,
+    and result export, rather than discarding everything but the PHY payload.
+
+    Note: the simulator transport is a *limited Semtech UDP packet forwarder*.
+    Fields such as ``concentrator_timestamp`` reflect whatever the Network
+    Server scheduled in ``txpk`` and may be absent (``None``) for servers that
+    omit them.
+    """
+
+    phy_payload: bytes
+    token: bytes
+    frequency_hz: int | None
+    data_rate: str | None
+    concentrator_timestamp: int | None
+    received_monotonic: float
+    raw_txpk: dict[str, Any] = field(default_factory=dict)
 
 
 class GatewaySimulator:
@@ -75,7 +98,27 @@ class GatewaySimulator:
         self._transport.send(packet)
         self._logger.info("push_data_sent")
 
-    def await_downlink(self, timeout_sec: float) -> bytes | None:
+    def _decode_txpk(self, txpk: dict[str, Any]) -> ReceivedDownlink:
+        """Build a :class:`ReceivedDownlink` from a decoded ``txpk`` object."""
+        freq = txpk.get("freq")
+        return ReceivedDownlink(
+            phy_payload=base64.b64decode(txpk["data"]),
+            token=b"",  # overwritten by the caller that knows the Semtech token
+            frequency_hz=int(round(float(freq) * 1_000_000)) if freq is not None else None,
+            data_rate=txpk.get("datr"),
+            concentrator_timestamp=txpk.get("tmst"),
+            received_monotonic=time.monotonic(),
+            raw_txpk=dict(txpk),
+        )
+
+    def await_downlink_structured(self, timeout_sec: float) -> ReceivedDownlink | None:
+        """Wait for a downlink and return it as a structured :class:`ReceivedDownlink`.
+
+        Unlike :meth:`await_downlink` (which returns only the PHY payload), this
+        preserves the Semtech ``txpk`` metadata — concentrator timestamp,
+        frequency, data rate, and token — for RX-window matching, attribution
+        evidence, and export.
+        """
         deadline = time.monotonic() + timeout_sec
         while time.monotonic() < deadline:
             self._send_periodic_pull_data_if_due()
@@ -89,12 +132,26 @@ class GatewaySimulator:
                 txpk = semtech.json_body.get("txpk", {})
                 if "data" not in txpk:
                     continue
-                downlink_phy = base64.b64decode(txpk["data"])
+                downlink = self._decode_txpk(txpk)
+                # The Semtech token is carried on the packet, not in txpk.
+                downlink = ReceivedDownlink(
+                    phy_payload=downlink.phy_payload,
+                    token=semtech.token,
+                    frequency_hz=downlink.frequency_hz,
+                    data_rate=downlink.data_rate,
+                    concentrator_timestamp=downlink.concentrator_timestamp,
+                    received_monotonic=downlink.received_monotonic,
+                    raw_txpk=downlink.raw_txpk,
+                )
                 self._transport.send(encode_tx_ack(semtech.token, self._gateway_eui))
                 self._logger.info("downlink_received")
-                self._logger.debug("Downlink %s...", downlink_phy.hex()[:32])
-                return downlink_phy
+                self._logger.debug("Downlink %s...", downlink.phy_payload.hex()[:32])
+                return downlink
         return None
+
+    def await_downlink(self, timeout_sec: float) -> bytes | None:
+        downlink = self.await_downlink_structured(timeout_sec)
+        return downlink.phy_payload if downlink is not None else None
 
     def drain_downlinks(self, drain_time_sec: float = 1.0) -> int:
         """

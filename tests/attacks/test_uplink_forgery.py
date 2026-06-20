@@ -108,6 +108,7 @@ def _make_ctx(cfg: UplinkForgeryConfigV1) -> AttackContext:
     gateway = MagicMock()
     gateway.forward_uplink.return_value = None
     gateway.await_downlink.return_value = None
+    gateway.await_downlink_structured.return_value = None
 
     services = AttackServices(device=device, gateway=gateway, logger=logger, capture=capture)
     inp = AttackInput(typed_config=cfg, expected_behavior=None, radio=_radio(), timeout_sec=30.0)
@@ -622,17 +623,35 @@ class TestUplinkForgeryAttackRun(unittest.TestCase):
 
 class TestForgeryAttributionWiring(unittest.TestCase):
     def _ctx_with_downlinks(self, frames: list) -> object:
+        from lora_attack_toolkit.runtime.gateway import ReceivedDownlink
+
         cfg = _cfg(forgery_mode="invalid_mic")
         ctx = _make_ctx(cfg)
-        seq = iter(frames)
+        raw_seq = iter(frames)
+        struct_seq = iter(frames)
 
         def _await(timeout_sec=0.0):
             try:
-                return next(seq)
+                return next(raw_seq)
             except StopIteration:
                 return None
 
+        def _await_structured(timeout_sec=0.0):
+            try:
+                frame = next(struct_seq)
+            except StopIteration:
+                return None
+            return ReceivedDownlink(
+                phy_payload=frame,
+                token=b"\x12\x34",
+                frequency_hz=869_525_000,
+                data_rate="SF12BW125",
+                concentrator_timestamp=42,
+                received_monotonic=0.0,
+            )
+
         ctx.gateway.await_downlink.side_effect = _await
+        ctx.gateway.await_downlink_structured.side_effect = _await_structured
         return ctx
 
     def _evidence(self, ctx: object, tx_offset: float) -> ForgeryEvidence:

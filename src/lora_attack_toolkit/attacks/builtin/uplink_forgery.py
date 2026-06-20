@@ -88,6 +88,10 @@ class ForgeryEvidence:
     downlink_count: int = 0
     attributable_accept: bool = False
     unattributable_downlink: bool = False
+    downlink_frequency_hz: int | None = None
+    downlink_data_rate: str | None = None
+    downlink_concentrator_timestamp: int | None = None
+    downlink_token: bytes | None = None
     control_probe_ran: bool = False
     control_probe_ok: bool = False
     verification_accepted: bool = False
@@ -543,15 +547,21 @@ class UplinkForgeryAttack(BaseAttack):
         unattributable = 0
         while ctx.clock.monotonic() < deadline:
             remaining = max(0.01, deadline - ctx.clock.monotonic())
-            raw = ctx.gateway.await_downlink(timeout_sec=min(remaining, poll))
-            if raw is None:
+            downlink = ctx.gateway.await_downlink_structured(timeout_sec=min(remaining, poll))
+            if downlink is None:
                 # Advance the clock so the window closes (instant under FakeClock,
                 # real-time under WallClock) and the loop is guaranteed to terminate.
                 ctx.clock.sleep(min(remaining, poll), ctx.cancel_event)
                 continue
             total += 1
             rx_mono = ctx.clock.monotonic()
+            raw = downlink.phy_payload
             ctx.capture.capture_downlink(phy_payload=raw, packet_type="data_down")
+            # Record Semtech downlink metadata for attribution evidence / export.
+            evidence.downlink_frequency_hz = downlink.frequency_hz
+            evidence.downlink_data_rate = downlink.data_rate
+            evidence.downlink_concentrator_timestamp = downlink.concentrator_timestamp
+            evidence.downlink_token = downlink.token
             try:
                 result = ctx.device.process_downlink(raw)
             except (ValueError, KeyError, struct.error) as exc:
@@ -722,6 +732,12 @@ class UplinkForgeryAttack(BaseAttack):
             "downlink_count": evidence.downlink_count,
             "attributable_accept": evidence.attributable_accept,
             "unattributable_downlink": evidence.unattributable_downlink,
+            "downlink_frequency_hz": evidence.downlink_frequency_hz,
+            "downlink_data_rate": evidence.downlink_data_rate,
+            "downlink_concentrator_timestamp": evidence.downlink_concentrator_timestamp,
+            "downlink_token": (
+                evidence.downlink_token.hex() if evidence.downlink_token is not None else None
+            ),
             "control_probe_ran": evidence.control_probe_ran,
             "control_probe_ok": evidence.control_probe_ok,
             "verification_accepted": evidence.verification_accepted,
