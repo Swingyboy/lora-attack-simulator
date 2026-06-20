@@ -35,6 +35,17 @@ class JoinStepResult:
     timestamp: float
 
 
+#: Canonical ``final_check`` name for the LoRaWAN 1.0.4 monotonic-DevNonce
+#: behaviour test. ``lower_than_last`` is retained as a historical alias.
+MONOTONIC_DEVNONCE_CHECK = "lorawan_1_0_4_monotonic_devnonce"
+_MONOTONIC_DEVNONCE_ALIASES = frozenset({"lower_than_last", MONOTONIC_DEVNONCE_CHECK})
+
+
+def _is_monotonic_devnonce_check(final_check: str) -> bool:
+    """True for the LoRaWAN 1.0.4 monotonic-DevNonce behaviour test (+alias)."""
+    return final_check in _MONOTONIC_DEVNONCE_ALIASES
+
+
 @dataclass
 class DevNonceResultCache:
     """Bounded cache of successful DevNonce values."""
@@ -281,11 +292,22 @@ class JoinDevNonceAttack(BaseAttack):
             )
             devnonce_int = int.from_bytes(final_devnonce, "little")
 
-            # Verdict gating:
-            #   accepted              → VULNERABLE (NS accepted the replayed DevNonce)
-            #   rejected + control ok → SECURE     (rejection is meaningful, path up)
-            #   rejected + control bad→ INCONCLUSIVE (target may be unreachable)
-            if final_result.join_accepted:
+            monotonic_mode = _is_monotonic_devnonce_check(config.final_check)
+            if monotonic_mode:
+                metrics["behavior_under_test"] = MONOTONIC_DEVNONCE_CHECK
+                sv, protected, conf, message, behavior_supported = self._monotonic_devnonce_verdict(
+                    config=config,
+                    prefix=prefix,
+                    devnonce_int=devnonce_int,
+                    final_accepted=final_result.join_accepted,
+                    control_accepted=control_accepted,
+                )
+                metrics["behavior_supported"] = behavior_supported
+            elif final_result.join_accepted:
+                # Verdict gating (replay modes):
+                #   accepted              → VULNERABLE (NS accepted the replayed DevNonce)
+                #   rejected + control ok → SECURE     (rejection is meaningful, path up)
+                #   rejected + control bad→ INCONCLUSIVE (target may be unreachable)
                 sv = SecurityVerdict.VULNERABLE
                 protected = False
                 conf = Confidence.HIGH
@@ -354,12 +376,91 @@ class JoinDevNonceAttack(BaseAttack):
         if config.final_check not in {
             "same_as_last",
             "lower_than_last",
+            "lorawan_1_0_4_monotonic_devnonce",
             "replay_first",
             "custom",
         }:
             raise ValueError(f"Unsupported final_check: {config.final_check}")
         if config.final_check == "custom" and config.final_devnonce is None:
             raise ValueError("final_devnonce is required when final_check='custom'")
+
+    def _monotonic_devnonce_verdict(
+        self,
+        *,
+        config: "JoinDevNonceConfigV1",
+        prefix: str,
+        devnonce_int: int,
+        final_accepted: bool,
+        control_accepted: bool | None,
+    ) -> tuple["SecurityVerdict", bool | None, "Confidence", str, bool | None]:
+        """Interpret the LoRaWAN 1.0.4 monotonic-DevNonce behaviour test.
+
+        This mode is a capability/behaviour probe, not a universal 1.0.3
+        vulnerability test. It detects whether the Network Server implements the
+        monotonic-DevNonce rule introduced in LoRaWAN 1.0.4 (also used in 1.1).
+
+        Returns ``(verdict, target_protected, confidence, message, behavior_supported)``.
+
+        * lower DevNonce rejected + fresh higher (control) accepted →
+          ``behavior_supported=True`` → SECURE (NS enforces monotonic DevNonce).
+        * lower DevNonce accepted → ``behavior_supported=False``:
+            * target explicitly evaluated as 1.0.4-compatible → VULNERABLE
+              (non-compliant with the monotonic-DevNonce requirement);
+            * otherwise (unknown / 1.0.3 profile) → INCONCLUSIVE, reported as a
+              capability result only — never an automatic vulnerability.
+        * no answer to both tested and control joins → INCONCLUSIVE.
+        """
+        if final_accepted:
+            behavior_supported = False
+            if config.target_lorawan_1_0_4:
+                return (
+                    SecurityVerdict.VULNERABLE,
+                    False,
+                    Confidence.HIGH,
+                    (
+                        f"{prefix}Network Server accepted a lower DevNonce {devnonce_int}; the "
+                        f"target is evaluated as LoRaWAN 1.0.4-compatible, so this violates the "
+                        f"monotonic-DevNonce requirement"
+                    ),
+                    behavior_supported,
+                )
+            return (
+                SecurityVerdict.INCONCLUSIVE,
+                None,
+                Confidence.MEDIUM,
+                (
+                    f"{prefix}Network Server accepted a lower DevNonce {devnonce_int}; the "
+                    f"LoRaWAN 1.0.4 monotonic-DevNonce behaviour is NOT implemented. Under an "
+                    f"unknown / LoRaWAN 1.0.3 profile this is a capability result, not a "
+                    f"vulnerability (set target_lorawan_1_0_4=true to evaluate compliance)"
+                ),
+                behavior_supported,
+            )
+
+        if control_accepted:
+            return (
+                SecurityVerdict.SECURE,
+                True,
+                Confidence.HIGH,
+                (
+                    f"{prefix}Network Server rejected the lower DevNonce {devnonce_int} and "
+                    f"accepted a fresh higher control DevNonce; the LoRaWAN 1.0.4 "
+                    f"monotonic-DevNonce behaviour IS implemented"
+                ),
+                True,
+            )
+
+        return (
+            SecurityVerdict.INCONCLUSIVE,
+            None,
+            Confidence.LOW,
+            (
+                f"{prefix}Network Server did not answer the lower DevNonce {devnonce_int} nor the "
+                f"fresh higher control join; the target may be unreachable — monotonic-DevNonce "
+                f"behaviour could not be determined"
+            ),
+            None,
+        )
 
     def _can_execute_final_check(
         self, config: "JoinDevNonceConfigV1", cache: DevNonceResultCache
@@ -373,7 +474,7 @@ class JoinDevNonceAttack(BaseAttack):
                 return False, "no accepted baseline DevNonce was available"
             return True, ""
 
-        if config.final_check == "lower_than_last":
+        if _is_monotonic_devnonce_check(config.final_check):
             if cache.last_accepted_devnonce is None:
                 return False, "no accepted baseline DevNonce was available"
             if int.from_bytes(cache.last_accepted_devnonce, "little") == 0:
@@ -609,9 +710,11 @@ class JoinDevNonceAttack(BaseAttack):
                 raise ValueError("No accepted DevNonce available for final_check='same_as_last'")
             return cache.last_accepted_devnonce, {}
 
-        if config.final_check == "lower_than_last":
+        if _is_monotonic_devnonce_check(config.final_check):
             if cache.last_accepted_devnonce is None:
-                raise ValueError("No accepted DevNonce available for final_check='lower_than_last'")
+                raise ValueError(
+                    f"No accepted DevNonce available for final_check={config.final_check!r}"
+                )
             last_value = int.from_bytes(cache.last_accepted_devnonce, "little")
             if last_value == 0:
                 raise ValueError("Cannot generate a lower DevNonce than 0")

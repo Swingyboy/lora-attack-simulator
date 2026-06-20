@@ -245,6 +245,25 @@ class UplinkReplayConfigV1:
     device_time_gps_tolerance_sec: float = 2.0
 
 
+#: Accepted ``final_check`` modes for the join-DevNonce attack.
+#:
+#: ``same_as_last``  — duplicate DevNonce replay protection.
+#: ``replay_first``  — historical DevNonce reuse protection.
+#: ``lorawan_1_0_4_monotonic_devnonce`` (alias ``lower_than_last``) — detects
+#:   the monotonic-DevNonce behaviour introduced in LoRaWAN 1.0.4 / 1.1; it is a
+#:   capability/behaviour test, not a universal 1.0.3 vulnerability test.
+#: ``custom``        — operator-supplied final DevNonce.
+JOIN_DEVNONCE_FINAL_CHECKS = frozenset(
+    {
+        "same_as_last",
+        "replay_first",
+        "lower_than_last",
+        "lorawan_1_0_4_monotonic_devnonce",
+        "custom",
+    }
+)
+
+
 @dataclass(frozen=True)
 class JoinDevNonceConfigV1:
     """Unified DevNonce validation configuration."""
@@ -257,6 +276,12 @@ class JoinDevNonceConfigV1:
     result_cache_size: int = 10
     final_devnonce: int | None = None
     devnonce_seed: int | None = None
+    # When True, the target Network Server is explicitly evaluated as
+    # LoRaWAN 1.0.4-compatible, so accepting a lower DevNonce
+    # (final_check="lorawan_1_0_4_monotonic_devnonce") is a compliance
+    # violation. When False (unknown / 1.0.3 profile) the same observation is
+    # reported as capability detection only, never an automatic vulnerability.
+    target_lorawan_1_0_4: bool = False
     timing: AttackTiming | None = None
 
 
@@ -478,12 +503,19 @@ def parse_join_devnonce_config(config: dict[str, Any]) -> JoinDevNonceConfigV1:
         valid_devnonce_wrap=_expect_bool(
             "valid_devnonce_wrap", config.get("valid_devnonce_wrap", False)
         ),
-        final_check=str(config.get("final_check", "same_as_last")),
+        final_check=_expect_enum(
+            "final_check",
+            str(config.get("final_check", "same_as_last")),
+            JOIN_DEVNONCE_FINAL_CHECKS,
+        ),
         result_cache_size=_expect_int(
             "result_cache_size", config.get("result_cache_size", 10), min_value=1
         ),
         final_devnonce=config.get("final_devnonce"),
         devnonce_seed=config.get("devnonce_seed"),
+        target_lorawan_1_0_4=_expect_bool(
+            "target_lorawan_1_0_4", config.get("target_lorawan_1_0_4", False)
+        ),
         timing=timing,
     )
 

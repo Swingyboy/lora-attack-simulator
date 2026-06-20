@@ -471,6 +471,93 @@ class TestJoinDevNonceAttack(unittest.TestCase):
         phases = [c.kwargs["phase"] for c in attack._execute_join_step.call_args_list]
         self.assertNotIn("control", phases)
 
+    def test_monotonic_lower_rejected_control_ok_behavior_supported(self) -> None:
+        """1.0.4 mode: lower DevNonce rejected + fresh control accepted → SECURE."""
+        from lora_attack_toolkit.attacks.result import SecurityVerdict
+
+        attack = JoinDevNonceAttack()
+
+        def fake_generation(ctx, config, timing, cache):
+            cache.store(_step(b"\x0a\x00", accepted=True, ts=1.0))
+
+        def fake_step(ctx, config, timing, dev_nonce, attempt_index, phase):
+            # lower DevNonce (final) rejected; fresh higher control accepted
+            return _step(dev_nonce, accepted=(phase == "control"), ts=2.0)
+
+        attack._execute_generation_phase = Mock(side_effect=fake_generation)
+        attack._execute_join_step = Mock(side_effect=fake_step)
+
+        ctx = replace(
+            self.ctx,
+            input=replace(
+                self.ctx.input,
+                typed_config=replace(self.config, final_check="lorawan_1_0_4_monotonic_devnonce"),
+            ),
+        )
+        result = attack.run(ctx)
+
+        self.assertEqual(result.security_verdict, SecurityVerdict.SECURE)
+        self.assertTrue(result.target_protected)
+        self.assertTrue(result.metrics["behavior_supported"])
+        self.assertEqual(result.metrics["behavior_under_test"], "lorawan_1_0_4_monotonic_devnonce")
+
+    def test_monotonic_lower_accepted_unknown_profile_is_capability_only(self) -> None:
+        """1.0.4 mode under unknown/1.0.3 profile: accepted lower DevNonce is not a vuln."""
+        from lora_attack_toolkit.attacks.result import SecurityVerdict
+
+        attack = JoinDevNonceAttack()
+
+        def fake_generation(ctx, config, timing, cache):
+            cache.store(_step(b"\x0a\x00", accepted=True, ts=1.0))
+
+        attack._execute_generation_phase = Mock(side_effect=fake_generation)
+        attack._execute_join_step = Mock(
+            side_effect=lambda **kw: _step(kw["dev_nonce"], accepted=True, ts=2.0)
+        )
+
+        ctx = replace(
+            self.ctx,
+            input=replace(
+                self.ctx.input,
+                typed_config=replace(self.config, final_check="lower_than_last"),
+            ),
+        )
+        result = attack.run(ctx)
+
+        self.assertEqual(result.security_verdict, SecurityVerdict.INCONCLUSIVE)
+        self.assertFalse(result.metrics["behavior_supported"])
+
+    def test_monotonic_lower_accepted_104_profile_is_vulnerable(self) -> None:
+        """1.0.4 mode with target_lorawan_1_0_4=True: accepted lower DevNonce → VULNERABLE."""
+        from lora_attack_toolkit.attacks.result import SecurityVerdict
+
+        attack = JoinDevNonceAttack()
+
+        def fake_generation(ctx, config, timing, cache):
+            cache.store(_step(b"\x0a\x00", accepted=True, ts=1.0))
+
+        attack._execute_generation_phase = Mock(side_effect=fake_generation)
+        attack._execute_join_step = Mock(
+            side_effect=lambda **kw: _step(kw["dev_nonce"], accepted=True, ts=2.0)
+        )
+
+        ctx = replace(
+            self.ctx,
+            input=replace(
+                self.ctx.input,
+                typed_config=replace(
+                    self.config,
+                    final_check="lorawan_1_0_4_monotonic_devnonce",
+                    target_lorawan_1_0_4=True,
+                ),
+            ),
+        )
+        result = attack.run(ctx)
+
+        self.assertEqual(result.security_verdict, SecurityVerdict.VULNERABLE)
+        self.assertFalse(result.target_protected)
+        self.assertFalse(result.metrics["behavior_supported"])
+
     def test_control_devnonce_is_fresh(self) -> None:
         """The control probe must use a DevNonce not seen in generation or final."""
         attack = JoinDevNonceAttack()
