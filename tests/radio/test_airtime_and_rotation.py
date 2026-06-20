@@ -61,6 +61,7 @@ class TestJoinDevNonceAttackChannelRotation(unittest.TestCase):
         from lora_attack_toolkit.config import RadioMetadata, parse_join_devnonce_config
         from lora_attack_toolkit.runtime.device import SimulatedDevice
         from lora_attack_toolkit.lorawan.radio import EU868RegionProfile, Radio
+        from lora_attack_toolkit.lorawan.time_utils import FakeClock
 
         self.attack = JoinDevNonceAttack()
         self.config = parse_join_devnonce_config(
@@ -90,6 +91,7 @@ class TestJoinDevNonceAttackChannelRotation(unittest.TestCase):
             input=AttackInput(
                 typed_config=self.config, expected_behavior=None, radio=radio, timeout_sec=30.0
             ),
+            clock=FakeClock(),
         )
 
     def test_join_requests_use_rotated_frequencies(self) -> None:
@@ -101,22 +103,15 @@ class TestJoinDevNonceAttackChannelRotation(unittest.TestCase):
 
         self.ctx.gateway.forward_uplink = capture_freq
 
-        with (
-            patch(
-                "lora_attack_toolkit.attacks.builtin.join_devnonce.time.monotonic",
-                return_value=float("inf"),
-            ),
-            patch("lora_attack_toolkit.attacks.builtin.join_devnonce.time.sleep"),
-        ):
-            self.attack._execute_generation_phase(
-                self.ctx,
-                self.config,
-                self.config.timing,
-                __import__(
-                    "lora_attack_toolkit.attacks.builtin.join_devnonce",
-                    fromlist=["DevNonceResultCache"],
-                ).DevNonceResultCache(10),
-            )
+        self.attack._execute_generation_phase(
+            self.ctx,
+            self.config,
+            self.config.timing,
+            __import__(
+                "lora_attack_toolkit.attacks.builtin.join_devnonce",
+                fromlist=["DevNonceResultCache"],
+            ).DevNonceResultCache(10),
+        )
 
         self.assertEqual(len(recorded_freqs), 3)
         self.assertEqual(recorded_freqs[0], 868_100_000)
@@ -133,22 +128,15 @@ class TestJoinDevNonceAttackChannelRotation(unittest.TestCase):
 
         self.ctx.gateway.forward_uplink = capture_freq
 
-        with (
-            patch(
-                "lora_attack_toolkit.attacks.builtin.join_devnonce.time.monotonic",
-                return_value=float("inf"),
-            ),
-            patch("lora_attack_toolkit.attacks.builtin.join_devnonce.time.sleep"),
-        ):
-            self.attack._execute_generation_phase(
-                self.ctx,
-                self.config,
-                self.config.timing,
-                __import__(
-                    "lora_attack_toolkit.attacks.builtin.join_devnonce",
-                    fromlist=["DevNonceResultCache"],
-                ).DevNonceResultCache(10),
-            )
+        self.attack._execute_generation_phase(
+            self.ctx,
+            self.config,
+            self.config.timing,
+            __import__(
+                "lora_attack_toolkit.attacks.builtin.join_devnonce",
+                fromlist=["DevNonceResultCache"],
+            ).DevNonceResultCache(10),
+        )
 
         self.assertTrue(all(f == 868_100_000 for f in recorded_freqs))
 

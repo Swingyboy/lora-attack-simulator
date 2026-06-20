@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import random
 import struct
-import time
 from collections import deque
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -24,6 +23,7 @@ from lora_attack_toolkit.lorawan.frames import build_join_request
 if TYPE_CHECKING:
     from lora_attack_toolkit.attacks.context import AttackContext
     from lora_attack_toolkit.config import AttackTiming, ExpectedBehavior, JoinDevNonceConfigV1
+    from lora_attack_toolkit.lorawan.time_utils import SimClock
 
 
 @dataclass(frozen=True)
@@ -193,7 +193,9 @@ class JoinDevNonceAttack(BaseAttack):
                 ctx.logger.debug(
                     "Inter-message delay: %.1fs before final DevNonce check", inter_delay
                 )
-                self._sleep_until(time.monotonic() + inter_delay, ctx.cancel_event)
+                self._sleep_until(
+                    ctx.clock, ctx.clock.monotonic() + inter_delay, ctx.cancel_event
+                )
 
             final_result = self._execute_join_step(
                 ctx=ctx,
@@ -378,7 +380,9 @@ class JoinDevNonceAttack(BaseAttack):
                         inter_delay,
                         index + 2,
                     )
-                    self._sleep_until(time.monotonic() + inter_delay, ctx.cancel_event)
+                    self._sleep_until(
+                        ctx.clock, ctx.clock.monotonic() + inter_delay, ctx.cancel_event
+                    )
 
         ctx.logger.info(
             "Accepted joins: %d/%d",
@@ -396,7 +400,7 @@ class JoinDevNonceAttack(BaseAttack):
         attempt_index: int,
         phase: str,
     ) -> JoinStepResult:
-        timestamp = time.time()
+        timestamp = ctx.clock.unix_time()
         # Set runtime DevNonce so process_downlink(..., expect_join=True) can derive session keys
         ctx.device.runtime.dev_nonce = dev_nonce
 
@@ -457,7 +461,7 @@ class JoinDevNonceAttack(BaseAttack):
 
         radio = ctx.device.runtime.radio
         if isinstance(radio, Radio):
-            tx = radio.select_join_channel(attempt_index - 1, now=time.time())
+            tx = radio.select_join_channel(attempt_index - 1, now=ctx.clock.unix_time())
             return RadioMetadata(
                 frequency=tx.frequency_hz,
                 data_rate=tx.data_rate,
@@ -474,7 +478,7 @@ class JoinDevNonceAttack(BaseAttack):
         phase: str,
         dev_nonce: bytes,
     ) -> bool:
-        start = time.monotonic()
+        start = ctx.clock.monotonic()
         windows = (
             ("RX1", timing.rx1_delay_sec, timing.rx1_window_sec),
             ("RX2", timing.rx2_delay_sec, timing.rx2_window_sec),
@@ -483,21 +487,26 @@ class JoinDevNonceAttack(BaseAttack):
         for window_name, window_start_offset, window_size in windows:
             if ctx.cancel_event.is_set():
                 return False
-            if not self._sleep_until(start + window_start_offset, ctx.cancel_event):
+            if not self._sleep_until(
+                ctx.clock, start + window_start_offset, ctx.cancel_event
+            ):
                 return False
             window_deadline = start + window_start_offset + window_size
 
             ctx.logger.debug("Opening window %s", window_name)
 
-            while time.monotonic() < window_deadline:
+            while ctx.clock.monotonic() < window_deadline:
                 if ctx.cancel_event.is_set():
                     return False
-                remaining = window_deadline - time.monotonic()
+                remaining = window_deadline - ctx.clock.monotonic()
                 if remaining <= 0:
                     break
 
                 downlink = ctx.gateway.await_downlink(timeout_sec=min(remaining, 0.1))
                 if downlink is None:
+                    # Advance the clock so the window eventually closes (instant
+                    # under FakeClock, real under WallClock).
+                    ctx.clock.sleep(min(remaining, 0.1), ctx.cancel_event)
                     continue
                 try:
                     ctx.logger.debug(
@@ -596,15 +605,20 @@ class JoinDevNonceAttack(BaseAttack):
             raise ValueError(f"DevNonce must fit in 16 bits: {value}")
         return value.to_bytes(2, "little")
 
-    def _sleep_until(self, deadline: float, cancel_event=None) -> bool:
-        """Sleep in short increments until deadline. Returns False if cancelled."""
-        while time.monotonic() < deadline:
+    def _sleep_until(self, clock: "SimClock", deadline: float, cancel_event=None) -> bool:
+        """Sleep in short increments until deadline. Returns False if cancelled.
+
+        Uses the injected clock so unit tests with a :class:`FakeClock` advance
+        instantly and deterministically instead of blocking on real time.
+        """
+        while clock.monotonic() < deadline:
             if cancel_event is not None and cancel_event.is_set():
                 return False
-            remaining = deadline - time.monotonic()
+            remaining = deadline - clock.monotonic()
             if remaining <= 0:
                 break
-            time.sleep(min(0.05, remaining))
+            if not clock.sleep(min(0.05, remaining), cancel_event):
+                return False
         return True
 
     def _build_metrics(

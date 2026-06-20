@@ -5,8 +5,7 @@ from __future__ import annotations
 import unittest
 from dataclasses import replace
 from logging import getLogger
-from itertools import chain, repeat
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, Mock
 
 from lora_attack_toolkit.attacks.builtin.join_devnonce import (
     DevNonceResultCache,
@@ -21,6 +20,7 @@ from lora_attack_toolkit.config import RadioMetadata
 from lora_attack_toolkit.config import JoinDevNonceConfigV1, parse_join_devnonce_config
 from lora_attack_toolkit.runtime.device import DownlinkResult, SimulatedDevice
 from lora_attack_toolkit.runtime.gateway import GatewaySimulator
+from lora_attack_toolkit.lorawan.time_utils import FakeClock
 import pytest
 
 pytestmark = pytest.mark.unit
@@ -169,6 +169,7 @@ class TestJoinDevNonceAttack(unittest.TestCase):
                 radio=self.radio,
                 timeout_sec=0.0,  # No inter-message delay in unit tests
             ),
+            clock=FakeClock(),
         )
 
     def test_select_final_devnonce(self) -> None:
@@ -391,26 +392,19 @@ class TestJoinDevNonceAttack(unittest.TestCase):
             services=replace(self.ctx.services, device=device, gateway=gateway),
             input=self.ctx.input,
             state={},
+            clock=FakeClock(),
         )
 
-        # First few calls return 0 (so sleep is skipped), then large value so
-        # all RX windows are immediately considered expired.
-        times = chain([0.0, 0.0, 0.0], repeat(100.0))
-        with (
-            patch(
-                "lora_attack_toolkit.attacks.builtin.join_devnonce.time.monotonic",
-                side_effect=lambda: next(times),
-            ),
-            patch("lora_attack_toolkit.attacks.builtin.join_devnonce.time.sleep"),
-        ):
-            attack._execute_join_step(
-                ctx=ctx,
-                config=self.config,
-                timing=self.config.timing,
-                dev_nonce=dev_nonce,
-                attempt_index=1,
-                phase="generation",
-            )
+        # With no JoinAccept the RX windows simply expire; the FakeClock advances
+        # instantly so this is deterministic and fast.
+        attack._execute_join_step(
+            ctx=ctx,
+            config=self.config,
+            timing=self.config.timing,
+            dev_nonce=dev_nonce,
+            attempt_index=1,
+            phase="generation",
+        )
 
         self.assertEqual(device.runtime.dev_nonce, dev_nonce)
 
@@ -422,31 +416,18 @@ class TestJoinDevNonceAttack(unittest.TestCase):
             services=replace(self.ctx.services, gateway=gateway),
             input=self.ctx.input,
             state=dict(self.ctx.state),
+            clock=FakeClock(),
         )
 
-        # Time sequence matched to default RX windows:
-        # rx1_delay=1.0, rx1_window=1.0, rx2_delay=2.0, rx2_window=1.0
-        # start=0.0, _sleep_until(1.0): 0.0<1.0→sleep, remaining=1.0-1.0=0→break
-        # RX1 inner while: 1.0<2.0→enter, remaining=2.0-1.0=1.0, await→None
-        #   back: 2.0→not<2.0→exit
-        # _sleep_until(2.0): 2.0→not<2.0→skip
-        # RX2 inner while: 2.0<3.0→enter, remaining=3.0-2.0=1.0, await→accept
-        times = chain([0.0, 0.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 2.0], repeat(2.0))
-
-        with (
-            patch(
-                "lora_attack_toolkit.attacks.builtin.join_devnonce.time.monotonic",
-                side_effect=lambda: next(times),
-            ),
-            patch("lora_attack_toolkit.attacks.builtin.join_devnonce.time.sleep"),
-        ):
-            accepted = attack._wait_for_join_accept(
-                ctx=ctx,
-                timing=self.config.timing,
-                attempt_index=1,
-                phase="generation",
-                dev_nonce=b"\x01\x00",
-            )
+        # The FakeClock advances on every clock.sleep(), so the RX1 window opens,
+        # yields one empty poll (None), then the RX2 poll returns the JoinAccept.
+        accepted = attack._wait_for_join_accept(
+            ctx=ctx,
+            timing=self.config.timing,
+            attempt_index=1,
+            phase="generation",
+            dev_nonce=b"\x01\x00",
+        )
 
         self.assertTrue(accepted)
         self.assertGreaterEqual(gateway.await_downlink.call_count, 2)
@@ -604,6 +585,7 @@ class TestDevNonceGeneration(unittest.TestCase):
             input=AttackInput(
                 typed_config=config, expected_behavior=None, radio=radio, timeout_sec=30.0
             ),
+            clock=FakeClock(),
         )
 
         result = attack.run(ctx)
@@ -652,6 +634,7 @@ class TestDevNonceGeneration(unittest.TestCase):
             input=AttackInput(
                 typed_config=config, expected_behavior=None, radio=radio, timeout_sec=30.0
             ),
+            clock=FakeClock(),
         )
 
         result = attack.run(ctx)
@@ -787,6 +770,7 @@ class TestLowerThanLastSelection(unittest.TestCase):
             input=AttackInput(
                 typed_config=config, expected_behavior=None, radio=radio, timeout_sec=30.0
             ),
+            clock=FakeClock(),
         )
 
         result = attack.run(ctx)

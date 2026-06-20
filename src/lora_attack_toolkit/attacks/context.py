@@ -23,7 +23,6 @@ def _default_clock() -> "SimClock":
     return WallClock()
 
 
-
 @dataclass(frozen=True)
 class AttackServices:
     """Immutable service dependencies.
@@ -54,9 +53,9 @@ class AttackInput:
     - Timeout for execution
 
     The typed_config field should hold one of:
-    - ReplayConfigV1 (for uplink replay attacks)
+    - UplinkReplayConfigV1 (for uplink replay attacks)
     - JoinDevNonceConfigV1 (for join devnonce attacks)
-    - MACCommandConfigV1 (for MAC command attacks)
+    - UplinkForgeryConfigV1 (for uplink forgery attacks)
     - Any custom typed config for custom attacks
 
     Using typed configs instead of raw dicts provides:
@@ -138,7 +137,7 @@ class AttackContext:
         """
         Shortcut to typed attack config (preferred).
 
-        Returns the typed config object (ReplayConfigV1, JoinDevNonceConfigV1, etc).
+        Returns the typed config object (UplinkReplayConfigV1, JoinDevNonceConfigV1, etc).
         Falls back to the legacy raw-dict ``attack_config`` when ``typed_config`` is
         ``None``, emitting a :class:`DeprecationWarning` to guide callers toward the
         typed path.

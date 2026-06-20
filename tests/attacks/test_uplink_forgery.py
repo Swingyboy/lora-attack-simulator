@@ -39,6 +39,7 @@ from lora_attack_toolkit.config import (
     parse_uplink_forgery_config,
 )
 from lora_attack_toolkit.lorawan.frames import build_unconfirmed_data_up
+from lora_attack_toolkit.lorawan.time_utils import FakeClock
 import pytest
 
 pytestmark = pytest.mark.unit
@@ -103,7 +104,7 @@ def _make_ctx(cfg: UplinkForgeryConfigV1) -> AttackContext:
 
     services = AttackServices(device=device, gateway=gateway, logger=logger, capture=capture)
     inp = AttackInput(typed_config=cfg, expected_behavior=None, radio=_radio(), timeout_sec=30.0)
-    return AttackContext(services=services, input=inp)
+    return AttackContext(services=services, input=inp, clock=FakeClock())
 
 
 # ── 1. Config parsing ─────────────────────────────────────────────────────────

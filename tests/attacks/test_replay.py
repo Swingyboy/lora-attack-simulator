@@ -26,6 +26,7 @@ from lora_attack_toolkit.config import (
     UplinkReplayConfigV1,
     parse_replay_config,
 )
+from lora_attack_toolkit.lorawan.time_utils import FakeClock
 from lora_attack_toolkit.lorawan.mac_commands import (
     CID_DEVICE_TIME_ANS,
     DeviceTimeAnsData,
@@ -97,7 +98,7 @@ def _make_ctx(cfg: UplinkReplayConfigV1) -> AttackContext:
 
     services = AttackServices(device=device, gateway=gateway, logger=logger, capture=capture)
     inp = AttackInput(typed_config=cfg, expected_behavior=None, radio=_radio(), timeout_sec=30.0)
-    return AttackContext(services=services, input=inp)
+    return AttackContext(services=services, input=inp, clock=FakeClock())
 
 
 # ─── 1. parse_replay_config returns UplinkReplayConfigV1 for new format ───────
@@ -218,30 +219,15 @@ class TestConcurrency(unittest.TestCase):
         ctx = _make_ctx(cfg)
         ctx.gateway.forward_uplink.side_effect = _slow_forward
 
-        # Patch time.sleep in the attack module so the post-loop drain is instant
-        import lora_attack_toolkit.attacks.builtin.replay as replay_mod
-
-        original_sleep = replay_mod.time.sleep
-        sleep_calls: list[float] = []
-
-        def _fast_sleep(secs: float) -> None:
-            sleep_calls.append(secs)
-            # Only skip the long drain sleep (> 1 s); keep very short intervals
-            if secs < 0.5:
-                original_sleep(secs)
-
-        with patch.object(replay_mod.time, "sleep", side_effect=_fast_sleep):
-            with patch(
-                "lora_attack_toolkit.attacks.builtin.replay.perform_otaa_join", return_value=True
-            ):
-                with patch.object(ctx.gateway, "start"), patch.object(ctx.gateway, "stop"):
-                    UplinkReplayAttack().run(ctx)
+        with patch(
+            "lora_attack_toolkit.attacks.builtin.replay.perform_otaa_join", return_value=True
+        ):
+            with patch.object(ctx.gateway, "start"), patch.object(ctx.gateway, "stop"):
+                UplinkReplayAttack().run(ctx)
 
         # probe(1) + replay(3) + normal(3) = 7 forwarded calls
         self.assertEqual(len(forwarded), 7)
-        # Sequential worst case (no concurrency): 7 * 0.02 = 0.14 s
-        # Concurrent: probe(0.02) + max(3, 3) * 0.02 = 0.02 + 0.06 = ~0.08 s
-        # Timestamps should show overlap — just verify all 7 calls happened
+        # Both loops must have executed; with the fake clock the run is instant.
         self.assertGreater(len(forwarded), 0)
 
 
@@ -255,9 +241,6 @@ class TestReplayInterval(unittest.TestCase):
         interval = 0.1
         timestamps: list[float] = []
 
-        def _record(frame: bytes, radio: object) -> None:
-            timestamps.append(time.monotonic())
-
         cfg = _cfg(
             capture_fcnt=0,
             replay_count=3,
@@ -266,6 +249,13 @@ class TestReplayInterval(unittest.TestCase):
             uplink_interval_sec=0.0,
         )
         ctx = _make_ctx(cfg)
+
+        # The attack paces replays via ctx.clock.sleep(interval); recording the
+        # fake clock at each forward makes the gaps exactly `interval`,
+        # deterministically and without any real time passing.
+        def _record(frame: bytes, radio: object) -> None:
+            timestamps.append(ctx.clock.monotonic())
+
         ctx.gateway.forward_uplink.side_effect = _record
 
         with patch(
@@ -308,13 +298,15 @@ class TestUplinkInterval(unittest.TestCase):
         )
         ctx = _make_ctx(cfg)
 
-        # Track build_data_uplink calls as proxy for normal uplink timing
+        # Track build_data_uplink calls as proxy for normal uplink timing.
+        # Record the fake clock so the verification-uplink gaps are exactly
+        # `interval` (the attack paces them via ctx.clock.sleep(interval)).
         original_side = ctx.device.build_data_uplink.side_effect
         _fcnt = [0]
         sent: list[tuple[float, bytes]] = []
 
         def _track(payload, f_port, confirmed, f_opts=b""):
-            ts = time.monotonic()
+            ts = ctx.clock.monotonic()
             frame = bytes([_fcnt[0] % 256]) + payload
             _fcnt[0] += 1
             ctx.device.runtime.fcnt_up = _fcnt[0]
