@@ -683,7 +683,3 @@ class UplinkReplayAttack(BaseAttack):
             metrics=metrics,
             captured_packets=len(ctx.capture.uplinks) + len(ctx.capture.downlinks),
         )
-
-
-# Backwards-compatible alias for older tests and examples.
-ReplayAttack = UplinkReplayAttack

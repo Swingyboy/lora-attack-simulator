@@ -450,15 +450,3 @@ def reconfigure_level(level: str, source: str = "cli_override") -> None:
             level,
             _logging_config.level_source,
         )
-
-
-def set_scenario_context(scenario_id: str | None) -> None:
-    """Update scenario context for logging."""
-    global _logging_config
-    _logging_config.scenario_id = scenario_id
-
-    # Update formatters
-    logger = logging.getLogger("lora_attack_toolkit")
-    for handler in logger.handlers:
-        if isinstance(handler.formatter, JsonFormatter):
-            handler.formatter.scenario_id = scenario_id

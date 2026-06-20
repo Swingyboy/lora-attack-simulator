@@ -8,21 +8,18 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from lora_attack_toolkit.attacks.analyzer import AttackAnalyzer
 from lora_attack_toolkit.attacks.base import BaseAttack
-from lora_attack_toolkit.attacks.packet_capture import PacketCapture
 from lora_attack_toolkit.attacks.result import (
     AttackResult,
     Confidence,
     ExecutionStatus,
     SecurityVerdict,
 )
-from lora_attack_toolkit.attacks.validation import validate_criteria
 from lora_attack_toolkit.lorawan.frames import build_join_request
 
 if TYPE_CHECKING:
     from lora_attack_toolkit.attacks.context import AttackContext
-    from lora_attack_toolkit.config import AttackTiming, ExpectedBehavior, JoinDevNonceConfigV1
+    from lora_attack_toolkit.config import AttackTiming, JoinDevNonceConfigV1
     from lora_attack_toolkit.lorawan.time_utils import SimClock
 
 
@@ -74,50 +71,6 @@ class DevNonceResultCache:
         self.accepted_count += 1
         self.recent_accepted_devnonces.append(result.dev_nonce)
         self.all_accepted_devnonces.add(result.dev_nonce)
-
-
-# LEGACY (unused): JoinDevNonceAnalyzer was intended to post-process capture
-# metadata but is never instantiated in the active run() path.  It is safe to
-# delete once any tests that reference it directly are removed or migrated.
-# No test currently imports or calls it; removal is purely cosmetic cleanup.
-
-
-class JoinDevNonceAnalyzer(AttackAnalyzer):
-    """Analyze DevNonce validation results from capture metadata."""
-
-    def analyze(
-        self, capture: PacketCapture, expected: ExpectedBehavior | None = None
-    ) -> dict[str, Any]:
-        stats = capture.get_stats()
-        metrics = capture.metadata.get("devnonce_validation", {})
-        final_join_accepted = metrics.get("final_join_accepted", False)
-        final_result_known = metrics.get("final_result_known", False)
-        message = metrics.get("message", "Attack results unavailable")
-
-        result = {
-            "success": final_result_known and not final_join_accepted,
-            "message": message,
-            "metrics": {
-                **metrics,
-                "total_uplinks": stats["total_uplinks"],
-                "total_downlinks": stats["total_downlinks"],
-            },
-        }
-
-        if expected and final_result_known:
-            validation = validate_criteria(
-                attack_type="join_devnonce",
-                criteria=expected.security_criteria,
-                metrics=result["metrics"],
-                capture_stats=stats,
-                secure_behavior=expected.secure_behavior,
-            )
-            result.update(validation.to_dict())
-            result["validation_summary"] = validation.get_summary()
-        elif expected:
-            result["validation_summary"] = "⚠️  INCONCLUSIVE: final DevNonce check was not executed"
-
-        return result
 
 
 class JoinDevNonceAttack(BaseAttack):

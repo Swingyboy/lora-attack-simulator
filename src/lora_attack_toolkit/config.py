@@ -1,7 +1,7 @@
 """Scenario configuration: types, schema, and loader.
 
 This module is the single source of truth for:
-- Configuration dataclasses (DeviceConfig, GatewayConfig, etc.)
+- Configuration dataclasses (DeviceConfig, GatewayConfigV1, etc.)
 - Attack scenario schema v1.0 dataclasses
 - JSON scenario loading and validation
 
@@ -35,24 +35,6 @@ class RadioMetadata:
     data_rate: str
     rssi: int
     snr: float
-
-
-@dataclass(frozen=True)
-class SemtechUdpConfig:
-    """Semtech UDP protocol configuration."""
-
-    host: str
-    port: int
-    pull_data_interval_sec: int
-
-
-@dataclass(frozen=True)
-class GatewayConfig:
-    """Gateway simulator configuration."""
-
-    gateway_eui: str
-    semtech_udp: SemtechUdpConfig
-    radio_metadata: RadioMetadata
 
 
 @dataclass(frozen=True)
@@ -318,16 +300,6 @@ UPLINK_FORGERY_MAC_COMMANDS = frozenset(
         "RXParamSetupAns",
     }
 )
-
-#: Accepted values for the ``mic_strategy`` config field.
-UPLINK_FORGERY_MIC_STRATEGIES = frozenset({"auto", "valid", "invalid", "original"})
-
-#: Which ``mic_strategy`` values are allowed per forgery mode.
-#: Modes not listed here accept all four strategies.
-_MIC_STRATEGY_ALLOWED: dict[str, frozenset[str]] = {
-    "invalid_mic": frozenset({"auto", "invalid"}),
-    "valid_mic_modified_payload": frozenset({"auto", "valid"}),
-}
 
 
 @dataclass(frozen=True)

@@ -10,12 +10,6 @@ def aes_encrypt_block(key: bytes, block: bytes) -> bytes:
     return encryptor.update(block) + encryptor.finalize()
 
 
-def aes_decrypt_block(key: bytes, block: bytes) -> bytes:
-    cipher = Cipher(algorithms.AES(key), modes.ECB())
-    decryptor = cipher.decryptor()
-    return decryptor.update(block) + decryptor.finalize()
-
-
 def aes_cmac_4(key: bytes, payload: bytes) -> bytes:
     signer = cmac.CMAC(algorithms.AES(key))
     signer.update(payload)

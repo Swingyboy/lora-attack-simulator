@@ -43,27 +43,6 @@ VALIDATION_PROFILES: dict[str, dict[str, Any]] = {
 }
 
 
-def resolve_profile(profile: str) -> dict[str, Any]:
-    """Resolve a validation profile name to its internal parameters.
-
-    Args:
-        profile: Profile name (e.g., "lorawan_1_0_3_devnonce_validation")
-
-    Returns:
-        Dict with "secure_behavior" and "security_criteria" keys.
-
-    Raises:
-        ValueError: If profile is not registered.
-    """
-    prof = VALIDATION_PROFILES.get(profile)
-    if prof is None:
-        available = ", ".join(sorted(VALIDATION_PROFILES))
-        raise ValueError(
-            f"Unknown validation profile: {profile!r}. Available profiles: {available}"
-        )
-    return prof
-
-
 class CriterionResult:
     """Result of evaluating a single success criterion."""
 
