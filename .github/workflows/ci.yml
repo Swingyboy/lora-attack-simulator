@@ -29,6 +29,12 @@ jobs:
       - name: Ruff — format check (blocking)
         run: ruff format --check src/lora_attack_toolkit/ tests/
 
+      - name: pre-commit — run all hooks (mirrors local commit-time checks)
+        # ruff/ruff-format here use the version pinned in .pre-commit-config.yaml
+        # (kept in lock-step with the ruff dev dependency). Catches anyone who
+        # committed with --no-verify.
+        run: pre-commit run --all-files --show-diff-on-failure
+
       - name: Ruff — line length (informational only)
         run: ruff check --select E501 --exit-zero src/lora_attack_toolkit/
 
