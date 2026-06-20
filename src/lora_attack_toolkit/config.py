@@ -15,6 +15,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+# ── Frozen-scope support sets ─────────────────────────────────────────────────
+# LoRAT targets a single, fixed profile (the diploma scope). Any scenario field
+# outside these sets is rejected rather than silently coerced.
+SUPPORTED_TRANSPORTS = frozenset({"semtech_udp"})
+SUPPORTED_REGIONS = frozenset({"EU868"})
+SUPPORTED_DEVICE_CLASSES = frozenset({"A"})
+SUPPORTED_ACTIVATION_MODES = frozenset({"OTAA"})
+SUPPORTED_LORAWAN_VERSIONS = frozenset({"1.0.3"})
+
 # ── Base types ────────────────────────────────────────────────────────────────
 
 
@@ -361,10 +370,35 @@ class AttackScenarioV1:
     logging: LoggingConfig
 
     def validate(self) -> None:
-        supported_transports = ["semtech_udp"]
-        if self.target.transport not in supported_transports:
+        if self.target.transport not in SUPPORTED_TRANSPORTS:
             raise ValueError(
-                f"Unsupported transport: {self.target.transport}. Supported: {supported_transports}"
+                f"target.transport must be one of {sorted(SUPPORTED_TRANSPORTS)!r}, "
+                f"got {self.target.transport!r}"
+            )
+        if self.device.region not in SUPPORTED_REGIONS:
+            raise ValueError(
+                f"device.region must be one of {sorted(SUPPORTED_REGIONS)!r}, "
+                f"got {self.device.region!r}"
+            )
+        if self.gateway.radio.region not in SUPPORTED_REGIONS:
+            raise ValueError(
+                f"gateway.radio.region must be one of {sorted(SUPPORTED_REGIONS)!r}, "
+                f"got {self.gateway.radio.region!r}"
+            )
+        if self.device.device_class not in SUPPORTED_DEVICE_CLASSES:
+            raise ValueError(
+                f"device.class must be one of {sorted(SUPPORTED_DEVICE_CLASSES)!r}, "
+                f"got {self.device.device_class!r}"
+            )
+        if self.device.activation.mode not in SUPPORTED_ACTIVATION_MODES:
+            raise ValueError(
+                f"device.activation.mode must be one of {sorted(SUPPORTED_ACTIVATION_MODES)!r}, "
+                f"got {self.device.activation.mode!r}"
+            )
+        if self.device.lorawan_version not in SUPPORTED_LORAWAN_VERSIONS:
+            raise ValueError(
+                f"device.lorawan_version must be one of {sorted(SUPPORTED_LORAWAN_VERSIONS)!r}, "
+                f"got {self.device.lorawan_version!r}"
             )
 
 
@@ -634,7 +668,7 @@ def _load_v1_format(raw: dict[str, Any]) -> AttackScenarioV1:
             1,
         ),
         radio=RadioConfig(
-            region=_expect_str("gateway.radio.region", radio_data["region"]),
+            region=_expect_enum("gateway.radio.region", radio_data["region"], SUPPORTED_REGIONS),
             frequency_hz=_expect_int("gateway.radio.frequency_hz", radio_data["frequency_hz"], 1),
             data_rate=_expect_str("gateway.radio.data_rate", radio_data["data_rate"]),
             rssi=_expect_int("gateway.radio.rssi", radio_data["rssi"]),
@@ -643,8 +677,8 @@ def _load_v1_format(raw: dict[str, Any]) -> AttackScenarioV1:
     )
 
     activation = device_data["activation"]
-    if activation["mode"] != "OTAA":
-        raise ValueError("device.activation.mode must be OTAA")
+    # Validate (fail fast with a clear path) but pass the Literal to the dataclass.
+    _expect_enum("device.activation.mode", activation["mode"], SUPPORTED_ACTIVATION_MODES)
 
     dev_eui = _expect_str("device.activation.dev_eui", activation["dev_eui"]).lower()
     join_eui = _expect_str("device.activation.join_eui", activation["join_eui"]).lower()
@@ -655,16 +689,23 @@ def _load_v1_format(raw: dict[str, Any]) -> AttackScenarioV1:
 
     device = DeviceConfig(
         name=_expect_str("device.name", device_data["name"]),
-        lorawan_version=_expect_str("device.lorawan_version", device_data["lorawan_version"]),
-        region=_expect_str("device.region", device_data["region"]),
-        device_class=_expect_str(
+        lorawan_version=_expect_enum(
+            "device.lorawan_version",
+            device_data["lorawan_version"],
+            SUPPORTED_LORAWAN_VERSIONS,
+        ),
+        region=_expect_enum("device.region", device_data["region"], SUPPORTED_REGIONS),
+        device_class=_expect_enum(
             "device.class",
             device_data.get("class", device_data.get("device_class", "A")),
+            SUPPORTED_DEVICE_CLASSES,
         ),
         activation=ActivationConfig(
             mode="OTAA", dev_eui=dev_eui, join_eui=join_eui, app_key=app_key
         ),
-        duty_cycle_enforcement=bool(device_data.get("duty_cycle_enforcement", True)),
+        duty_cycle_enforcement=_expect_bool(
+            "device.duty_cycle_enforcement", device_data.get("duty_cycle_enforcement", True)
+        ),
     )
 
     attack = AttackConfigV1(
