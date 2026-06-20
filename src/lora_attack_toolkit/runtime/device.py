@@ -633,7 +633,20 @@ class SimulatedDevice:
                 CID_DEVICE_TIME_ANS: 5,  # DeviceTimeAns: 4-byte GPS seconds + 1-byte fractional
             }
 
-            payload_len = payload_lengths.get(cid, 0)
+            if cid not in payload_lengths:
+                # Unknown CID has unknown length: capture the remaining bytes as
+                # opaque downlink evidence and stop, so the following bytes are
+                # not misinterpreted as further MAC commands.
+                if self._logger:
+                    self._logger.warning(
+                        "Unknown MAC command CID=0x%02x; treating %d remaining byte(s) as opaque",
+                        cid,
+                        len(data) - offset,
+                    )
+                commands.append(MACCommand(cid=cid, payload=data[offset:], is_unknown=True))
+                break
+
+            payload_len = payload_lengths[cid]
 
             if offset + payload_len > len(data):
                 if self._logger:

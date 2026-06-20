@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
+
+_logger = logging.getLogger(__name__)
 
 # MAC Command CIDs (Command Identifiers) - LoRaWAN 1.0.3
 CID_LINK_CHECK_REQ = 0x02
@@ -31,6 +34,8 @@ class MACCommand:
 
     cid: int
     payload: bytes
+    is_unknown: bool = False
+    """True when the CID is unrecognised and ``payload`` holds opaque bytes."""
 
     def to_bytes(self) -> bytes:
         """Convert MAC command to bytes."""
@@ -361,8 +366,16 @@ def parse_mac_command(data: bytes) -> tuple[MACCommand | None, int]:
     elif cid == CID_DEVICE_TIME_ANS:  # 0x0D — downlink DeviceTimeAns has 5 bytes
         payload_len = 5
     else:
-        # Unknown CID, cannot parse
-        return None, 1
+        # Unknown CID: its length is unknown, so every following byte is
+        # ambiguous. Capture the remainder as opaque data and signal "stop"
+        # by consuming all of it, so the caller cannot misinterpret later
+        # bytes as fresh commands (silent misparse).
+        _logger.warning(
+            "parse_mac_command: unknown CID=0x%02x; treating %d remaining byte(s) as opaque",
+            cid,
+            len(data) - 1,
+        )
+        return MACCommand(cid=cid, payload=data[1:], is_unknown=True), len(data)
 
     total_len = 1 + payload_len
     if len(data) < total_len:

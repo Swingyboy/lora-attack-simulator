@@ -241,6 +241,20 @@ class TestMACCommandEncoding(unittest.TestCase):
         self.assertIsNone(parsed)
         self.assertEqual(consumed, 0)
 
+    def test_parse_unknown_cid_stops(self) -> None:
+        """Unknown CID yields one opaque command and consumes the rest (parsing stops)."""
+        data = bytes([0xFF, 0x01, 0x02])
+
+        parsed, consumed = parse_mac_command(data)
+
+        self.assertIsNotNone(parsed)
+        assert parsed is not None
+        self.assertTrue(parsed.is_unknown)
+        self.assertEqual(parsed.cid, 0xFF)
+        self.assertEqual(parsed.payload, bytes([0x01, 0x02]))
+        # Everything consumed → a caller loop terminates without misparsing 0x01/0x02.
+        self.assertEqual(consumed, len(data))
+
 
 if __name__ == "__main__":
     unittest.main()
