@@ -176,6 +176,18 @@ class UplinkReplayAttack(BaseAttack):
 
     name = "uplink_replay"
 
+    def _cancelled_result(self) -> AttackResult:
+        """Build a structured CANCELLED result (no security verdict implied)."""
+        return AttackResult(
+            attack_name=self.name,
+            attack_type="uplink_replay",
+            execution_status=ExecutionStatus.CANCELLED,
+            security_verdict=SecurityVerdict.INCONCLUSIVE,
+            confidence=Confidence.LOW,
+            interrupted=True,
+            message="Uplink replay cancelled by user",
+        )
+
     def run(self, ctx: AttackContext) -> AttackResult:
         ctx.logger.info("uplink_replay_started")
         try:
@@ -235,6 +247,8 @@ class UplinkReplayAttack(BaseAttack):
         _pre_probe_rx_timeout = _DEFAULT_TIMING.rx2_delay_sec + _DEFAULT_TIMING.rx2_window_sec + 0.5
 
         while ctx.device.runtime.fcnt_up < cfg.capture_fcnt:
+            if ctx.cancel_event.is_set():
+                return self._cancelled_result()
             current_fcnt = ctx.device.runtime.fcnt_up
             ctx.logger.debug(
                 "waiting_for_capture_fcnt target=%d current=%d mono=%.3f",
@@ -302,6 +316,8 @@ class UplinkReplayAttack(BaseAttack):
                 ctx.clock.sleep(remaining_sleep, ctx.cancel_event)
 
         # 4. Probe uplink at FCntUp == capture_fcnt
+        if ctx.cancel_event.is_set():
+            return self._cancelled_result()
         probe_fcnt = ctx.device.runtime.fcnt_up  # == capture_fcnt
         ctx.logger.debug(
             "waiting_for_capture_fcnt target=%d current=%d mono=%.3f",
@@ -362,6 +378,8 @@ class UplinkReplayAttack(BaseAttack):
                     next_mono,
                 )
                 ctx.clock.sleep(cfg.replay_attempt_interval_sec, ctx.cancel_event)
+                if ctx.cancel_event.is_set():
+                    return
                 replay_radio = _select_radio_for_uplink(ctx, captured.fcnt + i)
                 with gateway_lock:
                     tx_mono = ctx.clock.monotonic()
@@ -394,6 +412,8 @@ class UplinkReplayAttack(BaseAttack):
                     sleep_start,
                 )
                 ctx.clock.sleep(cfg.uplink_interval_sec, ctx.cancel_event)
+                if ctx.cancel_event.is_set():
+                    return
                 # Drain accumulated MAC *Ans from _downlink_loop.
                 with mac_ans_lock:
                     ans_snapshot = pending_mac_ans[:]
@@ -434,7 +454,7 @@ class UplinkReplayAttack(BaseAttack):
                 )
 
         def _downlink_loop() -> None:
-            while not stop_dl_event.is_set():
+            while not stop_dl_event.is_set() and not ctx.cancel_event.is_set():
                 raw = ctx.gateway.await_downlink(timeout_sec=0.3)
                 if raw is None:
                     continue
@@ -515,6 +535,9 @@ class UplinkReplayAttack(BaseAttack):
         )
         stop_dl_event.set()
         t_dl.join(timeout=2.0)
+
+        if ctx.cancel_event.is_set():
+            return self._cancelled_result()
 
         # 9–11. Analyse
         return self._analyze_enhanced(

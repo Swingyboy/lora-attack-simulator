@@ -23,6 +23,7 @@ from lora_attack_toolkit.attacks.builtin.replay import (
 )
 from lora_attack_toolkit.attacks.context import AttackContext, AttackInput, AttackServices
 from lora_attack_toolkit.attacks.packet_capture import PacketCapture
+from lora_attack_toolkit.attacks.result import ExecutionStatus
 from lora_attack_toolkit.config import (
     RadioMetadata,
     UplinkReplayConfigV1,
@@ -946,6 +947,67 @@ class TestMACCommandAcknowledgment(unittest.TestCase):
                 UplinkReplayAttack().run(ctx)
 
         ctx.device.process_downlink.assert_called()
+
+
+class TestReplayCancellation(unittest.TestCase):
+    """Cancellation must stop transmissions and return CANCELLED."""
+
+    def test_cancel_before_warmup_returns_cancelled(self) -> None:
+        # capture_fcnt=2 → the warm-up loop runs; a pre-set cancel must make the
+        # loop return CANCELLED before transmitting any pre-probe uplink.
+        cfg = _cfg(capture_fcnt=2, verification_uplink_count=0, replay_count=1)
+        ctx = _make_ctx(cfg)
+        ctx.cancel_event.set()
+
+        with patch(
+            "lora_attack_toolkit.attacks.builtin.replay.perform_otaa_join", return_value=True
+        ):
+            with patch.object(ctx.gateway, "start"), patch.object(ctx.gateway, "stop"):
+                result = UplinkReplayAttack().run(ctx)
+
+        self.assertEqual(result.execution_status, ExecutionStatus.CANCELLED)
+        self.assertTrue(result.interrupted)
+        ctx.gateway.forward_uplink.assert_not_called()
+
+    def test_cancel_before_probe_returns_cancelled(self) -> None:
+        # capture_fcnt=0 → no warm-up; the probe guard must return CANCELLED
+        # before the probe uplink is transmitted.
+        cfg = _cfg(capture_fcnt=0, verification_uplink_count=0, replay_count=1)
+        ctx = _make_ctx(cfg)
+        ctx.cancel_event.set()
+
+        with patch(
+            "lora_attack_toolkit.attacks.builtin.replay.perform_otaa_join", return_value=True
+        ):
+            with patch.object(ctx.gateway, "start"), patch.object(ctx.gateway, "stop"):
+                result = UplinkReplayAttack().run(ctx)
+
+        self.assertEqual(result.execution_status, ExecutionStatus.CANCELLED)
+        ctx.gateway.forward_uplink.assert_not_called()
+
+    def test_cancel_during_replay_loop_returns_cancelled(self) -> None:
+        # Let the probe transmit, then cancel: the replay/verification threads and
+        # the downlink wait must wind down and the run returns CANCELLED.
+        cfg = _cfg(capture_fcnt=0, verification_uplink_count=2, replay_count=3)
+        ctx = _make_ctx(cfg)
+
+        forwarded: list[bytes] = []
+
+        def _forward(frame, radio):
+            forwarded.append(frame)
+            ctx.cancel_event.set()  # cancel right after the probe uplink
+
+        ctx.gateway.forward_uplink.side_effect = _forward
+
+        with patch(
+            "lora_attack_toolkit.attacks.builtin.replay.perform_otaa_join", return_value=True
+        ):
+            with patch.object(ctx.gateway, "start"), patch.object(ctx.gateway, "stop"):
+                result = UplinkReplayAttack().run(ctx)
+
+        self.assertEqual(result.execution_status, ExecutionStatus.CANCELLED)
+        # Only the probe was sent; replay/verification loops stopped on cancel.
+        self.assertEqual(len(forwarded), 1)
 
 
 if __name__ == "__main__":

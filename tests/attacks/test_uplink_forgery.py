@@ -17,7 +17,7 @@ import unittest
 from logging import getLogger
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -35,6 +35,7 @@ from lora_attack_toolkit.attacks.builtin.uplink_forgery import (
 from lora_attack_toolkit.attacks.context import AttackContext, AttackInput, AttackServices
 from lora_attack_toolkit.attacks.packet_capture import PacketCapture
 from lora_attack_toolkit.attacks.registry import AttackRegistry
+from lora_attack_toolkit.attacks.result import ExecutionStatus
 from lora_attack_toolkit.config import (
     UPLINK_FORGERY_MAC_COMMANDS,
     UPLINK_FORGERY_MODES,
@@ -758,6 +759,47 @@ class TestRegressionUplinkReplay(unittest.TestCase):
         result = _select_radio_for_uplink(ctx, 7)
         device.select_uplink_radio.assert_called_once_with(7, radio)
         self.assertIs(result, radio)
+
+
+class TestForgeryCancellation(unittest.TestCase):
+    """Cancellation must stop transmissions and return CANCELLED."""
+
+    def test_cancel_before_join_returns_cancelled(self) -> None:
+        # Pre-set cancel: the run must return CANCELLED before the OTAA join is
+        # even attempted and without transmitting any frame.
+        cfg = _cfg(perform_join=True, baseline_uplink_count=2)
+        ctx = _make_ctx(cfg)
+        ctx.cancel_event.set()
+
+        with patch(
+            "lora_attack_toolkit.attacks.builtin.uplink_forgery.perform_otaa_join"
+        ) as join_mock:
+            result = UplinkForgeryAttack().run(ctx)
+
+        self.assertEqual(result.execution_status, ExecutionStatus.CANCELLED)
+        self.assertTrue(result.interrupted)
+        join_mock.assert_not_called()
+        ctx.gateway.forward_uplink.assert_not_called()
+
+    def test_cancel_during_baseline_stops_forge(self) -> None:
+        # Cancel after the first baseline uplink: the baseline loop stops and the
+        # forged frame is never transmitted.
+        cfg = _cfg(perform_join=False, baseline_uplink_count=5)
+        ctx = _make_ctx(cfg)
+
+        forwarded: list[bytes] = []
+
+        def _forward(frame, radio):
+            forwarded.append(frame)
+            ctx.cancel_event.set()
+
+        ctx.gateway.forward_uplink.side_effect = _forward
+
+        result = UplinkForgeryAttack().run(ctx)
+
+        self.assertEqual(result.execution_status, ExecutionStatus.CANCELLED)
+        # Only the first baseline uplink was sent; no further baseline or forged frame.
+        self.assertEqual(len(forwarded), 1)
 
 
 if __name__ == "__main__":

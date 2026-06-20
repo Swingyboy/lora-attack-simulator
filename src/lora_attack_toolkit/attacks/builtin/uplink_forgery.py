@@ -298,9 +298,23 @@ class UplinkForgeryAttack(BaseAttack):
 
     # ── Core execution ────────────────────────────────────────────────────────
 
+    def _cancelled_result(self, mode: str) -> AttackResult:
+        """Build a structured CANCELLED result (no security verdict implied)."""
+        return AttackResult(
+            attack_name=self.name,
+            attack_type="uplink_forgery",
+            execution_status=ExecutionStatus.CANCELLED,
+            security_verdict=SecurityVerdict.INCONCLUSIVE,
+            confidence=Confidence.LOW,
+            interrupted=True,
+            message=f"Uplink forgery [{mode}] cancelled by user",
+        )
+
     def _run(self, ctx: "AttackContext", cfg: UplinkForgeryConfigV1) -> AttackResult:
         with gateway_lifecycle(ctx.gateway):
             ctx.clock.sleep(0.5, ctx.cancel_event)
+            if ctx.cancel_event.is_set():
+                return self._cancelled_result(cfg.forgery_mode)
 
             # 1. OTAA join
             if cfg.perform_join:
@@ -325,6 +339,11 @@ class UplinkForgeryAttack(BaseAttack):
 
             # 3. Capture session context
             session = self._capture_session(ctx, cfg)
+
+            # Honour cancellation before emitting the forged frame — never
+            # transmit an attack packet after the user has asked to stop.
+            if ctx.cancel_event.is_set():
+                return self._cancelled_result(cfg.forgery_mode)
 
             # 4–5. Build and transmit forged uplink
             evidence = self._forge_and_transmit(ctx, cfg, session)
@@ -377,6 +396,8 @@ class UplinkForgeryAttack(BaseAttack):
     def _send_baseline_uplinks(self, ctx: "AttackContext", cfg: UplinkForgeryConfigV1) -> None:
         """Send clean baseline uplinks to establish a valid session state."""
         for i in range(cfg.baseline_uplink_count):
+            if ctx.cancel_event.is_set():
+                return
             fcnt = ctx.device.runtime.fcnt_up
             frame = ctx.device.build_data_uplink(
                 payload=bytes.fromhex(cfg.payload_hex),

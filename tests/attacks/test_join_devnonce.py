@@ -219,6 +219,25 @@ class TestJoinDevNonceAttack(unittest.TestCase):
         self.assertEqual(final_call.kwargs["dev_nonce"], b"\x02\x00")
         self.assertEqual(final_call.kwargs["phase"], "final")
 
+    def test_run_cancelled_after_generation_returns_cancelled(self) -> None:
+        # When the cancel_event is set, the run must abort after the generation
+        # phase and return a CANCELLED result without executing the final join.
+        from lora_attack_toolkit.attacks.result import ExecutionStatus
+
+        attack = JoinDevNonceAttack()
+
+        def fake_generation(ctx, config, timing, cache):
+            ctx.cancel_event.set()
+
+        attack._execute_generation_phase = Mock(side_effect=fake_generation)
+        attack._execute_join_step = Mock()
+
+        result = attack.run(self.ctx)
+
+        self.assertEqual(result.execution_status, ExecutionStatus.CANCELLED)
+        self.assertTrue(result.interrupted)
+        attack._execute_join_step.assert_not_called()
+
     def test_run_lower_than_last_uses_lower_devnonce(self) -> None:
         attack = JoinDevNonceAttack()
 
