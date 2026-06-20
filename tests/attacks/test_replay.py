@@ -11,8 +11,6 @@ from unittest.mock import MagicMock, patch
 from lora_attack_toolkit.attacks.builtin.replay import (
     CapturedUplinkRecord,
     DownlinkRxRecord,
-    ReplayAnalyzer,
-    ReplayAttack,
     ReplayTxRecord,
     ReplayVerdict,
     UplinkReplayAttack,
@@ -27,7 +25,6 @@ from lora_attack_toolkit.config import (
     RadioMetadata,
     UplinkReplayConfigV1,
     parse_replay_config,
-    ReplayConfigV1,
 )
 from lora_attack_toolkit.lorawan.mac_commands import (
     CID_DEVICE_TIME_ANS,
@@ -125,15 +122,6 @@ class TestParseReplayConfig(unittest.TestCase):
         self.assertEqual(cfg.replay_count, 3)
         self.assertEqual(cfg.verification_uplink_count, 5)
         self.assertEqual(cfg.device_time_gps_tolerance_sec, 2.0)
-
-    def test_old_format_returns_replay_config_v1(self) -> None:
-        cfg = parse_replay_config(
-            {
-                "capture_phase": {"perform_join": True},
-                "replay_phase": {"mode": "immediate", "count": 2, "delay_sec": 1.0},
-            }
-        )
-        self.assertIsInstance(cfg, ReplayConfigV1)
 
     def test_defaults_applied(self) -> None:
         cfg = parse_replay_config({"uplink_interval_sec": 10})
@@ -750,42 +738,6 @@ class TestVerdictRules(unittest.TestCase):
             "verdict",
         }
         self.assertTrue(required.issubset(result.metrics.keys()))
-
-
-# ─── 12. Legacy analyzer backward compat ────────────────────────────────────
-
-
-class TestLegacyReplayAnalyzer(unittest.TestCase):
-    """Existing legacy tests preserved."""
-
-    def setUp(self) -> None:
-        self.analyzer = ReplayAnalyzer()
-        self.logger = getLogger("test")
-
-    def test_analyze_insufficient_uplinks(self) -> None:
-        capture = PacketCapture(logger=self.logger)
-        capture.capture_uplink(b"\x40\x00\x00\x00\x00", fcnt=0)
-        result = self.analyzer.analyze(capture)
-        self.assertFalse(result["success"])
-        self.assertIn("insufficient uplinks", result["message"])
-
-    def test_analyze_no_replays_detected(self) -> None:
-        capture = PacketCapture(logger=self.logger)
-        capture.capture_uplink(b"\x40\x00\x00\x00\x00", fcnt=0)
-        capture.capture_uplink(b"\x40\x00\x00\x00\x01", fcnt=1)
-        result = self.analyzer.analyze(capture)
-        self.assertFalse(result["success"])
-        self.assertIn("No replay packets detected", result["message"])
-
-    def test_analyze_successful_replay(self) -> None:
-        capture = PacketCapture(logger=self.logger)
-        original_payload = b"\x40\x00\x00\x00\x00"
-        capture.capture_uplink(original_payload, fcnt=0)
-        capture.capture_uplink(original_payload, fcnt=0)
-        result = self.analyzer.analyze(capture)
-        self.assertTrue(result["success"])
-        self.assertIn("replay(s) sent", result["message"])
-        self.assertEqual(result["metrics"]["replays_sent"], 1)
 
 
 class TestPacketCapture(unittest.TestCase):

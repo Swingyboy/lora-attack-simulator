@@ -105,6 +105,17 @@ class SimClock(Protocol):
         """
         ...
 
+    def sleep(
+        self, seconds: float, cancel_event: Optional["_threading.Event"] = None
+    ) -> bool:
+        """Sleep for *seconds*, returning ``True`` if the full duration elapsed.
+
+        Returns ``False`` when *cancel_event* is set before the duration
+        expires. Implementations must keep :meth:`monotonic` consistent with the
+        elapsed sleep so attack timing logic remains coherent under a fake clock.
+        """
+        ...
+
 
 class WallClock:
     """Production clock backed by :mod:`time`."""
@@ -117,6 +128,11 @@ class WallClock:
 
     def gps_time(self) -> float:
         return unix_to_gps(_time.time())
+
+    def sleep(
+        self, seconds: float, cancel_event: Optional["_threading.Event"] = None
+    ) -> bool:
+        return interruptible_sleep(seconds, cancel_event)
 
 
 class FakeClock:
@@ -141,6 +157,7 @@ class FakeClock:
     ) -> None:
         self._unix = start_unix
         self._mono = start_mono
+        self._lock = _threading.Lock()
 
     # ---- SimClock interface ----
 
@@ -153,16 +170,33 @@ class FakeClock:
     def gps_time(self) -> float:
         return unix_to_gps(self._unix)
 
+    def sleep(
+        self, seconds: float, cancel_event: Optional["_threading.Event"] = None
+    ) -> bool:
+        """Advance the fake clock by *seconds* without blocking.
+
+        Honours *cancel_event* (returns ``False`` if it is set) so cancellation
+        paths behave the same as :class:`WallClock`, while keeping unit tests
+        instantaneous and deterministic.
+        """
+        if cancel_event is not None and cancel_event.is_set():
+            return False
+        if seconds > 0:
+            self.advance(seconds)
+        return not (cancel_event is not None and cancel_event.is_set())
+
     # ---- Mutation helpers ----
 
     def advance(self, seconds: float) -> None:
         """Advance both the monotonic and Unix clocks by *seconds*."""
-        self._mono += seconds
-        self._unix += seconds
+        with self._lock:
+            self._mono += seconds
+            self._unix += seconds
 
     def advance_mono(self, seconds: float) -> None:
         """Advance the monotonic clock only (simulates monotonic drift)."""
-        self._mono += seconds
+        with self._lock:
+            self._mono += seconds
 
     def set_unix(self, unix_time: float) -> None:
         """Set the Unix clock to an absolute value."""

@@ -192,33 +192,6 @@ class AttackTiming:
     rx2_window_sec: float = 1.0
 
 
-# LEGACY (deprecated): ReplayPhaseConfig, CapturePhaseConfig, and ReplayConfigV1
-# support the nested capture_phase/replay_phase JSON format.  No example scenario
-# uses that format.  These classes are kept because:
-#   1. parse_replay_config still produces ReplayConfigV1 for nested input.
-#   2. UplinkReplayAttack._run_legacy consumes ReplayConfigV1.
-#   3. TestLegacyReplayAnalyzer exercises the path directly.
-# All three blockers must be resolved before these classes can be removed.
-
-
-@dataclass(frozen=True)
-class ReplayPhaseConfig:
-    """Replay phase configuration for uplink replay attacks."""
-
-    mode: str
-    count: int
-    delay_sec: float
-
-
-@dataclass(frozen=True)
-class CapturePhaseConfig:
-    """Capture phase configuration for replay attacks."""
-
-    perform_join: bool
-    send_baseline_uplink: bool
-    payload_hex: str | None = None
-
-
 @dataclass(frozen=True)
 class UplinkReplayConfigV1:
     """Enhanced uplink replay attack configuration.
@@ -243,16 +216,6 @@ class UplinkReplayConfigV1:
     replay_count: int = 3
     verification_uplink_count: int = 5
     device_time_gps_tolerance_sec: float = 2.0
-
-
-@dataclass(frozen=True)
-class ReplayConfigV1:
-    """Replay attack configuration (v1.0)."""
-
-    capture_phase: CapturePhaseConfig
-    replay_phase: ReplayPhaseConfig
-    fcnt_strategy: str
-    mic_strategy: str
 
 
 @dataclass(frozen=True)
@@ -395,55 +358,27 @@ class AttackScenarioV1:
 # ── Attack-specific config parsers ────────────────────────────────────────────
 
 
-def parse_replay_config(config: dict[str, Any]) -> "UplinkReplayConfigV1 | ReplayConfigV1":
-    """Parse uplink replay config from dict.
-
-    Detects format automatically:
-    - New flat format (keys: uplink_interval_sec / capture_fcnt / …) →
-      returns :class:`UplinkReplayConfigV1`.
-    - Legacy nested format (keys: capture_phase / replay_phase) →
-      returns :class:`ReplayConfigV1` for backward compatibility.
-    """
-    _new_keys = {"uplink_interval_sec", "capture_fcnt", "replay_attempt_interval_sec"}
-    if _new_keys.intersection(config.keys()):
-        return UplinkReplayConfigV1(
-            uplink_interval_sec=_expect_float(
-                "uplink_interval_sec", config.get("uplink_interval_sec", 30.0), min_value=0.0
-            ),
-            capture_fcnt=_expect_int("capture_fcnt", config.get("capture_fcnt", 5), min_value=0),
-            replay_attempt_interval_sec=_expect_float(
-                "replay_attempt_interval_sec",
-                config.get("replay_attempt_interval_sec", 5.0),
-                min_value=0.0,
-            ),
-            replay_count=_expect_int("replay_count", config.get("replay_count", 3), min_value=1),
-            verification_uplink_count=_expect_int(
-                "verification_uplink_count", config.get("verification_uplink_count", 5), min_value=0
-            ),
-            device_time_gps_tolerance_sec=_expect_float(
-                "device_time_gps_tolerance_sec",
-                config.get("device_time_gps_tolerance_sec", 2.0),
-                min_value=0.0,
-            ),
-        )
-
-    capture_data = config.get("capture_phase", {})
-    capture = CapturePhaseConfig(
-        perform_join=capture_data.get("perform_join", True),
-        send_baseline_uplink=capture_data.get("send_baseline_uplink", True),
-        payload_hex=capture_data.get("payload_hex"),
-    )
-    replay_data = config.get("replay_phase", {})
-    replay = ReplayPhaseConfig(
-        mode=replay_data.get("mode", "immediate"),
-        count=replay_data.get("count", 1),
-        delay_sec=replay_data.get("delay_sec", 0.0),
-    )
-    return ReplayConfigV1(
-        capture_phase=capture,
-        replay_phase=replay,
-        fcnt_strategy=config.get("fcnt_strategy", "reuse_original"),
-        mic_strategy=config.get("mic_strategy", "reuse_original"),
+def parse_replay_config(config: dict[str, Any]) -> "UplinkReplayConfigV1":
+    """Parse uplink replay config from dict into :class:`UplinkReplayConfigV1`."""
+    return UplinkReplayConfigV1(
+        uplink_interval_sec=_expect_float(
+            "uplink_interval_sec", config.get("uplink_interval_sec", 30.0), min_value=0.0
+        ),
+        capture_fcnt=_expect_int("capture_fcnt", config.get("capture_fcnt", 5), min_value=0),
+        replay_attempt_interval_sec=_expect_float(
+            "replay_attempt_interval_sec",
+            config.get("replay_attempt_interval_sec", 5.0),
+            min_value=0.0,
+        ),
+        replay_count=_expect_int("replay_count", config.get("replay_count", 3), min_value=1),
+        verification_uplink_count=_expect_int(
+            "verification_uplink_count", config.get("verification_uplink_count", 5), min_value=0
+        ),
+        device_time_gps_tolerance_sec=_expect_float(
+            "device_time_gps_tolerance_sec",
+            config.get("device_time_gps_tolerance_sec", 2.0),
+            min_value=0.0,
+        ),
     )
 
 

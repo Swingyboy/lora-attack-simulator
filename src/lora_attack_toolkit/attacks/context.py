@@ -8,11 +8,20 @@ from dataclasses import dataclass, field
 from logging import Logger
 from typing import TYPE_CHECKING, Any
 
+from lora_attack_toolkit.lorawan.time_utils import WallClock
+
 if TYPE_CHECKING:
     from lora_attack_toolkit.attacks.packet_capture import PacketCapture
     from lora_attack_toolkit.config import ExpectedBehavior, RadioMetadata
+    from lora_attack_toolkit.lorawan.time_utils import SimClock
     from lora_attack_toolkit.runtime.device import SimulatedDevice
     from lora_attack_toolkit.runtime.gateway import GatewaySimulator
+
+
+def _default_clock() -> "SimClock":
+    """Production default clock — overridden with a FakeClock in unit tests."""
+    return WallClock()
+
 
 
 @dataclass(frozen=True)
@@ -96,6 +105,7 @@ class AttackContext:
     input: AttackInput
     state: dict[str, Any] = field(default_factory=dict)
     cancel_event: threading.Event = field(default_factory=threading.Event)
+    clock: "SimClock" = field(default_factory=_default_clock)
 
     # Convenience accessors for common needs
     @property

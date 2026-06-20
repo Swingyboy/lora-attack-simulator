@@ -8,17 +8,14 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
-from lora_attack_toolkit.attacks.analyzer import AttackAnalyzer
 from lora_attack_toolkit.attacks.base import BaseAttack
 from lora_attack_toolkit.attacks.lifecycle import gateway_lifecycle
-from lora_attack_toolkit.attacks.packet_capture import PacketCapture
 from lora_attack_toolkit.attacks.result import (
     AttackResult,
     Confidence,
     ExecutionStatus,
     SecurityVerdict,
 )
-from lora_attack_toolkit.attacks.validation import validate_criteria
 from lora_attack_toolkit.config import AttackTiming, RadioMetadata, UplinkReplayConfigV1
 from lora_attack_toolkit.lorawan.join import perform_otaa_join
 from lora_attack_toolkit.lorawan.mac_commands import (
@@ -32,7 +29,6 @@ from lora_attack_toolkit.lorawan.time_utils import interruptible_sleep, unix_to_
 
 if TYPE_CHECKING:
     from lora_attack_toolkit.attacks.context import AttackContext
-    from lora_attack_toolkit.config import ExpectedBehavior
 
 # ── Timing record types ───────────────────────────────────────────────────────
 
@@ -181,82 +177,6 @@ def _encode_pending_ans(pending: list[MACCommand]) -> bytes:
     return encode_mac_commands(pending)[:_FOPTS_MAX]
 
 
-# LEGACY (deprecated): ReplayAnalyzer is retained because TestLegacyReplayAnalyzer
-# exercises it directly as a unit test.  It is NOT used by the active enhanced
-# path (_run_enhanced); it is only called from _run_legacy which handles the
-# nested capture_phase/replay_phase config format.
-#
-# Removal is blocked by:
-#   1. TestLegacyReplayAnalyzer (3 tests) in tests/attacks/test_replay.py — the
-#      assertions must be ported to the enhanced verdict path before this class
-#      and its tests can be deleted.
-#   2. parse_replay_config still produces ReplayConfigV1 for the nested format —
-#      that branch must be removed from config.py first.
-# Scheduled for cleanup once those blockers are resolved.
-
-
-class ReplayAnalyzer(AttackAnalyzer):
-    """Analyzer for replay attack results."""
-
-    def analyze(
-        self, capture: PacketCapture, expected: ExpectedBehavior | None = None
-    ) -> dict[str, Any]:
-        """Analyze replay attack results."""
-        stats = capture.get_stats()
-
-        if stats["total_uplinks"] < 2:
-            return {
-                "success": False,
-                "message": "Replay attack did not execute (insufficient uplinks captured)",
-                "metrics": {"uplinks_captured": stats["total_uplinks"]},
-            }
-
-        original = None
-        replays = []
-
-        for i, packet in enumerate(capture.uplinks):
-            if i == 0:
-                original = packet
-            elif original and packet.phy_payload == original.phy_payload:
-                replays.append(packet)
-
-        if not replays:
-            return {
-                "success": False,
-                "message": "No replay packets detected",
-                "metrics": {
-                    "uplinks_captured": stats["total_uplinks"],
-                    "original_fcnt": original.fcnt if original else None,
-                },
-            }
-
-        metrics = {
-            "original_fcnt": original.fcnt if original else None,
-            "replays_count": len(replays),
-            "replays_sent": len(replays),
-            "total_uplinks": stats["total_uplinks"],
-            "total_downlinks": stats["total_downlinks"],
-        }
-
-        result = {
-            "success": True,
-            "message": f"Replay attack executed: {len(replays)} replay(s) sent",
-            "metrics": metrics,
-        }
-
-        if expected:
-            validation = validate_criteria(
-                attack_type="uplink_replay",
-                criteria=expected.security_criteria,
-                metrics=metrics,
-                capture_stats=stats,
-                secure_behavior=expected.secure_behavior,
-            )
-            result.update(validation.to_dict())
-            result["validation_summary"] = validation.get_summary()
-
-        return result
-
 
 # ── Attack ────────────────────────────────────────────────────────────────────
 
@@ -265,8 +185,9 @@ class UplinkReplayAttack(BaseAttack):
     """
     Uplink replay attack — enhanced edition.
 
-    Supports both the new flat :class:`UplinkReplayConfigV1` (recommended)
-    and the legacy :class:`ReplayConfigV1` (backward compat).
+    Captures a legitimate uplink and retransmits it, correlating any resulting
+    downlinks by RX-window timing and DeviceTimeAns GPS time to decide whether
+    the Network Server accepted the replay.
     """
 
     name = "uplink_replay"
@@ -274,9 +195,7 @@ class UplinkReplayAttack(BaseAttack):
     def run(self, ctx: AttackContext) -> AttackResult:
         ctx.logger.info("uplink_replay_started")
         try:
-            if isinstance(ctx.config, UplinkReplayConfigV1):
-                return self._run_enhanced(ctx, ctx.config)
-            return self._run_legacy(ctx)
+            return self._run_enhanced(ctx, ctx.config)
         except Exception as e:  # noqa: BLE001
             ctx.logger.exception("Attack failed: %s", e)
             return AttackResult.failed(
@@ -743,104 +662,6 @@ class UplinkReplayAttack(BaseAttack):
             message=f"Replay attack complete: verdict={verdict.value}",
             metrics=metrics,
             captured_packets=len(ctx.capture.uplinks) + len(ctx.capture.downlinks),
-        )
-
-    # LEGACY: _run_legacy handles the nested ReplayConfigV1 (capture_phase/
-    # replay_phase) format.  No example scenarios use this format; it is kept
-    # only because parse_replay_config still produces ReplayConfigV1 for nested
-    # input.  Remove once parse_replay_config is narrowed to UplinkReplayConfigV1
-    # only and TestLegacyReplayAnalyzer is migrated.
-    def _run_legacy(self, ctx: AttackContext) -> AttackResult:
-        config = ctx.config  # ReplayConfigV1
-        replay_count = config.replay_phase.count
-        replay_delay = config.replay_phase.delay_sec
-        perform_join = config.capture_phase.perform_join
-        payload_hex = config.capture_phase.payload_hex or "CAFEBABE"
-
-        ctx.logger.info("Starting gateway...")
-        with gateway_lifecycle(ctx.gateway):
-            interruptible_sleep(0.5, ctx.cancel_event)
-
-            if perform_join:
-                ctx.logger.info("Performing OTAA join...")
-                join_success = perform_otaa_join(
-                    device=ctx.device,
-                    gateway=ctx.gateway,
-                    radio=ctx.radio,
-                    timeout_sec=5.0,
-                    logger=ctx.logger,
-                )
-                if not join_success:
-                    return AttackResult.failed(
-                        attack_name=self.name,
-                        attack_type="uplink_replay",
-                        error="OTAA join failed",
-                        message="OTAA join failed - cannot proceed with replay",
-                    )
-                ctx.logger.info("OTAA join successful")
-
-            ctx.logger.info("Sending original uplink...")
-            payload = bytes.fromhex(payload_hex)
-            original_uplink = ctx.device.build_data_uplink(
-                payload=payload, f_port=10, confirmed=False
-            )
-            tx_mono = time.monotonic()
-            ctx.gateway.forward_uplink(original_uplink, ctx.radio)
-            fcnt_original = ctx.device.runtime.fcnt_up - 1
-            ctx.capture.capture_uplink(
-                phy_payload=original_uplink,
-                fcnt=fcnt_original,
-                packet_type="data_up",
-            )
-            ctx.logger.info("original_uplink_sent fcnt=%d mono=%.3f", fcnt_original, tx_mono)
-
-            delay_start = time.monotonic()
-            ctx.logger.info(
-                "replay_delay_start delay_sec=%.3f mono=%.3f", replay_delay, delay_start
-            )
-            interruptible_sleep(replay_delay, ctx.cancel_event)
-            delay_elapsed_ms = (time.monotonic() - delay_start) * 1000
-            ctx.logger.info(
-                "replay_delay_done elapsed_ms=%.0f mono=%.3f",
-                delay_elapsed_ms,
-                time.monotonic(),
-            )
-
-            ctx.logger.info("Replaying uplink %d time(s)...", replay_count)
-            for i in range(replay_count):
-                t_replay_mono = time.monotonic()
-                ctx.gateway.forward_uplink(original_uplink, ctx.radio)
-                ctx.capture.capture_uplink(
-                    phy_payload=original_uplink,
-                    fcnt=ctx.device.runtime.fcnt_up - 1,
-                    packet_type="data_up",
-                )
-                ctx.logger.info(
-                    "replay_sent attempt=%d/%d mono=%.3f", i + 1, replay_count, t_replay_mono
-                )
-                if i < replay_count - 1:
-                    interruptible_sleep(0.1, ctx.cancel_event)
-
-            ctx.logger.info("Replay attack complete: %d replay(s) sent", replay_count)
-
-        ctx.logger.info("Analyzing results...")
-        analyzer = ReplayAnalyzer()
-        analysis = analyzer.analyze(ctx.capture, ctx.expected)
-
-        # Map legacy analysis success flag to standardized verdict
-        legacy_success = analysis.get("success", True)
-        sv = SecurityVerdict.SECURE if legacy_success else SecurityVerdict.INCONCLUSIVE
-        return AttackResult(
-            attack_name=self.name,
-            attack_type="uplink_replay",
-            execution_status=ExecutionStatus.COMPLETED,
-            security_verdict=sv,
-            confidence=Confidence.LOW,
-            message=analysis["message"],
-            metrics=analysis["metrics"],
-            captured_packets=len(ctx.capture.uplinks) + len(ctx.capture.downlinks),
-            validation_summary=analysis.get("validation_summary"),
-            criteria_met=analysis.get("criteria_met"),
         )
 
 
