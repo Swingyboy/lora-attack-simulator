@@ -410,6 +410,25 @@ class TestDeviceLayerUsed(unittest.TestCase):
         ctx.device.select_uplink_radio.assert_called()
 
 
+class TestDownlinkStateProcessing(unittest.TestCase):
+    """Item 5: baseline and verification downlinks must update device state
+    via the single public ``process_downlink`` API."""
+
+    def test_baseline_downlink_processed(self) -> None:
+        cfg = _cfg(baseline_uplink_count=1)
+        ctx = _make_ctx(cfg)
+        ctx.gateway.await_downlink.return_value = b"\x60\x04\x03\x02\x01\x00\x00\x00"
+        UplinkForgeryAttack()._send_baseline_uplinks(ctx, cfg)
+        ctx.device.process_downlink.assert_called_once()
+
+    def test_verification_downlink_processed(self) -> None:
+        cfg = _cfg(verification_uplink_count=1)
+        ctx = _make_ctx(cfg)
+        ctx.gateway.await_downlink.return_value = b"\x60\x04\x03\x02\x01\x00\x00\x00"
+        UplinkForgeryAttack()._send_verification_uplinks(ctx, cfg)
+        ctx.device.process_downlink.assert_called_once()
+
+
 # ── 5. Verdict logic ──────────────────────────────────────────────────────────
 
 

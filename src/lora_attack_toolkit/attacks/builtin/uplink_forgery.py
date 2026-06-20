@@ -414,8 +414,15 @@ class UplinkForgeryAttack(BaseAttack):
                 fcnt,
                 radio.frequency,
             )
-            # Drain RX window between baseline uplinks
-            ctx.gateway.await_downlink(timeout_sec=_RX_DRAIN_SEC)
+            # Drain RX window between baseline uplinks; process any downlink
+            # through the single public API so device state stays consistent.
+            raw = ctx.gateway.await_downlink(timeout_sec=_RX_DRAIN_SEC)
+            if raw is not None:
+                ctx.capture.capture_downlink(phy_payload=raw, packet_type="data_down")
+                try:
+                    ctx.device.process_downlink(raw)
+                except (ValueError, KeyError, struct.error) as exc:
+                    ctx.logger.warning("uplink_forgery_baseline_downlink_parse_error error=%s", exc)
             remaining = max(0.0, cfg.uplink_interval_sec - _RX_DRAIN_SEC)
             if remaining > 0 and i < cfg.baseline_uplink_count - 1:
                 ctx.clock.sleep(remaining, ctx.cancel_event)
@@ -720,6 +727,14 @@ class UplinkForgeryAttack(BaseAttack):
             if raw is not None:
                 got_downlink = True
                 ctx.capture.capture_downlink(phy_payload=raw, packet_type="data_down")
+                # Process verification downlinks through the single public API so
+                # FCntDown / MAC / radio state stays consistent (Item 5).
+                try:
+                    ctx.device.process_downlink(raw)
+                except (ValueError, KeyError, struct.error) as exc:
+                    ctx.logger.warning(
+                        "uplink_forgery_verification_downlink_parse_error error=%s", exc
+                    )
         return got_downlink
 
     # ── Result builder ────────────────────────────────────────────────────────
