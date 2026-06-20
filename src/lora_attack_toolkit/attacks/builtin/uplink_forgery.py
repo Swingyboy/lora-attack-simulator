@@ -14,6 +14,7 @@ captured packet — it builds new frames with deliberately altered fields.
 
 from __future__ import annotations
 
+import struct
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any
@@ -74,10 +75,16 @@ class ForgeryEvidence:
     radio_frequency_hz: int
     radio_data_rate: str
     tx_timestamp: float
+    tx_monotonic: float = 0.0
     downlink_received: bool = False
     downlink_count: int = 0
+    attributable_accept: bool = False
+    unattributable_downlink: bool = False
+    control_probe_ran: bool = False
+    control_probe_ok: bool = False
     verification_accepted: bool = False
     verdict: ForgeryVerdict = ForgeryVerdict.INCONCLUSIVE
+    rationale: str = ""
     notes: list[str] = field(default_factory=list)
 
 
@@ -145,46 +152,54 @@ def _build_mac_command_fopts(mac_command_name: str) -> bytes:
 
 def determine_forgery_verdict(
     forgery_mode: str,
-    downlink_received: bool,
-    verification_accepted: bool,
     mic_strategy: str,
+    attributable_accept: bool,
+    saw_unattributable: bool,
+    control_probe_ok: bool,
 ) -> ForgeryVerdict:
     """Classify the Network Server response to a forged uplink.
+
+    Attribution rule
+    ----------------
+    A downlink only counts as *acceptance evidence* when it both
+
+    * passes :meth:`SimulatedDevice.process_downlink` validation
+      (cryptographically bound to this device's session — DevAddr match,
+      valid MIC, fresh FCntDown), **and**
+    * arrives inside the forged uplink's RX1/RX2 window
+      (:meth:`AttackTiming.in_rx_window` against the forged TX time).
+
+    Such a downlink is ``attributable_accept``. A downlink that validates or
+    arrives but cannot be attributed to the forged transaction is
+    ``saw_unattributable`` and never proves vulnerability — it yields
+    ``INCONCLUSIVE`` rather than over-claiming ``ACCEPTED``.
+
+    When no attributable downlink is observed, a **control probe** (a known-valid
+    uplink) decides between a meaningful rejection and an unreachable target:
+
+    * control probe answered  → the path/NS is up, so silence to the forgery is
+      a genuine ``REJECTED`` / ``IGNORED`` (secure);
+    * control probe unanswered → the target may simply be down → ``INCONCLUSIVE``.
 
     ``valid_mic_modified_payload``
         Always ``ACCEPTED_EXPECTED`` — attacker possesses session keys.
 
-    ``invalid_mic`` / ``fcnt_reuse_with_modified_payload`` / ``wrong_devaddr``
-        ``ACCEPTED`` if a downlink was received (NS treated it as valid),
-        ``REJECTED`` / ``IGNORED`` otherwise.
-
-    ``fcnt_jump_forward``
-        ``ACCEPTED`` if downlink received, ``REJECTED`` otherwise.
-
-    ``mac_command_forgery``
-        Depends on ``mic_strategy``:
-        * ``recalculated`` + downlink → ``ACCEPTED_EXPECTED``
-        * ``corrupted``   + downlink → ``ACCEPTED`` (possible vulnerability)
-        * no downlink                → ``REJECTED``
+    ``mac_command_forgery`` with a recalculated (valid) MIC
+        ``ACCEPTED_EXPECTED`` when attributable, else ``INCONCLUSIVE``.
     """
     if forgery_mode == "valid_mic_modified_payload":
         return ForgeryVerdict.ACCEPTED_EXPECTED
 
-    if forgery_mode in {"invalid_mic", "fcnt_reuse_with_modified_payload", "fcnt_jump_forward"}:
-        return ForgeryVerdict.ACCEPTED if downlink_received else ForgeryVerdict.REJECTED
+    if forgery_mode == "mac_command_forgery" and mic_strategy == "recalculated":
+        return ForgeryVerdict.ACCEPTED_EXPECTED if attributable_accept else ForgeryVerdict.INCONCLUSIVE
 
-    if forgery_mode == "wrong_devaddr":
-        return ForgeryVerdict.ACCEPTED if downlink_received else ForgeryVerdict.IGNORED
-
-    if forgery_mode == "mac_command_forgery":
-        if downlink_received:
-            return (
-                ForgeryVerdict.ACCEPTED_EXPECTED
-                if mic_strategy == "recalculated"
-                else ForgeryVerdict.ACCEPTED
-            )
-        return ForgeryVerdict.REJECTED
-
+    # Modes whose forged frame should be rejected by a secure Network Server.
+    if attributable_accept:
+        return ForgeryVerdict.ACCEPTED
+    if saw_unattributable:
+        return ForgeryVerdict.INCONCLUSIVE
+    if control_probe_ok:
+        return ForgeryVerdict.IGNORED if forgery_mode == "wrong_devaddr" else ForgeryVerdict.REJECTED
     return ForgeryVerdict.INCONCLUSIVE
 
 
@@ -272,9 +287,12 @@ class UplinkForgeryAttack(BaseAttack):
             # 4–5. Build and transmit forged uplink
             evidence = self._forge_and_transmit(ctx, cfg, session)
 
-            # 6. Drain RX window
-            evidence.downlink_count = self._drain_rx_window(ctx, evidence.tx_timestamp)
-            evidence.downlink_received = evidence.downlink_count > 0
+            # 6. Drain RX window and attribute downlinks to the forged transaction.
+            total, attributable, unattributable = self._drain_and_attribute(ctx, evidence)
+            evidence.downlink_count = total
+            evidence.downlink_received = total > 0
+            evidence.attributable_accept = attributable > 0
+            evidence.unattributable_downlink = unattributable > 0
 
             # 7. Verification uplinks
             if cfg.verification_uplink_count > 0 and cfg.forgery_mode not in {
@@ -283,13 +301,24 @@ class UplinkForgeryAttack(BaseAttack):
             }:
                 evidence.verification_accepted = self._send_verification_uplinks(ctx, cfg)
 
+            # 7b. Control probe — only when no attributable acceptance was seen, to
+            # distinguish a meaningful rejection (path up) from an unreachable
+            # target. Skipped for modes whose verdict never depends on it.
+            if not evidence.attributable_accept and cfg.forgery_mode not in {
+                "valid_mic_modified_payload",
+            }:
+                evidence.control_probe_ran = True
+                evidence.control_probe_ok = self._control_probe(ctx, cfg)
+
             # 8. Verdict
             evidence.verdict = determine_forgery_verdict(
                 forgery_mode=cfg.forgery_mode,
-                downlink_received=evidence.downlink_received,
-                verification_accepted=evidence.verification_accepted,
                 mic_strategy=evidence.mic_strategy,
+                attributable_accept=evidence.attributable_accept,
+                saw_unattributable=evidence.unattributable_downlink,
+                control_probe_ok=evidence.control_probe_ok,
             )
+            evidence.rationale = self._build_rationale(evidence)
 
         ctx.logger.info(
             "uplink_forgery_completed mode=%s verdict=%s downlinks=%d",
@@ -424,6 +453,7 @@ class UplinkForgeryAttack(BaseAttack):
         )
 
         tx_time = ctx.clock.unix_time()
+        tx_mono = ctx.clock.monotonic()
         ctx.gateway.forward_uplink(frame, radio)
         ctx.capture.capture_uplink(phy_payload=frame, fcnt=fcnt_used, packet_type="data_up")
 
@@ -444,25 +474,135 @@ class UplinkForgeryAttack(BaseAttack):
             radio_frequency_hz=radio.frequency,
             radio_data_rate=radio.data_rate,
             tx_timestamp=tx_time,
+            tx_monotonic=tx_mono,
         )
 
-    def _drain_rx_window(self, ctx: "AttackContext", tx_wall: float) -> int:
-        """Wait for and count downlinks received in the RX1+RX2 window."""
+    def _drain_and_attribute(
+        self, ctx: "AttackContext", evidence: ForgeryEvidence
+    ) -> tuple[int, int, int]:
+        """Drain the RX window and attribute downlinks to the forged transaction.
+
+        Returns ``(total, attributable, unattributable)`` where a downlink is
+        *attributable* only if it passes ``process_downlink`` validation **and**
+        its receive time falls inside the forged uplink's RX1/RX2 window. Any
+        other validated/received downlink is *unattributable* and must not be
+        read as acceptance of the forgery.
+        """
         poll = 0.3
-        deadline = tx_wall + _DEFAULT_TIMING.rx2_delay_sec + _DEFAULT_TIMING.rx2_window_sec + 1.0
-        count = 0
-        while ctx.clock.unix_time() < deadline:
-            remaining = max(0.01, deadline - ctx.clock.unix_time())
+        tx_mono = evidence.tx_monotonic
+        deadline = (
+            ctx.clock.monotonic()
+            + _DEFAULT_TIMING.rx2_delay_sec
+            + _DEFAULT_TIMING.rx2_window_sec
+            + 1.0
+        )
+        total = 0
+        attributable = 0
+        unattributable = 0
+        while ctx.clock.monotonic() < deadline:
+            remaining = max(0.01, deadline - ctx.clock.monotonic())
             raw = ctx.gateway.await_downlink(timeout_sec=min(remaining, poll))
             if raw is None:
                 # Advance the clock so the window closes (instant under FakeClock,
                 # real-time under WallClock) and the loop is guaranteed to terminate.
                 ctx.clock.sleep(min(remaining, poll), ctx.cancel_event)
                 continue
-            count += 1
+            total += 1
+            rx_mono = ctx.clock.monotonic()
             ctx.capture.capture_downlink(phy_payload=raw, packet_type="data_down")
-            ctx.logger.info("uplink_forgery_downlink_received count=%d", count)
-        return count
+            try:
+                result = ctx.device.process_downlink(raw)
+            except (ValueError, KeyError, struct.error) as exc:
+                unattributable += 1
+                ctx.logger.warning("uplink_forgery_downlink_parse_error error=%s", exc)
+                continue
+            in_window = _DEFAULT_TIMING.in_rx_window(tx_mono, rx_mono)
+            if result.accepted and in_window:
+                attributable += 1
+                ctx.logger.info(
+                    "uplink_forgery_attributable_downlink count=%d fcnt_32=%d",
+                    attributable,
+                    result.fcnt_32,
+                )
+            else:
+                unattributable += 1
+                ctx.logger.info(
+                    "uplink_forgery_unattributable_downlink accepted=%s in_window=%s reason=%s",
+                    result.accepted,
+                    in_window,
+                    result.reject_reason,
+                )
+        return total, attributable, unattributable
+
+    def _control_probe(self, ctx: "AttackContext", cfg: UplinkForgeryConfigV1) -> bool:
+        """Send a known-valid control uplink and report whether the path is up.
+
+        The probe piggybacks a ``DeviceTimeReq`` MAC command so a reachable
+        Network Server is expected to answer. ``True`` means a validated downlink
+        was received (target/path up — a forgery rejection is therefore
+        meaningful); ``False`` means no validated response (target may be down →
+        the forgery result is inconclusive).
+        """
+        f_opts = encode_mac_commands([build_device_time_req()])[:_FOPTS_MAX]
+        fcnt = ctx.device.runtime.fcnt_up
+        frame = ctx.device.build_data_uplink(
+            payload=bytes.fromhex(cfg.payload_hex),
+            f_port=cfg.fport,
+            confirmed=False,
+            f_opts=f_opts,
+        )
+        radio = ctx.device.select_uplink_radio(fcnt, ctx.radio)
+        tx_mono = ctx.clock.monotonic()
+        ctx.gateway.forward_uplink(frame, radio)
+        ctx.capture.capture_uplink(phy_payload=frame, fcnt=fcnt, packet_type="data_up")
+        ctx.logger.info("uplink_forgery_control_probe_sent fcnt=%d freq_hz=%d", fcnt, radio.frequency)
+
+        poll = 0.3
+        deadline = tx_mono + _DEFAULT_TIMING.rx2_delay_sec + _DEFAULT_TIMING.rx2_window_sec + 1.0
+        while ctx.clock.monotonic() < deadline:
+            remaining = max(0.01, deadline - ctx.clock.monotonic())
+            raw = ctx.gateway.await_downlink(timeout_sec=min(remaining, poll))
+            if raw is None:
+                ctx.clock.sleep(min(remaining, poll), ctx.cancel_event)
+                continue
+            ctx.capture.capture_downlink(phy_payload=raw, packet_type="data_down")
+            try:
+                result = ctx.device.process_downlink(raw)
+            except (ValueError, KeyError, struct.error) as exc:
+                ctx.logger.warning("uplink_forgery_control_probe_parse_error error=%s", exc)
+                continue
+            if result.accepted:
+                ctx.logger.info("uplink_forgery_control_probe_ok fcnt_32=%d", result.fcnt_32)
+                return True
+        ctx.logger.info("uplink_forgery_control_probe_no_response")
+        return False
+
+    def _build_rationale(self, evidence: ForgeryEvidence) -> str:
+        """Explain the verdict in terms of the attribution / control-probe evidence."""
+        if evidence.verdict == ForgeryVerdict.ACCEPTED_EXPECTED:
+            return "Frame carries a valid MIC (attacker holds session keys); acceptance is expected."
+        if evidence.verdict == ForgeryVerdict.ACCEPTED:
+            return (
+                "A validated downlink attributable to the forged uplink "
+                "(in its RX1/RX2 window) was observed — the target accepted the forgery."
+            )
+        if evidence.verdict in {ForgeryVerdict.REJECTED, ForgeryVerdict.IGNORED}:
+            return (
+                "No attributable downlink, but the control probe was answered — "
+                "the path/target is up, so rejection of the forgery is meaningful."
+            )
+        # INCONCLUSIVE
+        if evidence.unattributable_downlink:
+            return (
+                "Downlink(s) were seen but none could be attributed to the forged "
+                "transaction (failed validation or fell outside its RX window)."
+            )
+        if evidence.control_probe_ran and not evidence.control_probe_ok:
+            return (
+                "No attributable downlink and the control probe was unanswered — "
+                "the target may be unreachable, so no conclusion can be drawn."
+            )
+        return "Insufficient attributable evidence to reach a conclusion."
 
     def _send_verification_uplinks(self, ctx: "AttackContext", cfg: UplinkForgeryConfigV1) -> bool:
         """Send post-forgery verification uplinks.  Returns True on any downlink."""
@@ -516,9 +656,14 @@ class UplinkForgeryAttack(BaseAttack):
             "tx_timestamp": evidence.tx_timestamp,
             "downlink_received": evidence.downlink_received,
             "downlink_count": evidence.downlink_count,
+            "attributable_accept": evidence.attributable_accept,
+            "unattributable_downlink": evidence.unattributable_downlink,
+            "control_probe_ran": evidence.control_probe_ran,
+            "control_probe_ok": evidence.control_probe_ok,
             "verification_accepted": evidence.verification_accepted,
             "verdict": verdict.value,
             "verdict_label": label,
+            "rationale": evidence.rationale,
         }
 
         sv, conf, protected = _forgery_verdict_to_security(verdict)

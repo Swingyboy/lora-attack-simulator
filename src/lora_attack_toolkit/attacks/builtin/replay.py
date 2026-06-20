@@ -90,21 +90,7 @@ _RX_WINDOW_TOLERANCE_SEC = 0.5  # ± tolerance around expected RX1/RX2 window
 
 def _in_rx_window(tx_mono: float, rx_mono: float) -> bool:
     """Return True if *rx_mono* falls inside the RX1 or RX2 window after *tx_mono*."""
-    rx1_low = tx_mono + _DEFAULT_TIMING.rx1_delay_sec - _RX_WINDOW_TOLERANCE_SEC
-    rx1_high = (
-        tx_mono
-        + _DEFAULT_TIMING.rx1_delay_sec
-        + _DEFAULT_TIMING.rx1_window_sec
-        + _RX_WINDOW_TOLERANCE_SEC
-    )
-    rx2_low = tx_mono + _DEFAULT_TIMING.rx2_delay_sec - _RX_WINDOW_TOLERANCE_SEC
-    rx2_high = (
-        tx_mono
-        + _DEFAULT_TIMING.rx2_delay_sec
-        + _DEFAULT_TIMING.rx2_window_sec
-        + _RX_WINDOW_TOLERANCE_SEC
-    )
-    return (rx1_low <= rx_mono <= rx1_high) or (rx2_low <= rx_mono <= rx2_high)
+    return _DEFAULT_TIMING.in_rx_window(tx_mono, rx_mono, _RX_WINDOW_TOLERANCE_SEC)
 
 
 def _gps_match(server_gps: float, tx_gps: float, tolerance: float) -> bool:

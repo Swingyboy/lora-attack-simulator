@@ -191,6 +191,19 @@ class AttackTiming:
     rx2_delay_sec: float = 2.0
     rx2_window_sec: float = 1.0
 
+    def in_rx_window(self, tx_mono: float, rx_mono: float, tolerance: float = 0.5) -> bool:
+        """Return True if *rx_mono* falls inside the RX1 or RX2 window after *tx_mono*.
+
+        A ``tolerance`` (seconds) is applied symmetrically to each window edge to
+        absorb scheduling jitter. This is the single canonical RX-window
+        correlation predicate shared by the replay and forgery attacks.
+        """
+        rx1_low = tx_mono + self.rx1_delay_sec - tolerance
+        rx1_high = tx_mono + self.rx1_delay_sec + self.rx1_window_sec + tolerance
+        rx2_low = tx_mono + self.rx2_delay_sec - tolerance
+        rx2_high = tx_mono + self.rx2_delay_sec + self.rx2_window_sec + tolerance
+        return (rx1_low <= rx_mono <= rx1_high) or (rx2_low <= rx_mono <= rx2_high)
+
 
 @dataclass(frozen=True)
 class UplinkReplayConfigV1:

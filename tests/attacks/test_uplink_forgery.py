@@ -402,78 +402,106 @@ class TestDeviceLayerUsed(unittest.TestCase):
 
 
 class TestDetermineVerdict(unittest.TestCase):
-    def test_invalid_mic_no_dl_rejected(self) -> None:
+    # Signature:
+    #   determine_forgery_verdict(forgery_mode, mic_strategy,
+    #                             attributable_accept, saw_unattributable, control_probe_ok)
+
+    def test_attributable_validated_downlink_accepted(self) -> None:
+        # invalid_mic forgery with an attributable validated downlink → ACCEPTED.
         self.assertEqual(
-            determine_forgery_verdict("invalid_mic", False, False, "corrupted"),
+            determine_forgery_verdict("invalid_mic", "corrupted", True, False, False),
+            ForgeryVerdict.ACCEPTED,
+        )
+
+    def test_unattributable_downlink_inconclusive(self) -> None:
+        # A downlink was seen but could not be attributed → INCONCLUSIVE, not ACCEPTED.
+        self.assertEqual(
+            determine_forgery_verdict("invalid_mic", "corrupted", False, True, True),
+            ForgeryVerdict.INCONCLUSIVE,
+        )
+
+    def test_no_downlink_control_ok_rejected(self) -> None:
+        # No attributable downlink but control probe answered → meaningful REJECTED.
+        self.assertEqual(
+            determine_forgery_verdict("invalid_mic", "corrupted", False, False, True),
             ForgeryVerdict.REJECTED,
         )
 
-    def test_invalid_mic_with_dl_accepted(self) -> None:
+    def test_no_downlink_control_failed_inconclusive(self) -> None:
+        # No attributable downlink and control probe unanswered → INCONCLUSIVE.
         self.assertEqual(
-            determine_forgery_verdict("invalid_mic", True, False, "corrupted"),
-            ForgeryVerdict.ACCEPTED,
+            determine_forgery_verdict("invalid_mic", "corrupted", False, False, False),
+            ForgeryVerdict.INCONCLUSIVE,
         )
 
     def test_valid_mic_always_accepted_expected(self) -> None:
-        for dl in (True, False):
+        for attributable in (True, False):
             self.assertEqual(
-                determine_forgery_verdict("valid_mic_modified_payload", dl, False, "recalculated"),
+                determine_forgery_verdict(
+                    "valid_mic_modified_payload", "recalculated", attributable, False, False
+                ),
                 ForgeryVerdict.ACCEPTED_EXPECTED,
             )
 
-    def test_fcnt_jump_no_dl_rejected(self) -> None:
+    def test_fcnt_jump_attributable_accepted(self) -> None:
         self.assertEqual(
-            determine_forgery_verdict("fcnt_jump_forward", False, False, "corrupted"),
-            ForgeryVerdict.REJECTED,
-        )
-
-    def test_fcnt_jump_with_dl_accepted(self) -> None:
-        self.assertEqual(
-            determine_forgery_verdict("fcnt_jump_forward", True, False, "corrupted"),
+            determine_forgery_verdict("fcnt_jump_forward", "corrupted", True, False, False),
             ForgeryVerdict.ACCEPTED,
         )
 
-    def test_fcnt_reuse_no_dl_rejected(self) -> None:
+    def test_fcnt_jump_no_evidence_control_ok_rejected(self) -> None:
+        self.assertEqual(
+            determine_forgery_verdict("fcnt_jump_forward", "corrupted", False, False, True),
+            ForgeryVerdict.REJECTED,
+        )
+
+    def test_fcnt_reuse_no_evidence_control_ok_rejected(self) -> None:
         self.assertEqual(
             determine_forgery_verdict(
-                "fcnt_reuse_with_modified_payload", False, False, "corrupted"
+                "fcnt_reuse_with_modified_payload", "corrupted", False, False, True
             ),
             ForgeryVerdict.REJECTED,
         )
 
-    def test_wrong_devaddr_no_dl_ignored(self) -> None:
+    def test_wrong_devaddr_no_evidence_control_ok_ignored(self) -> None:
         self.assertEqual(
-            determine_forgery_verdict("wrong_devaddr", False, False, "wrong_devaddr_mic"),
+            determine_forgery_verdict("wrong_devaddr", "wrong_devaddr_mic", False, False, True),
             ForgeryVerdict.IGNORED,
         )
 
-    def test_wrong_devaddr_with_dl_accepted(self) -> None:
+    def test_wrong_devaddr_attributable_accepted(self) -> None:
         self.assertEqual(
-            determine_forgery_verdict("wrong_devaddr", True, False, "wrong_devaddr_mic"),
+            determine_forgery_verdict("wrong_devaddr", "wrong_devaddr_mic", True, False, False),
             ForgeryVerdict.ACCEPTED,
         )
 
-    def test_mac_command_forgery_recalculated_with_dl_expected(self) -> None:
+    def test_mac_command_forgery_recalculated_attributable_expected(self) -> None:
         self.assertEqual(
-            determine_forgery_verdict("mac_command_forgery", True, False, "recalculated"),
+            determine_forgery_verdict("mac_command_forgery", "recalculated", True, False, False),
             ForgeryVerdict.ACCEPTED_EXPECTED,
         )
 
-    def test_mac_command_forgery_corrupted_with_dl_accepted(self) -> None:
+    def test_mac_command_forgery_recalculated_no_evidence_inconclusive(self) -> None:
         self.assertEqual(
-            determine_forgery_verdict("mac_command_forgery", True, False, "corrupted"),
+            determine_forgery_verdict("mac_command_forgery", "recalculated", False, False, True),
+            ForgeryVerdict.INCONCLUSIVE,
+        )
+
+    def test_mac_command_forgery_corrupted_attributable_accepted(self) -> None:
+        self.assertEqual(
+            determine_forgery_verdict("mac_command_forgery", "corrupted", True, False, False),
             ForgeryVerdict.ACCEPTED,
         )
 
-    def test_mac_command_forgery_no_dl_rejected(self) -> None:
+    def test_mac_command_forgery_corrupted_no_evidence_control_ok_rejected(self) -> None:
         self.assertEqual(
-            determine_forgery_verdict("mac_command_forgery", False, False, "corrupted"),
+            determine_forgery_verdict("mac_command_forgery", "corrupted", False, False, True),
             ForgeryVerdict.REJECTED,
         )
 
-    def test_unknown_mode_inconclusive(self) -> None:
+    def test_unknown_mode_no_evidence_inconclusive(self) -> None:
         self.assertEqual(
-            determine_forgery_verdict("unknown", True, True, "recalculated"),
+            determine_forgery_verdict("unknown", "recalculated", False, False, False),
             ForgeryVerdict.INCONCLUSIVE,
         )
 
@@ -531,11 +559,102 @@ class TestUplinkForgeryAttackRun(unittest.TestCase):
             "tx_timestamp",
             "downlink_received",
             "downlink_count",
+            "attributable_accept",
+            "unattributable_downlink",
+            "control_probe_ran",
+            "control_probe_ok",
             "verification_accepted",
             "verdict",
             "verdict_label",
+            "rationale",
         ):
             self.assertIn(key, r.metrics, f"Missing evidence field: {key}")
+
+    def test_no_downlink_no_control_is_inconclusive(self) -> None:
+        # Default fixture: gateway never returns a downlink, so the control probe
+        # is unanswered → the verdict must be INCONCLUSIVE (never falsely secure).
+        r = self._run_mode("invalid_mic")
+        self.assertEqual(r.metrics["verdict"], "inconclusive")
+        self.assertTrue(r.metrics["control_probe_ran"])
+        self.assertFalse(r.metrics["control_probe_ok"])
+
+
+# ── 6b. Attribution / control-probe wiring ────────────────────────────────────
+
+
+class TestForgeryAttributionWiring(unittest.TestCase):
+    def _ctx_with_downlinks(self, frames: list) -> object:
+        cfg = _cfg(forgery_mode="invalid_mic")
+        ctx = _make_ctx(cfg)
+        seq = iter(frames)
+
+        def _await(timeout_sec=0.0):
+            try:
+                return next(seq)
+            except StopIteration:
+                return None
+
+        ctx.gateway.await_downlink.side_effect = _await
+        return ctx
+
+    def _evidence(self, ctx: object, tx_offset: float) -> ForgeryEvidence:
+        return ForgeryEvidence(
+            forgery_mode="invalid_mic",
+            dev_addr_hex="01020304",
+            fcnt_used=0,
+            payload_hex="DEADBEEF",
+            mic_strategy="corrupted",
+            radio_frequency_hz=868_100_000,
+            radio_data_rate="SF7BW125",
+            tx_timestamp=ctx.clock.unix_time(),  # type: ignore[attr-defined]
+            tx_monotonic=ctx.clock.monotonic() - tx_offset,  # type: ignore[attr-defined]
+        )
+
+    def test_validated_in_window_is_attributable(self) -> None:
+        ctx = self._ctx_with_downlinks([b"\x60dl"])
+        ctx.device.process_downlink.return_value = MagicMock(  # type: ignore[attr-defined]
+            accepted=True, fcnt_32=3, reject_reason=None
+        )
+        evidence = self._evidence(ctx, tx_offset=1.0)  # rx_mono is 1.0s after tx → RX1 window
+        total, attributable, unattributable = UplinkForgeryAttack()._drain_and_attribute(
+            ctx, evidence  # type: ignore[arg-type]
+        )
+        self.assertEqual((total, attributable, unattributable), (1, 1, 0))
+
+    def test_validated_out_of_window_is_unattributable(self) -> None:
+        ctx = self._ctx_with_downlinks([b"\x60dl"])
+        ctx.device.process_downlink.return_value = MagicMock(  # type: ignore[attr-defined]
+            accepted=True, fcnt_32=3, reject_reason=None
+        )
+        evidence = self._evidence(ctx, tx_offset=20.0)  # far outside any RX window
+        total, attributable, unattributable = UplinkForgeryAttack()._drain_and_attribute(
+            ctx, evidence  # type: ignore[arg-type]
+        )
+        self.assertEqual((total, attributable, unattributable), (1, 0, 1))
+
+    def test_rejected_downlink_is_unattributable(self) -> None:
+        ctx = self._ctx_with_downlinks([b"\x60dl"])
+        ctx.device.process_downlink.return_value = MagicMock(  # type: ignore[attr-defined]
+            accepted=False, fcnt_32=-1, reject_reason="invalid_mic"
+        )
+        evidence = self._evidence(ctx, tx_offset=1.0)
+        total, attributable, unattributable = UplinkForgeryAttack()._drain_and_attribute(
+            ctx, evidence  # type: ignore[arg-type]
+        )
+        self.assertEqual((total, attributable, unattributable), (1, 0, 1))
+
+    def test_control_probe_ok_when_validated_response(self) -> None:
+        ctx = self._ctx_with_downlinks([b"\x60dl"])
+        ctx.device.process_downlink.return_value = MagicMock(  # type: ignore[attr-defined]
+            accepted=True, fcnt_32=4, reject_reason=None
+        )
+        ok = UplinkForgeryAttack()._control_probe(ctx, _cfg())  # type: ignore[arg-type]
+        self.assertTrue(ok)
+
+    def test_control_probe_fails_when_no_response(self) -> None:
+        ctx = self._ctx_with_downlinks([])
+        ok = UplinkForgeryAttack()._control_probe(ctx, _cfg())  # type: ignore[arg-type]
+        self.assertFalse(ok)
 
 
 # ── 7. Regression — existing attacks still work ───────────────────────────────
