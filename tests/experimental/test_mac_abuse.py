@@ -10,12 +10,13 @@ import pytest
 
 from lora_attack_toolkit.attacks.context import AttackContext, AttackInput, AttackServices
 from lora_attack_toolkit.attacks.packet_capture import PacketCapture
-from lora_attack_toolkit.config import MACCommandConfigV1, RadioMetadata
+from lora_attack_toolkit.config import RadioMetadata
+from lora_attack_toolkit.experimental.config import MACCommandConfigV1
 from lora_attack_toolkit.experimental.mac_abuse import MACCommandAbuse, MACCommandAnalyzer
 from lora_attack_toolkit.runtime.device import SimulatedDevice
 from lora_attack_toolkit.runtime.gateway import GatewaySimulator
 
-pytestmark = pytest.mark.unit
+pytestmark = [pytest.mark.unit, pytest.mark.experimental]
 
 
 class TestMACCommandAnalyzer(unittest.TestCase):

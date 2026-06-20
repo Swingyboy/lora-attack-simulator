@@ -267,16 +267,6 @@ class JoinDevNonceConfigV1:
     timing: AttackTiming | None = None
 
 
-@dataclass(frozen=True)
-class MACCommandConfigV1:
-    """MAC command abuse configuration (v1.0)."""
-
-    command_type: str
-    malformed: bool
-    parameters: dict[str, Any] | None = None
-    malformation_type: str | None = None
-
-
 # ── Supported forgery modes ───────────────────────────────────────────────────
 
 UPLINK_FORGERY_MODES = frozenset(
@@ -489,16 +479,6 @@ def parse_join_devnonce_config(config: dict[str, Any]) -> JoinDevNonceConfigV1:
             "target_lorawan_1_0_4", config.get("target_lorawan_1_0_4", False)
         ),
         timing=timing,
-    )
-
-
-def parse_mac_command_config(config: dict[str, Any]) -> MACCommandConfigV1:
-    """Parse MAC command abuse config from dict."""
-    return MACCommandConfigV1(
-        command_type=config["command_type"],
-        malformed=config.get("malformed", False),
-        parameters=config.get("parameters"),
-        malformation_type=config.get("malformation_type"),
     )
 
 

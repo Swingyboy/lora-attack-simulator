@@ -48,5 +48,6 @@ markers = [
   "unit: fast, deterministic unit tests — no network, no real clock",
   "integration: tests that require a live Network Server or real transport",
   "slow: tests with real-time sleeps > 1 s",
+  "experimental: tests for unregistered experimental prototypes (e.g. MAC-command abuse); excluded from diploma experiments",
 ]
 addopts = "-m 'not integration and not slow'"

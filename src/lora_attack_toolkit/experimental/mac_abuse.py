@@ -1,4 +1,13 @@
-"""MAC command abuse and ADR manipulation attack - refactored to new API."""
+"""MAC command abuse and ADR manipulation attack — EXPERIMENTAL prototype.
+
+# TODO: Implement MAC-command abuse as a complete LoRaWAN protocol flow.
+# The current prototype must not be used for security verdicts or diploma
+# experiments until it transmits and verifies a complete LoRaWAN frame.
+
+This module is intentionally kept out of the registered attack set (see
+``attacks/bootstrap.py``) and excluded from the supported CLI attack choices.
+It is retained as future work only.
+"""
 
 from __future__ import annotations
 
@@ -31,9 +40,10 @@ from lora_attack_toolkit.lorawan.mac_commands import (
 
 if TYPE_CHECKING:
     from lora_attack_toolkit.attacks.context import AttackContext
-    from lora_attack_toolkit.config import ExpectedBehavior, MACCommandConfigV1
+    from lora_attack_toolkit.config import ExpectedBehavior
+    from lora_attack_toolkit.experimental.config import MACCommandConfigV1
 
-from lora_attack_toolkit.config import MACCommandConfigV1
+from lora_attack_toolkit.experimental.config import MACCommandConfigV1
 
 # LEGACY analysis path: MACCommandAnalyzer is the current production analyzer
 # used in MACCommandInjectionAttack.run().  It infers verdict from downlink
