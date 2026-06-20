@@ -82,6 +82,9 @@ class AttackResult:
     duration_sec: float | None = None
     timestamp: str | None = None
 
+    # ── Reproducibility provenance (populated by the runner before saving) ────
+    reproducibility: dict[str, Any] | None = None
+
     # ── Legacy compat ─────────────────────────────────────────────────────────
     # Callers may still pass success= as a keyword; store it to avoid breaking
     # old construction sites while migration is in progress.
@@ -140,6 +143,9 @@ class AttackResult:
         if self.timestamp:
             result["timestamp"] = self.timestamp
 
+        if self.reproducibility is not None:
+            result["reproducibility"] = self.reproducibility
+
         return result
 
     @classmethod
@@ -157,6 +163,7 @@ class AttackResult:
             interrupted=data.get("interrupted", False),
             duration_sec=data.get("duration_sec"),
             timestamp=data.get("timestamp"),
+            reproducibility=data.get("reproducibility"),
         )
         if "execution_status" in data:
             r.execution_status = ExecutionStatus(data["execution_status"])

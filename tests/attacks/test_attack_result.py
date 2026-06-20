@@ -233,5 +233,101 @@ class TestSecurityVerdictSemantics(unittest.TestCase):
         self.assertFalse(r.target_protected)
 
 
+class TestReproducibilityMetadata(unittest.TestCase):
+    """Task 9: every saved result carries full reproducibility provenance."""
+
+    def _load_scenario(self):
+        import pathlib
+
+        from lora_attack_toolkit.config import load_attack_scenario
+
+        path = pathlib.Path("examples/attacks/uplink-forgery-v1.json")
+        return load_attack_scenario(str(path))
+
+    def _make_result(self) -> AttackResult:
+        return AttackResult(
+            attack_name="uplink_forgery",
+            attack_type="uplink_forgery",
+            message="done",
+            execution_status=ExecutionStatus.COMPLETED,
+            security_verdict=SecurityVerdict.INCONCLUSIVE,
+            confidence=Confidence.LOW,
+            captured_packets=7,
+            validation_summary="no attributable downlink",
+            metrics={
+                "rationale": "no attributable downlink; control probe ok",
+                "control_probe_ran": True,
+                "control_probe_ok": True,
+            },
+        )
+
+    def test_build_reproducibility_populates_all_fields(self) -> None:
+        from lora_attack_toolkit.provenance import build_reproducibility
+
+        repro = build_reproducibility(
+            self._load_scenario(),
+            self._make_result(),
+            started_at="2024-01-01T00:00:00+00:00",
+            ended_at="2024-01-01T00:00:05+00:00",
+            duration_sec=5.0,
+        )
+        required = {
+            "toolkit_version",
+            "git_commit",
+            "scenario_hash",
+            "scenario_snapshot",
+            "effective_config",
+            "network_server",
+            "region",
+            "lorawan_version",
+            "started_at",
+            "ended_at",
+            "duration_sec",
+            "evidence",
+            "verdict",
+            "confidence",
+            "confidence_rationale",
+            "control_probe",
+            "warnings",
+        }
+        self.assertEqual(required - set(repro), set())
+        self.assertEqual(repro["region"], "EU868")
+        self.assertEqual(repro["verdict"], "inconclusive")
+        self.assertEqual(repro["confidence"], "low")
+        self.assertEqual(repro["control_probe"], {"control_probe_ran": True, "control_probe_ok": True})
+        self.assertTrue(repro["warnings"])
+        # Hash is deterministic for the same scenario.
+        repro2 = build_reproducibility(
+            self._load_scenario(),
+            self._make_result(),
+            started_at="x",
+            ended_at="y",
+            duration_sec=1.0,
+        )
+        self.assertEqual(repro["scenario_hash"], repro2["scenario_hash"])
+
+    def test_reproducibility_round_trips_through_dict(self) -> None:
+        from lora_attack_toolkit.provenance import build_reproducibility
+
+        result = self._make_result()
+        result.reproducibility = build_reproducibility(
+            self._load_scenario(),
+            result,
+            started_at="2024-01-01T00:00:00+00:00",
+            ended_at="2024-01-01T00:00:05+00:00",
+            duration_sec=5.0,
+        )
+        restored = AttackResult.from_dict(result.to_dict())
+        self.assertEqual(restored.reproducibility, result.reproducibility)
+        # Every required provenance field survives serialization.
+        for key in result.reproducibility:
+            self.assertIn(key, restored.reproducibility)
+
+    def test_reproducibility_absent_by_default(self) -> None:
+        r = AttackResult(attack_name="a", attack_type="t", message="m")
+        self.assertIsNone(r.reproducibility)
+        self.assertNotIn("reproducibility", r.to_dict())
+
+
 if __name__ == "__main__":
     unittest.main()

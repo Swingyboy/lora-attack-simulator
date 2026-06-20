@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +15,7 @@ from lora_attack_toolkit.attacks.context import AttackContext, AttackInput, Atta
 from lora_attack_toolkit.attacks.packet_capture import PacketCapture
 from lora_attack_toolkit.attacks.registry import AttackRegistry
 from lora_attack_toolkit.config import AttackScenarioV1, RadioMetadata
+from lora_attack_toolkit.provenance import build_reproducibility
 from lora_attack_toolkit.runtime.device import create_device
 from lora_attack_toolkit.runtime.gateway import create_gateway
 
@@ -98,7 +101,24 @@ class AttackRunner:
             )
             attack = spec.attack_class()
 
+            started_at = datetime.now(timezone.utc).isoformat()
+            start_mono = time.monotonic()
             result = attack.run(ctx)
+            duration_sec = time.monotonic() - start_mono
+            ended_at = datetime.now(timezone.utc).isoformat()
+
+            # Attach reproducibility provenance before serialization.
+            if result.duration_sec is None:
+                result.duration_sec = duration_sec
+            if result.timestamp is None:
+                result.timestamp = ended_at
+            result.reproducibility = build_reproducibility(
+                scenario,
+                result,
+                started_at=started_at,
+                ended_at=ended_at,
+                duration_sec=duration_sec,
+            )
 
             # Use AttackResult.to_dict() for consistent output
             results = result.to_dict()
