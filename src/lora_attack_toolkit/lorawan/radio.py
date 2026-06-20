@@ -7,6 +7,19 @@ Owns:
 * Per-channel duty-cycle availability state.
 * Join-channel and uplink-channel selection (with optional duty-cycle enforcement).
 
+Duty-cycle scope
+----------------
+Duty-cycle enforcement is **disabled by default** in the diploma scope
+(``DeviceConfig.duty_cycle_enforcement`` defaults to ``False``). The simulator's
+purpose is to exercise the Network Server, not to self-limit transmissions to
+ETSI airtime, so the production uplink/join paths do not block on duty cycle.
+The duty-cycle machinery below remains available and unit-tested for callers
+that opt in (``Radio(..., duty_cycle_enforcement=True)``); when enabled, all
+timing uses a single monotonic clock (``now`` is a ``time.monotonic()`` value)
+and airtime is committed exactly once, after the frame is transmitted, via
+:meth:`record_transmission`. The two time bases (monotonic vs GPS/Unix) are
+never compared.
+
 Typical usage::
 
     radio = Radio(EU868RegionProfile(), duty_cycle_enforcement=True, logger=logger)

@@ -79,7 +79,12 @@ class DeviceConfig:
     region: str
     device_class: str
     activation: ActivationConfig
-    duty_cycle_enforcement: bool = True
+    # Duty-cycle enforcement is disabled by default for the diploma scope: the
+    # simulator's purpose is to exercise the Network Server, not to self-limit
+    # transmissions to ETSI airtime. The duty-cycle machinery in lorawan.radio
+    # remains available (opt-in) and unit-tested, but the production path does
+    # not block on it. See README "Known Limitations".
+    duty_cycle_enforcement: bool = False
 
 
 @dataclass(frozen=True)
@@ -704,7 +709,8 @@ def _load_v1_format(raw: dict[str, Any]) -> AttackScenarioV1:
             mode="OTAA", dev_eui=dev_eui, join_eui=join_eui, app_key=app_key
         ),
         duty_cycle_enforcement=_expect_bool(
-            "device.duty_cycle_enforcement", device_data.get("duty_cycle_enforcement", True)
+            "device.duty_cycle_enforcement",
+            device_data.get("duty_cycle_enforcement", False),
         ),
     )
 

@@ -399,6 +399,7 @@ LoRAT is a research prototype with a deliberately frozen scope:
 - **Device class**: Class A only.
 - **Activation**: OTAA only (ABP not supported).
 - **LoRaWAN version**: 1.0.3 only.
+- **Duty cycle**: enforcement is **disabled by default** (`duty_cycle_enforcement` defaults to `false`). The simulator's role is to exercise the Network Server, not to self-limit to ETSI airtime, so production uplink/join paths do not block on duty cycle. The duty-cycle machinery remains available and unit-tested for callers that opt in (`duty_cycle_enforcement: true`); when enabled it uses a single monotonic clock and commits airtime once per transmission.
 - **Attacks**: `join_devnonce`, `uplink_replay`, `uplink_forgery`. The MAC-command abuse attack is designed but not shipped (kept under `lora_attack_toolkit.experimental`, unregistered).
 
 Scenarios outside this scope (e.g. `region: US915`, `class: C`, ABP activation) are rejected at config-parse time with an explicit error.

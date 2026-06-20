@@ -62,3 +62,16 @@ class FrozenScopeValidationTests(unittest.TestCase):
         scenario = load_attack_scenario(str(_EXAMPLE))
         self.assertEqual(scenario.device.region, "EU868")
         self.assertEqual(scenario.device.lorawan_version, "1.0.3")
+
+    def test_duty_cycle_enforcement_disabled_by_default(self) -> None:
+        # Item 3: duty-cycle enforcement is disabled by default in the diploma
+        # scope; the production radio must not block on it.
+        from lora_attack_toolkit.lorawan.radio import Radio
+        from lora_attack_toolkit.runtime.device import create_device
+
+        scenario = load_attack_scenario(str(_EXAMPLE))
+        self.assertFalse(scenario.device.duty_cycle_enforcement)
+        device = create_device(scenario.device)
+        self.assertIsInstance(device.runtime.radio, Radio)
+        assert device.runtime.radio is not None
+        self.assertFalse(device.runtime.radio.supports_duty_cycle())
