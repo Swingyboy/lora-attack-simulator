@@ -25,6 +25,10 @@ def _make_device() -> SimulatedDevice:
     device.runtime.app_s_key = bytes(16)
     device.runtime.fcnt_up = 1
     device.runtime.fcnt_down = 0
+    # Simulate a mid-session device that has already accepted downlinks, so
+    # freshness checks apply (see TestFirstDownlinkFCnt0 for the first-downlink
+    # case which sets downlink_seen=False explicitly).
+    device.runtime.downlink_seen = True
     return device
 
 

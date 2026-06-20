@@ -23,6 +23,9 @@ def _make_device() -> SimulatedDevice:
     device.runtime.dev_addr_le = bytes.fromhex("04030201")
     device.runtime.nwk_s_key = bytes.fromhex("22" * 16)
     device.runtime.app_s_key = bytes.fromhex("33" * 16)
+    # These tests set runtime.fcnt_down explicitly to simulate a session that
+    # has already accepted downlinks, so mark the sentinel accordingly.
+    device.runtime.downlink_seen = True
     return device
 
 
@@ -81,6 +84,75 @@ class TestDownlinkFCnt32(unittest.TestCase):
         self.assertEqual(result.reject_reason, "invalid_mic")
         self.assertEqual(result.fcnt_32, 0x00010001)
         self.assertEqual(device.runtime.fcnt_down, 0x0000FFFE)
+
+
+class TestFirstDownlinkFCnt0(unittest.TestCase):
+    """First valid downlink with FCntDown=0 must be accepted (Item 1)."""
+
+    def _fresh_device(self) -> SimulatedDevice:
+        # A freshly-joined device: no downlink accepted yet.
+        device = _make_device()
+        device.runtime.fcnt_down = 0
+        device.runtime.downlink_seen = False
+        return device
+
+    def test_first_valid_fcnt0_is_accepted(self) -> None:
+        device = self._fresh_device()
+        result = device.process_downlink(
+            _build_downlink(device, wire_fcnt=0x0000, mic_fcnt=0x00000000)
+        )
+        self.assertTrue(result.accepted, result.reject_reason)
+        self.assertEqual(result.fcnt_32, 0)
+        self.assertEqual(device.runtime.fcnt_down, 0)
+        self.assertTrue(device.runtime.downlink_seen)
+
+    def test_normal_increment_after_first(self) -> None:
+        device = self._fresh_device()
+        device.process_downlink(_build_downlink(device, wire_fcnt=0, mic_fcnt=0))
+        result = device.process_downlink(_build_downlink(device, wire_fcnt=1, mic_fcnt=1))
+        self.assertTrue(result.accepted, result.reject_reason)
+        self.assertEqual(device.runtime.fcnt_down, 1)
+
+    def test_duplicate_fcnt0_after_acceptance_is_stale(self) -> None:
+        device = self._fresh_device()
+        device.process_downlink(_build_downlink(device, wire_fcnt=0, mic_fcnt=0))
+        result = device.process_downlink(_build_downlink(device, wire_fcnt=0, mic_fcnt=0))
+        self.assertFalse(result.accepted)
+        self.assertFalse(result.fcnt_ok)
+        self.assertIn("stale_fcnt", result.reject_reason or "")
+        self.assertEqual(device.runtime.fcnt_down, 0)
+
+    def test_stale_counter_after_increment(self) -> None:
+        device = self._fresh_device()
+        device.process_downlink(_build_downlink(device, wire_fcnt=0, mic_fcnt=0))
+        device.process_downlink(_build_downlink(device, wire_fcnt=5, mic_fcnt=5))
+        # Re-sending the current counter (5) must be rejected as stale; a lower
+        # 16-bit value would be reconstructed forward as a rollover, so equality
+        # is the detectable stale case.
+        result = device.process_downlink(_build_downlink(device, wire_fcnt=5, mic_fcnt=5))
+        self.assertFalse(result.accepted)
+        self.assertIn("stale_fcnt", result.reject_reason or "")
+        self.assertEqual(device.runtime.fcnt_down, 5)
+
+    def test_rollover_from_first_session(self) -> None:
+        device = self._fresh_device()
+        device.process_downlink(_build_downlink(device, wire_fcnt=0, mic_fcnt=0))
+        device.runtime.fcnt_down = 0x0000FFFE
+        result = device.process_downlink(
+            _build_downlink(device, wire_fcnt=0x0001, mic_fcnt=0x00010001)
+        )
+        self.assertTrue(result.accepted, result.reject_reason)
+        self.assertEqual(result.fcnt_32, 0x00010001)
+
+    def test_invalid_mic_on_first_downlink_leaves_state_unchanged(self) -> None:
+        device = self._fresh_device()
+        # MIC computed for a different counter → invalid for wire_fcnt=0.
+        frame = _build_downlink(device, wire_fcnt=0x0000, mic_fcnt=0x00000007)
+        result = device.process_downlink(frame)
+        self.assertFalse(result.accepted)
+        self.assertEqual(result.reject_reason, "invalid_mic")
+        self.assertEqual(device.runtime.fcnt_down, 0)
+        self.assertFalse(device.runtime.downlink_seen)
 
 
 if __name__ == "__main__":

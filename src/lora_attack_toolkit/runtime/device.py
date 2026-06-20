@@ -79,6 +79,7 @@ class DeviceRuntime:
     app_s_key: bytes = b""
     fcnt_up: int = 0
     fcnt_down: int = 0  # Stored as the full accepted 32-bit FCntDown value.
+    downlink_seen: bool = False  # True once a valid downlink has been accepted.
     adr: DeviceRadioState = field(default_factory=DeviceRadioState)
     radio: "Radio | None" = None  # Owns channel selection, CFList, duty-cycle, DR/power
     join_attempt_index: int = 0
@@ -151,6 +152,10 @@ class SimulatedDevice:
         )
 
     def _reconstruct_downlink_counter(self, received_low16: int) -> int:
+        # Before any downlink has been accepted the base is 0, so the first
+        # downlink's 16-bit value is taken verbatim (including FCntDown=0).
+        if not self.runtime.downlink_seen:
+            return received_low16
         candidate = (self.runtime.fcnt_down & 0xFFFF0000) | received_low16
         if received_low16 < (self.runtime.fcnt_down & 0xFFFF):
             candidate += 0x10000
@@ -195,6 +200,7 @@ class SimulatedDevice:
         self.runtime.joined = True
         self.runtime.fcnt_up = 0
         self.runtime.fcnt_down = 0
+        self.runtime.downlink_seen = False
 
         # Apply CFList channel updates via Radio
         if parsed.cflist is not None and self.runtime.radio is not None:
@@ -406,6 +412,7 @@ class SimulatedDevice:
             self.runtime.joined = True
             self.runtime.fcnt_up = 0
             self.runtime.fcnt_down = 0
+            self.runtime.downlink_seen = False
 
             if parsed.cflist is not None and self.runtime.radio is not None:
                 self.runtime.radio.apply_cflist(parsed.cflist)
@@ -470,7 +477,13 @@ class SimulatedDevice:
             result.reject_reason = "invalid_mic"
             return result
 
-        result.fcnt_ok = reconstructed_fcnt > self.runtime.fcnt_down
+        # FCntDown freshness: the first downlink after a join is always fresh
+        # (servers may legitimately start FCntDown at 0); subsequent downlinks
+        # must be strictly newer than the last accepted counter.
+        if not self.runtime.downlink_seen:
+            result.fcnt_ok = True
+        else:
+            result.fcnt_ok = reconstructed_fcnt > self.runtime.fcnt_down
         if not result.fcnt_ok:
             result.reject_reason = (
                 f"stale_fcnt:got={reconstructed_fcnt},expected>{self.runtime.fcnt_down}"
@@ -501,6 +514,7 @@ class SimulatedDevice:
         applied_mac_commands = self.apply_mac_commands(all_mac_commands) if all_mac_commands else []
 
         self.runtime.fcnt_down = reconstructed_fcnt
+        self.runtime.downlink_seen = True
         result.accepted = True
         result.f_port = f_port
         result.frm_payload = frm_payload
