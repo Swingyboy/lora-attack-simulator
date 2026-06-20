@@ -58,7 +58,7 @@ class TestAttackResultFields(unittest.TestCase):
 
 
 class TestAttackResultSuccessCompat(unittest.TestCase):
-    """Legacy .success property maps execution_status correctly."""
+    """Read-only .success property maps execution_status correctly."""
 
     def test_completed_maps_to_success_true(self) -> None:
         r = AttackResult(
@@ -87,16 +87,6 @@ class TestAttackResultSuccessCompat(unittest.TestCase):
         )
         self.assertFalse(r.success)
 
-    def test_success_setter_overrides_status(self) -> None:
-        r = AttackResult(
-            attack_name="a",
-            attack_type="t",
-            message="ok",
-            execution_status=ExecutionStatus.COMPLETED,
-        )
-        r.success = False
-        self.assertFalse(r.success)
-
 
 class TestAttackResultSerialization(unittest.TestCase):
     """to_dict and from_dict round-trip for new fields."""
@@ -117,9 +107,8 @@ class TestAttackResultSerialization(unittest.TestCase):
         self.assertEqual(d["security_verdict"], "secure")
         self.assertEqual(d["confidence"], "high")
         self.assertTrue(d["target_protected"])
-        # Legacy field still present for backward compat
-        self.assertIn("success", d)
-        self.assertTrue(d["success"])
+        # Legacy ``success`` field is no longer serialized.
+        self.assertNotIn("success", d)
 
     def test_from_dict_roundtrip(self) -> None:
         r = AttackResult(
@@ -142,8 +131,8 @@ class TestAttackResultSerialization(unittest.TestCase):
         self.assertEqual(r2.target_protected, r.target_protected)
         self.assertEqual(r2.captured_packets, r.captured_packets)
 
-    def test_from_dict_legacy_success_field(self) -> None:
-        """Legacy JSON with only 'success' field is handled gracefully."""
+    def test_from_dict_ignores_legacy_success_field(self) -> None:
+        """A legacy 'success' key in JSON is ignored; new fields take their defaults."""
         data = {
             "attack_name": "old_attack",
             "attack_type": "old",
@@ -152,9 +141,9 @@ class TestAttackResultSerialization(unittest.TestCase):
             "metrics": {},
         }
         r = AttackResult.from_dict(data)
-        self.assertTrue(r.success)
-        # New fields default to their defaults when absent from JSON
+        # No execution_status in JSON → defaults to COMPLETED (success derives from it).
         self.assertEqual(r.execution_status, ExecutionStatus.COMPLETED)
+        self.assertTrue(r.success)
 
     def test_to_dict_omits_none_target_protected(self) -> None:
         """target_protected=None is omitted from serialization."""

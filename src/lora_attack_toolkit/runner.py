@@ -14,6 +14,7 @@ from typing import Any
 from lora_attack_toolkit.attacks.context import AttackContext, AttackInput, AttackServices
 from lora_attack_toolkit.attacks.packet_capture import PacketCapture
 from lora_attack_toolkit.attacks.registry import AttackRegistry
+from lora_attack_toolkit.attacks.result import AttackResult
 from lora_attack_toolkit.config import AttackScenarioV1, RadioMetadata
 from lora_attack_toolkit.provenance import build_reproducibility
 from lora_attack_toolkit.runtime.device import create_device
@@ -58,12 +59,12 @@ class AttackRunner:
         try:
             spec = AttackRegistry.get_spec(scenario.attack.type)
         except ValueError as exc:
-            return {
-                "success": False,
-                "message": str(exc),
-                "metrics": {},
-                "error": str(exc),
-            }
+            return AttackResult.failed(
+                attack_name=scenario.attack.type,
+                attack_type=scenario.attack.type,
+                error=str(exc),
+                message=str(exc),
+            ).to_dict()
 
         title = spec.title or spec.name
         category = spec.category or spec.name
@@ -132,12 +133,12 @@ class AttackRunner:
 
         except Exception as e:
             self.logger.exception("Attack failed: %s", e)
-            return {
-                "success": False,
-                "message": f"Attack execution failed: {str(e)}",
-                "metrics": {},
-                "error": str(e),
-            }
+            return AttackResult.failed(
+                attack_name=scenario.attack.type,
+                attack_type=scenario.attack.type,
+                error=str(e),
+                message=f"Attack execution failed: {str(e)}",
+            ).to_dict()
 
     def _create_attack_context(
         self,
@@ -160,8 +161,6 @@ class AttackRunner:
         Returns:
             AttackContext ready for attack execution
         """
-        attack_config_dict = scenario.attack.config
-
         # Create services
         capture = PacketCapture(logger=self.logger)
         services = AttackServices(
@@ -178,7 +177,6 @@ class AttackRunner:
             expected_behavior=scenario.expected,
             radio=radio,
             timeout_sec=scenario.scenario.timeout_sec,
-            attack_config=attack_config_dict if typed_config is None else None,
         )
 
         # Create and return context

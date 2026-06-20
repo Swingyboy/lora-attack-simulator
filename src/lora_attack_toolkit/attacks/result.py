@@ -53,11 +53,6 @@ class AttackResult:
         ``False`` when it showed a potential weakness, ``None`` when unknown.
     ``confidence``
         Reliability of the ``security_verdict``.
-
-    Compatibility
-    -------------
-    The legacy ``success`` field is retained as a read-only property that maps
-    to ``execution_status == COMPLETED``.  Use the new fields in all new code.
     """
 
     attack_name: str
@@ -85,25 +80,14 @@ class AttackResult:
     # ── Reproducibility provenance (populated by the runner before saving) ────
     reproducibility: dict[str, Any] | None = None
 
-    # ── Legacy compat ─────────────────────────────────────────────────────────
-    # Callers may still pass success= as a keyword; store it to avoid breaking
-    # old construction sites while migration is in progress.
-    _success_override: bool | None = field(default=None, repr=False, compare=False)
-
     @property
     def success(self) -> bool:
-        """Legacy compatibility accessor.
+        """Read-only convenience accessor: ``execution_status == COMPLETED``.
 
-        Returns the explicit override when set, otherwise maps
-        ``execution_status == COMPLETED`` to ``True``.
+        This reflects technical execution only and is *not* a security verdict;
+        it is never serialized. Use ``security_verdict`` for protocol assessment.
         """
-        if self._success_override is not None:
-            return self._success_override
         return self.execution_status == ExecutionStatus.COMPLETED
-
-    @success.setter
-    def success(self, value: bool) -> None:
-        self._success_override = value
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dict for JSON serialization."""
@@ -115,8 +99,6 @@ class AttackResult:
             "confidence": self.confidence.value,
             "message": self.message,
             "metrics": self.metrics,
-            # Legacy field kept for backward compat with consumers reading JSON
-            "success": self.success,
         }
 
         if self.target_protected is not None:
@@ -173,9 +155,6 @@ class AttackResult:
             r.confidence = Confidence(data["confidence"])
         if "target_protected" in data:
             r.target_protected = data["target_protected"]
-        # Honour legacy success field when new fields are absent
-        if "success" in data and "execution_status" not in data:
-            r._success_override = bool(data["success"])
         return r
 
     @classmethod

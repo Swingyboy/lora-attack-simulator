@@ -894,7 +894,7 @@ class LoRaWANConsole(cmd2.Cmd):
         print("ATTACK RESULTS")
         print("=" * 60)
 
-        success = results.get("success", False)
+        success = results.get("execution_status") == "completed"
         status_symbol = "✓" if success else "✗"
         print(f"\nStatus: {status_symbol} {'SUCCESS' if success else 'FAILED'}")
         print(f"Message: {results.get('message', 'No message')}")

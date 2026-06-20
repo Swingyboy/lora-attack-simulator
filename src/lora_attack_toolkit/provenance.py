@@ -109,7 +109,7 @@ def build_reproducibility(
         "scenario_snapshot": snapshot,
         "effective_config": {
             "attack_type": scenario.attack.type,
-            "attack_config": scenario.attack.config,
+            "config": scenario.attack.config,
         },
         "network_server": {
             "name": scenario.target.name,

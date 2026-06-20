@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import threading
-import warnings
 from dataclasses import dataclass, field
 from logging import Logger
 from typing import TYPE_CHECKING, Any
@@ -76,10 +75,6 @@ class AttackInput:
     # Execution timeout
     timeout_sec: float
 
-    # Legacy: raw dict config for backwards compatibility
-    # New code should use typed_config instead
-    attack_config: dict[str, Any] | None = None
-
 
 @dataclass
 class AttackContext:
@@ -134,23 +129,12 @@ class AttackContext:
 
     @property
     def config(self) -> Any:
-        """
-        Shortcut to typed attack config (preferred).
+        """Shortcut to the typed attack config.
 
-        Returns the typed config object (UplinkReplayConfigV1, JoinDevNonceConfigV1, etc).
-        Falls back to the legacy raw-dict ``attack_config`` when ``typed_config`` is
-        ``None``, emitting a :class:`DeprecationWarning` to guide callers toward the
-        typed path.
+        Returns the typed config object (UplinkReplayConfigV1,
+        JoinDevNonceConfigV1, UplinkForgeryConfigV1).
         """
-        if self.input.typed_config is not None:
-            return self.input.typed_config
-        warnings.warn(
-            "ctx.config is returning a raw dict via the legacy attack_config field. "
-            "Migrate to typed_config (e.g. UplinkReplayConfigV1) for type safety.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.input.attack_config
+        return self.input.typed_config
 
     @property
     def expected(self) -> ExpectedBehavior | None:

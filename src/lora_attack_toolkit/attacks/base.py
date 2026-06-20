@@ -41,7 +41,7 @@ class BaseAttack(ABC):
                 # Return result
                 return AttackResult(
                     attack_name=self.name,
-                    success=True,
+                    attack_type=self.name,
                     message="Attack completed",
                     metrics={},
                 )
