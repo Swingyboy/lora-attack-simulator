@@ -320,6 +320,44 @@ class TestReproducibilityMetadata(unittest.TestCase):
         self.assertIsNone(r.reproducibility)
         self.assertNotIn("reproducibility", r.to_dict())
 
+    def test_scenario_snapshot_redacts_app_key(self) -> None:
+        """_scenario_snapshot must not expose AppKey in cleartext."""
+        from lora_attack_toolkit.provenance import _scenario_snapshot
+
+        snap = _scenario_snapshot(self._load_scenario())
+        act = snap["device"]["activation"]
+        self.assertEqual(act["app_key"], "<redacted>", "app_key must be redacted")
+        # A SHA-256 fingerprint must be stored alongside.
+        self.assertIn("app_key_sha256", act)
+        self.assertEqual(len(act["app_key_sha256"]), 64)  # hex SHA-256
+
+    def test_scenario_hash_stable_after_redaction(self) -> None:
+        """scenario_hash must be identical for two runs of the same scenario."""
+        from lora_attack_toolkit.provenance import _canonical_hash, _scenario_snapshot
+
+        snap1 = _scenario_snapshot(self._load_scenario())
+        snap2 = _scenario_snapshot(self._load_scenario())
+        self.assertEqual(_canonical_hash(snap1), _canonical_hash(snap2))
+
+    def test_build_reproducibility_snapshot_has_no_cleartext_key(self) -> None:
+        """Exported reproducibility JSON must not contain raw AppKey."""
+        from lora_attack_toolkit.provenance import build_reproducibility
+
+        repro = build_reproducibility(
+            self._load_scenario(),
+            self._make_result(),
+            started_at="2024-01-01T00:00:00+00:00",
+            ended_at="2024-01-01T00:00:05+00:00",
+            duration_sec=5.0,
+        )
+        import json
+
+        serialised = json.dumps(repro)
+        # The example scenario uses this AppKey — it must not appear in output.
+        self.assertNotIn("00112233445566770011223344556677", serialised)
+        act = repro["scenario_snapshot"]["device"]["activation"]
+        self.assertEqual(act["app_key"], "<redacted>")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -64,8 +64,26 @@ def git_commit() -> str:
 
 
 def _scenario_snapshot(scenario: AttackScenarioV1) -> dict[str, Any]:
-    """Return a JSON-serializable snapshot of the full effective scenario."""
-    return dataclasses.asdict(scenario)
+    """Return a JSON-serializable snapshot of the full effective scenario.
+
+    Secret material under ``device.activation`` (AppKey, NwkKey, session keys)
+    is redacted: the raw value is replaced with ``"<redacted>"`` and a
+    non-reversible SHA-256 fingerprint is stored alongside it so two runs of
+    the *same* scenario can be compared without exposing the key.
+    """
+    snap = dataclasses.asdict(scenario)
+    act: dict[str, Any] = snap.get("device", {}).get("activation", {})
+    _SECRET_KEYS = ("app_key", "nwk_key", "app_s_key", "nwk_s_key")
+    for key in _SECRET_KEYS:
+        raw = act.get(key)
+        if raw:
+            try:
+                fingerprint = hashlib.sha256(bytes.fromhex(str(raw))).hexdigest()
+            except (ValueError, TypeError):
+                fingerprint = hashlib.sha256(str(raw).encode()).hexdigest()
+            act[f"{key}_sha256"] = fingerprint
+            act[key] = "<redacted>"
+    return snap
 
 
 def _canonical_hash(snapshot: dict[str, Any]) -> str:
