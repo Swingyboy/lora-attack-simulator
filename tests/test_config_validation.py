@@ -193,6 +193,20 @@ class TestParseReplayConfig:
                 }
             )
 
+    def test_rejects_legacy_nested_format(self) -> None:
+        with pytest.raises(ValueError, match="uplink_replay config: unknown field"):
+            parse_replay_config(
+                {
+                    "capture_phase": {"perform_join": True},
+                    "replay_phase": {"mode": "immediate"},
+                    "fcnt_strategy": "reuse_original",
+                }
+            )
+
+    def test_rejects_single_unknown_key(self) -> None:
+        with pytest.raises(ValueError, match="uplink_replay config: unknown field"):
+            parse_replay_config({"typo_key": 1})
+
 
 class TestParseUplinkForgeryConfig:
     def test_valid_config(self) -> None:
@@ -257,6 +271,10 @@ class TestParseUplinkForgeryConfig:
                 }
             )
 
+    def test_rejects_unknown_key(self) -> None:
+        with pytest.raises(ValueError, match="uplink_forgery config: unknown field"):
+            parse_uplink_forgery_config({"unknown_param": 99})
+
 
 class TestParseJoinDevNonceConfig:
     def test_valid_minimal(self) -> None:
@@ -283,3 +301,7 @@ class TestParseJoinDevNonceConfig:
     def test_rejects_invalid_devnonce_start_string(self) -> None:
         with pytest.raises(ValueError, match="'random'"):
             parse_join_devnonce_config({"valid_devnonce_start": "auto"})
+
+    def test_rejects_unknown_key(self) -> None:
+        with pytest.raises(ValueError, match="join_devnonce config: unknown field"):
+            parse_join_devnonce_config({"obsolete_param": "x"})

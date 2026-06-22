@@ -401,8 +401,64 @@ class AttackScenarioV1:
 # ── Attack-specific config parsers ────────────────────────────────────────────
 
 
+def _reject_unknown_attack_keys(
+    config: dict[str, Any], known: frozenset[str], context: str
+) -> None:
+    """Raise ValueError if *config* contains keys not listed in *known*."""
+    unknown = set(config) - known
+    if unknown:
+        raise ValueError(f"{context} config: unknown field(s): {', '.join(sorted(unknown))}")
+
+
+_REPLAY_KNOWN_KEYS: frozenset[str] = frozenset(
+    {
+        "uplink_interval_sec",
+        "capture_fcnt",
+        "replay_attempt_interval_sec",
+        "replay_count",
+        "verification_uplink_count",
+        "device_time_gps_tolerance_sec",
+    }
+)
+
+_JOIN_DEVNONCE_KNOWN_KEYS: frozenset[str] = frozenset(
+    {
+        "timing",
+        "valid_join_count",
+        "valid_devnonce_start",
+        "valid_devnonce_step",
+        "valid_devnonce_wrap",
+        "final_check",
+        "result_cache_size",
+        "final_devnonce",
+        "devnonce_seed",
+        "target_lorawan_1_0_4",
+    }
+)
+
+_FORGERY_KNOWN_KEYS: frozenset[str] = frozenset(
+    {
+        "forgery_mode",
+        "perform_join",
+        "baseline_uplink_count",
+        "uplink_interval_sec",
+        "target_fcnt",
+        "fcnt_delta",
+        "payload_hex",
+        "forged_payload_hex",
+        "recalculate_mic",
+        "corrupt_mic",
+        "wrong_devaddr",
+        "mac_command",
+        "fport",
+        "verification_uplink_count",
+    }
+)
+
+
 def parse_replay_config(config: dict[str, Any]) -> "UplinkReplayConfigV1":
     """Parse uplink replay config from dict into :class:`UplinkReplayConfigV1`."""
+    _reject_unknown_attack_keys(config, _REPLAY_KNOWN_KEYS, "uplink_replay")
     return UplinkReplayConfigV1(
         uplink_interval_sec=_expect_float(
             "uplink_interval_sec", config.get("uplink_interval_sec", 5.0), min_value=0.0
@@ -432,6 +488,7 @@ def parse_join_devnonce_config(config: dict[str, Any]) -> JoinDevNonceConfigV1:
     sub-section.  RX1/RX2 window values are internal protocol constants and
     are silently ignored if present in the input dict.
     """
+    _reject_unknown_attack_keys(config, _JOIN_DEVNONCE_KNOWN_KEYS, "join_devnonce")
     timing: AttackTiming | None = None
     if "timing" in config:
         timing_data = config["timing"]
@@ -492,6 +549,7 @@ def parse_uplink_forgery_config(config: dict[str, Any]) -> UplinkForgeryConfigV1
     Raises:
         ValueError: If forgery_mode or mac_command is not supported.
     """
+    _reject_unknown_attack_keys(config, _FORGERY_KNOWN_KEYS, "uplink_forgery")
     mode = config.get("forgery_mode", "invalid_mic")
     if mode not in UPLINK_FORGERY_MODES:
         raise ValueError(
