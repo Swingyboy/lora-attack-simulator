@@ -199,26 +199,35 @@ class JoinDevNonceAttack(BaseAttack):
             # and target are actually up. Send a known-valid JoinRequest with a
             # guaranteed-fresh DevNonce as a control; its outcome gates the
             # negative verdict so we never assert SECURE against a dead target.
+            #
+            # For monotonic (1.0.4) mode the control DevNonce must be strictly
+            # greater than last_accepted so a compliant server accepts it.
             control_executed = False
             control_devnonce: bytes | None = None
             control_accepted: bool | None = None
+            control_impossible_reason: str = ""
             if not final_result.join_accepted and not ctx.cancel_event.is_set():
-                control_executed = True
-                control_devnonce = self._select_control_devnonce(generation_cache, final_devnonce)
-                inter_delay = ctx.timeout
-                if inter_delay > 0:
-                    self._sleep_until(
-                        ctx.clock, ctx.clock.monotonic() + inter_delay, ctx.cancel_event
-                    )
-                control_result = self._execute_join_step(
-                    ctx=ctx,
-                    config=config,
-                    timing=timing,
-                    dev_nonce=control_devnonce,
-                    attempt_index=config.valid_join_count + 2,
-                    phase="control",
+                control_devnonce, control_impossible_reason = self._select_control_devnonce(
+                    generation_cache,
+                    final_devnonce,
+                    final_check=config.final_check,
                 )
-                control_accepted = control_result.join_accepted
+                if control_devnonce is not None:
+                    control_executed = True
+                    inter_delay = ctx.timeout
+                    if inter_delay > 0:
+                        self._sleep_until(
+                            ctx.clock, ctx.clock.monotonic() + inter_delay, ctx.cancel_event
+                        )
+                    control_result = self._execute_join_step(
+                        ctx=ctx,
+                        config=config,
+                        timing=timing,
+                        dev_nonce=control_devnonce,
+                        attempt_index=config.valid_join_count + 2,
+                        phase="control",
+                    )
+                    control_accepted = control_result.join_accepted
 
             metrics = self._build_metrics(
                 config=config,
@@ -233,10 +242,32 @@ class JoinDevNonceAttack(BaseAttack):
                 selection_meta=selection_meta,
             )
             metrics["control_probe_executed"] = control_executed
+            if control_impossible_reason:
+                metrics["control_probe_impossible_reason"] = control_impossible_reason
             if control_executed and control_devnonce is not None:
                 metrics["control_probe_devnonce"] = control_devnonce.hex()
                 metrics["control_probe_accepted"] = control_accepted
             ctx.capture.metadata["devnonce_validation"] = metrics
+
+            # If the control probe was impossible in monotonic mode, we cannot
+            # distinguish "rejected because monotonic" from "unreachable" for the
+            # non-final-accepted branch — report INCONCLUSIVE with an explicit reason.
+            if not final_result.join_accepted and control_impossible_reason:
+                reason_msg = control_impossible_reason
+                inc_metrics = metrics.copy()
+                inc_metrics["behavior_under_test"] = MONOTONIC_DEVNONCE_CHECK
+                inc_metrics["rationale"] = reason_msg
+                ctx.capture.metadata["devnonce_validation"] = inc_metrics
+                return AttackResult(
+                    attack_name=self.name,
+                    attack_type=self.name,
+                    execution_status=ExecutionStatus.COMPLETED,
+                    security_verdict=SecurityVerdict.INCONCLUSIVE,
+                    confidence=Confidence.LOW,
+                    message=reason_msg,
+                    metrics=inc_metrics,
+                    captured_packets=len(ctx.capture.uplinks) + len(ctx.capture.downlinks),
+                )
 
             prefix = (
                 "Final DevNonce check executed after partial generation phase; "
@@ -639,20 +670,57 @@ class JoinDevNonceAttack(BaseAttack):
 
         return False
 
-    def _select_control_devnonce(self, cache: DevNonceResultCache, final_devnonce: bytes) -> bytes:
+    def _select_control_devnonce(
+        self,
+        cache: DevNonceResultCache,
+        final_devnonce: bytes,
+        *,
+        final_check: str = "",
+    ) -> tuple[bytes | None, str]:
         """Pick a guaranteed-fresh DevNonce for the control probe.
 
-        Returns the lowest 16-bit DevNonce that was neither accepted during the
-        generation phase nor used as the tested final DevNonce, so a reachable
-        Network Server is expected to answer it.
+        For non-monotonic modes returns the lowest 16-bit DevNonce that was
+        neither accepted during the generation phase nor used as the tested
+        final DevNonce.
+
+        For the LoRaWAN 1.0.4 monotonic-DevNonce modes the control DevNonce
+        must additionally be **strictly greater than last_accepted** so that a
+        compliant 1.0.4 server accepts it (and thus proves the path is up).
+        If no such DevNonce exists (e.g. last_accepted == 0xFFFF), returns
+        ``(None, reason)`` and the caller must report INCONCLUSIVE.
+
+        Returns:
+            ``(devnonce, "")`` on success, or ``(None, reason)`` when no valid
+            control DevNonce can be found.
         """
         used = set(cache.all_accepted_devnonces)
         used.add(final_devnonce)
+
+        if _is_monotonic_devnonce_check(final_check):
+            last = cache.last_accepted_devnonce
+            if last is None:
+                return None, "monotonic control probe impossible: no last accepted DevNonce"
+            last_value = int.from_bytes(last, "little")
+            if last_value >= 0xFFFF:
+                return (
+                    None,
+                    "monotonic control probe impossible: no DevNonce above last accepted "
+                    f"(last_accepted=0x{last_value:04X})",
+                )
+            for value in range(last_value + 1, 0x10000):
+                candidate = value.to_bytes(2, "little")
+                if candidate not in used:
+                    return candidate, ""
+            return (
+                None,
+                "monotonic control probe impossible: all DevNonces above last accepted are used",
+            )
+
         for value in range(0x10000):
             candidate = value.to_bytes(2, "little")
             if candidate not in used:
-                return candidate
-        raise ValueError("No unused DevNonce available for the control probe")
+                return candidate, ""
+        return None, "no unused DevNonce available for the control probe"
 
     def _select_final_devnonce(
         self, config: "JoinDevNonceConfigV1", cache: DevNonceResultCache

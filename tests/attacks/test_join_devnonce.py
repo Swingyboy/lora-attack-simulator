@@ -565,9 +565,67 @@ class TestJoinDevNonceAttack(unittest.TestCase):
         cache.store(_step(b"\x00\x00", accepted=True))
         cache.store(_step(b"\x01\x00", accepted=True))
         final_devnonce = b"\x02\x00"
-        control = attack._select_control_devnonce(cache, final_devnonce)
+        control, reason = attack._select_control_devnonce(cache, final_devnonce)
+        self.assertIsNotNone(control)
         self.assertNotIn(control, cache.all_accepted_devnonces)
         self.assertNotEqual(control, final_devnonce)
+        self.assertEqual(reason, "")
+
+    def test_control_devnonce_monotonic_above_last_accepted(self) -> None:
+        """In monotonic mode the control DevNonce must be > last_accepted."""
+        attack = JoinDevNonceAttack()
+        cache = DevNonceResultCache(max_size=10)
+        cache.store(_step(b"\x0a\x00", accepted=True))  # last_accepted = 10
+        final_devnonce = b"\x09\x00"  # tested lower value
+        control, reason = attack._select_control_devnonce(
+            cache, final_devnonce, final_check="lorawan_1_0_4_monotonic_devnonce"
+        )
+        self.assertIsNotNone(control)
+        self.assertGreater(int.from_bytes(control, "little"), 10)
+        self.assertEqual(reason, "")
+
+    def test_control_devnonce_monotonic_impossible_at_max(self) -> None:
+        """Monotonic control probe is impossible when last_accepted == 0xFFFF."""
+        attack = JoinDevNonceAttack()
+        cache = DevNonceResultCache(max_size=10)
+        cache.store(_step(b"\xff\xff", accepted=True))  # last_accepted = 65535
+        final_devnonce = b"\xfe\xff"
+        control, reason = attack._select_control_devnonce(
+            cache, final_devnonce, final_check="lorawan_1_0_4_monotonic_devnonce"
+        )
+        self.assertIsNone(control)
+        self.assertIn("impossible", reason)
+
+    def test_control_devnonce_monotonic_impossible_returns_inconclusive(self) -> None:
+        """Full run: INCONCLUSIVE with reason when control probe is impossible (last_accepted=0xFFFF)."""
+        from lora_attack_toolkit.attacks.result import SecurityVerdict
+
+        attack = JoinDevNonceAttack()
+        config = replace(
+            self.config,
+            valid_join_count=1,
+            valid_devnonce_start=0xFFFF,
+            final_check="lorawan_1_0_4_monotonic_devnonce",
+        )
+
+        def fake_generation(ctx, config, timing, cache):
+            # last_accepted = 0xFFFF; no valid control DevNonce can be > this
+            cache.store(_step(b"\xff\xff", accepted=True, ts=1.0))
+            return 0xFFFF
+
+        # Final join (0xFFFE, lower than 0xFFFF) is rejected
+        attack._execute_generation_phase = Mock(side_effect=fake_generation)
+        attack._execute_join_step = Mock(
+            side_effect=lambda **kw: _step(kw["dev_nonce"], accepted=False, ts=2.0)
+        )
+
+        ctx = replace(self.ctx, input=replace(self.ctx.input, typed_config=config))
+        result = attack.run(ctx)
+
+        self.assertEqual(result.security_verdict, SecurityVerdict.INCONCLUSIVE)
+        self.assertIn("impossible", result.message)
+        # Control probe must NOT have been executed
+        self.assertFalse(result.metrics.get("control_probe_executed", True))
 
     def test_execute_join_step_sets_runtime_dev_nonce(self) -> None:
         """runtime.dev_nonce must be set before process_downlink is called."""
