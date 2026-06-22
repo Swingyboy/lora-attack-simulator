@@ -3,8 +3,8 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "lorat"
-version = "0.2.0"
+name = "lora-attack-toolkit"
+version = "1.0.0"
 description = "LoRAT (LoRa Attack Toolkit) - A modular offensive-security testing framework for LoRaWAN Network Servers"
 readme = "README.md"
 requires-python = ">=3.12"

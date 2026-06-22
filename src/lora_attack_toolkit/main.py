@@ -36,7 +36,9 @@ def main() -> int:
             "Pass a command string to execute a single command."
         ),
     )
-    parser.add_argument("--version", action="version", version="LoRAT 0.2.0")
+    from lora_attack_toolkit import __version__
+
+    parser.add_argument("--version", action="version", version=f"LoRAT {__version__}")
     parser.add_argument(
         "command",
         nargs="*",

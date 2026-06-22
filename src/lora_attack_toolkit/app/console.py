@@ -22,6 +22,9 @@ import cmd2
 
 from lora_attack_toolkit.runtime.session import Session
 
+_BANNER_PREFIX = "║  LoRAT (LoRa Attack Toolkit) v"
+_BANNER_FIELD_WIDTH = 32
+
 
 @dataclass
 class ScenarioMetadata:
@@ -74,16 +77,7 @@ class ScenarioMetadata:
 class LoRaWANConsole(cmd2.Cmd):
     """Interactive console for LoRaWAN offensive security testing."""
 
-    intro = """
-╔════════════════════════════════════════════════════════════════╗
-║  LoRAT (LoRa Attack Toolkit) v0.2.0                           ║
-║  Offensive Security Testing for LoRaWAN Network Servers       ║
-║  Transport: Semtech UDP                                        ║
-║                                                                ║
-║  Type 'help' for available commands                           ║
-║  Type 'show scenarios' to list available attack scenarios     ║
-╚════════════════════════════════════════════════════════════════╝
-"""
+    intro = ""  # set dynamically in __init__ from __version__
 
     prompt = "lorat > "
 
@@ -98,6 +92,21 @@ class LoRaWANConsole(cmd2.Cmd):
                      (preserves backward compatibility with direct instantiation).
         """
         super().__init__(*args, **kwargs)
+
+        from lora_attack_toolkit import __version__
+
+        version_line = f"{_BANNER_PREFIX}{__version__:<{_BANNER_FIELD_WIDTH}}║"
+        self.intro = (
+            "\n"
+            "╔════════════════════════════════════════════════════════════════╗\n"
+            f"{version_line}\n"
+            "║  Offensive Security Testing for LoRaWAN Network Servers       ║\n"
+            "║  Transport: Semtech UDP                                        ║\n"
+            "║                                                                ║\n"
+            "║  Type 'help' for available commands                           ║\n"
+            "║  Type 'show scenarios' to list available attack scenarios     ║\n"
+            "╚════════════════════════════════════════════════════════════════╝\n"
+        )
 
         self.session = session if session is not None else Session()
 

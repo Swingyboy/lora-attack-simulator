@@ -422,6 +422,6 @@ LoRAT is intended for authorized security testing only. Users are responsible fo
 
 ---
 
-**Version**: 0.2.0
+**Version**: 1.0.0
 **Status**: Active Development
 **Maintainer**: [@Swingyboy](https://github.com/Swingyboy)

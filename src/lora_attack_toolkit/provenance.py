@@ -2,7 +2,8 @@
 
 Every persisted result embeds enough provenance to reproduce and audit a run:
 toolkit version, Git commit, a hash + snapshot of the effective scenario, the
-target Network Server, region and LoRaWAN version, the full effective
+target Network Server (product/version), region, LoRaWAN version and the
+declared evaluation profile, the behaviour under test, the full effective
 configuration, timing, evidence references, the verdict with its confidence and
 rationale, the control-probe outcome, and the prototype's known limitations.
 """
@@ -37,7 +38,7 @@ def toolkit_version() -> str:
         from importlib.metadata import PackageNotFoundError, version
 
         try:
-            return version("lorat")
+            return version("lora-attack-toolkit")
         except PackageNotFoundError:
             return UNKNOWN
     except Exception:  # noqa: BLE001 - provenance must never crash a run
@@ -113,13 +114,16 @@ def build_reproducibility(
         },
         "network_server": {
             "name": scenario.target.name,
-            "version": UNKNOWN,
+            "product": scenario.target.server_product,
+            "version": scenario.target.server_version,
             "transport": scenario.target.transport,
             "host": scenario.target.host,
             "port": scenario.target.port,
         },
         "region": scenario.gateway.radio.region,
         "lorawan_version": scenario.device.lorawan_version,
+        "declared_lorawan_profile": scenario.expected.profile,
+        "behavior_under_test": metrics.get("behavior_under_test"),
         "started_at": started_at,
         "ended_at": ended_at,
         "duration_sec": duration_sec,
