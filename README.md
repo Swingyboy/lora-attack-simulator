@@ -15,7 +15,7 @@ LoRAT enables security researchers and network operators to validate LoRaWAN Net
 - **Interactive Shell**: Real-time attack execution with scenario management
 - **Protocol Validation**: Test DevNonce handling, frame counter validation, and MIC verification
 - **Comprehensive Logging**: Structured logs with attack traces and metrics
-- **Type-Safe Configuration**: JSON schemas with typed Python models
+- **Type-Safe Configuration**: Typed Python configuration models with strict validation
 
 ## Installation
 
@@ -121,18 +121,12 @@ Tests frame counter validation:
   "attack": {
     "type": "uplink_replay",
     "config": {
-      "capture_phase": {
-        "perform_join": true,
-        "send_baseline_uplink": true,
-        "payload_hex": "01020304"
-      },
-      "replay_phase": {
-        "mode": "immediate",
-        "count": 3,
-        "delay_sec": 0.1
-      },
-      "fcnt_strategy": "reuse_original",
-      "mic_strategy": "reuse_original"
+      "uplink_interval_sec": 5.0,
+      "capture_fcnt": 5,
+      "replay_attempt_interval_sec": 0.7,
+      "replay_count": 3,
+      "verification_uplink_count": 5,
+      "device_time_gps_tolerance_sec": 2.0
     }
   },
   "expected": {
