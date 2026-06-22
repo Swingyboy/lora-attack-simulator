@@ -87,7 +87,11 @@ Tests DevNonce replay protection:
 
 **Modes (`final_check`):**
 - `same_as_last`: Replay the last accepted DevNonce
-- `lower_than_last`: Send a lower DevNonce than the last accepted one
+- `lower_than_last` (alias: `lorawan_1_0_4_monotonic_devnonce`): Send a lower DevNonce than
+  the last accepted one. Tests support for the monotonic DevNonce behaviour introduced in
+  LoRaWAN 1.0.4. Acceptance of a lower DevNonce is a vulnerability / non-compliance result
+  **only** when `target_lorawan_1_0_4=true`; under a LoRaWAN 1.0.3 profile it is reported
+  as an `INCONCLUSIVE` capability result.
 - `replay_first`: Replay the first accepted DevNonce after N valid joins
 - `custom`: Use an explicitly configured final DevNonce
 

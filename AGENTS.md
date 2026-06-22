@@ -46,7 +46,7 @@ The `.venv` directory is in the repo root and is gitignored.
 
 Install dev tools with `pip install -e ".[dev]"`.
 
-**Current baseline:** 242 tests, 0 failures (~160 s).
+**Current baseline:** 471 passed, 11 deselected, 16 subtests (~1.3 s).
 
 Always verify the full suite passes before committing. Run the targeted test
 file first (fast feedback), then escalate to the full suite when confident.

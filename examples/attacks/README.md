@@ -76,6 +76,12 @@ Attack metadata (id, title, category) is resolved internally from the registry �
 - **Validation profile**: `lorawan_uplink_replay_protection`
 - **Description**: Captures a legitimate uplink then replays it to test frame counter validation.
 
+### uplink-forgery-v1.json
+- **Attack type**: `uplink_forgery`
+- **Validation profile**: `lorawan_uplink_replay_protection`
+- **Description**: Sends forged uplink frames with manipulated MIC, FCnt, or DevAddr
+  to probe how the Network Server validates frame integrity.
+
 ---
 
 ## Running Scenarios
@@ -101,6 +107,10 @@ python -m lora_attack_toolkit.main
 
 | Profile | Description |
 |---------|-------------|
-| `lorawan_1_0_3_devnonce_validation` | NS must reject reused or rolled-back DevNonces |
+| `lorawan_1_0_3_devnonce_validation` | NS must reject a reused DevNonce (LoRaWAN 1.0.3 replay protection) |
+| `lorawan_1_0_4_monotonic_devnonce` | NS must reject a DevNonce ≤ last accepted (LoRaWAN 1.0.4 monotonic rule — a capability/compliance test, not a universal 1.0.3 vulnerability test) |
 | `lorawan_uplink_replay_protection` | NS must reject replayed uplinks with same FCnt |
-| `lorawan_mac_command_validation` | NS must validate MAC command parameters safely |
+
+> **MAC command validation** was designed but not shipped. A `lorawan_mac_command_validation`
+> profile exists in the codebase for experimental use only — the `mac_command_injection` attack
+> is not registered and has no production example scenario.
