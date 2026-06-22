@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import unittest
 
-from lora_attack_toolkit.lorawan.radio import EU868RegionProfile
-from lora_attack_toolkit.lorawan.radio import Radio
+import pytest
+
+from lora_attack_toolkit.lorawan.radio import EU868RegionProfile, Radio
+
+pytestmark = pytest.mark.unit
 
 
 EU868_BASE = [868_100_000, 868_300_000, 868_500_000]
@@ -207,8 +210,8 @@ class TestRadioChannelSelection(unittest.TestCase):
 
 class TestDeviceRadioIntegration(unittest.TestCase):
     def _make_device(self) -> object:
-        from lora_attack_toolkit.runtime.device import SimulatedDevice
         from lora_attack_toolkit.lorawan.radio import EU868RegionProfile, Radio
+        from lora_attack_toolkit.runtime.device import SimulatedDevice
 
         device = SimulatedDevice(
             dev_eui="0011223344556677",
@@ -221,6 +224,7 @@ class TestDeviceRadioIntegration(unittest.TestCase):
     def test_repeated_join_accept_does_not_grow_channel_list(self) -> None:
         """Applying JoinAccept with different CFLists must never grow channels unboundedly."""
         from unittest.mock import MagicMock, patch
+
         from lora_attack_toolkit.lorawan.frames import JoinAcceptData
 
         device = self._make_device()
@@ -233,8 +237,13 @@ class TestDeviceRadioIntegration(unittest.TestCase):
             p.cflist = cflist_bytes
             return p
 
-        with patch("lora_attack_toolkit.runtime.device.decode_join_accept") as mock_dec, \
-             patch("lora_attack_toolkit.runtime.device.derive_session_keys", return_value=(b"\x00" * 16, b"\x00" * 16)):
+        with (
+            patch("lora_attack_toolkit.runtime.device.decode_join_accept") as mock_dec,
+            patch(
+                "lora_attack_toolkit.runtime.device.derive_session_keys",
+                return_value=(b"\x00" * 16, b"\x00" * 16),
+            ),
+        ):
             # Simulate 5 JoinAccepts with different CFLists
             for seed in range(5):
                 freq = 867_100_000 + seed * 200_000

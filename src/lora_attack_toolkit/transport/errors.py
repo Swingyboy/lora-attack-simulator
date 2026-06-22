@@ -31,7 +31,7 @@ class DnsResolutionError(TransportTemporaryError):
     with hostname``).  Typically caused by temporary DNS unavailability."""
 
 
-class ConnectionResetError(TransportTemporaryError):  # noqa: A001
+class RemoteResetError(TransportTemporaryError):
     """An established connection was reset by the remote peer."""
 
 

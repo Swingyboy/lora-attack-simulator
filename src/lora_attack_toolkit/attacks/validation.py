@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 # Registry mapping user-facing profile names to internal validation parameters.
 # Users specify a profile name in their scenario file; the framework resolves
 # the corresponding secure_behavior description and list of security criteria.
@@ -32,39 +31,26 @@ VALIDATION_PROFILES: dict[str, dict[str, Any]] = {
             "ns_maintains_secure_adr_state",
         ],
     },
+    "lorawan_uplink_forgery_protection": {
+        "secure_behavior": "ns_rejects_forged_uplinks_with_invalid_mic_or_wrong_devaddr",
+        "security_criteria": [
+            "ns_rejects_uplinks_with_invalid_mic",
+            "ns_rejects_uplinks_with_replayed_fcnt",
+            "ns_rejects_uplinks_with_wrong_devaddr",
+            "ns_accepts_only_authenticated_mac_commands",
+        ],
+    },
 }
-
-
-def resolve_profile(profile: str) -> dict[str, Any]:
-    """Resolve a validation profile name to its internal parameters.
-
-    Args:
-        profile: Profile name (e.g., "lorawan_1_0_3_devnonce_validation")
-
-    Returns:
-        Dict with "secure_behavior" and "security_criteria" keys.
-
-    Raises:
-        ValueError: If profile is not registered.
-    """
-    prof = VALIDATION_PROFILES.get(profile)
-    if prof is None:
-        available = ", ".join(sorted(VALIDATION_PROFILES))
-        raise ValueError(
-            f"Unknown validation profile: {profile!r}. "
-            f"Available profiles: {available}"
-        )
-    return prof
 
 
 class CriterionResult:
     """Result of evaluating a single success criterion."""
-    
+
     def __init__(self, criterion: str, passed: bool, message: str):
         self.criterion = criterion
         self.passed = passed
         self.message = message
-    
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "criterion": self.criterion,
@@ -75,31 +61,31 @@ class CriterionResult:
 
 class ValidationResult:
     """Aggregated validation results for all criteria."""
-    
+
     def __init__(self, secure_behavior: str):
         self.secure_behavior = secure_behavior
         self.results: list[CriterionResult] = []
-    
+
     def add_result(self, criterion: str, passed: bool, message: str) -> None:
         """Add a criterion evaluation result."""
         self.results.append(CriterionResult(criterion, passed, message))
-    
+
     def all_passed(self) -> bool:
         """Check if all criteria passed."""
         return all(r.passed for r in self.results)
-    
+
     def get_summary(self) -> str:
         """Generate human-readable validation summary."""
         passed_count = sum(1 for r in self.results if r.passed)
         total_count = len(self.results)
-        
+
         if passed_count == total_count:
             return f"✅ SECURE: All {total_count} criteria passed - {self.secure_behavior}"
         elif passed_count == 0:
             return f"⚠️  VULNERABLE: 0/{total_count} criteria passed - NS behavior deviates from {self.secure_behavior}"
         else:
             return f"⚠️  PARTIALLY SECURE: {passed_count}/{total_count} criteria passed - review findings"
-    
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for inclusion in attack results."""
         return {
@@ -113,59 +99,79 @@ class ValidationResult:
 
 # Criterion validators for common patterns
 
+
 def validate_replay_criterion(
     criterion: str, metrics: dict[str, Any], capture_stats: dict[str, Any]
 ) -> CriterionResult:
     """
     Validate replay attack criteria.
-    
+
     Supported criteria:
     - "first_uplink_is_sent" - original uplink was captured
     - "replayed_uplinks_with_same_fcnt_are_rejected" - NS rejected replay
     - "ns_maintains_fcnt_validation" - FCnt validation working
     - "replay_attack_is_blocked" - replay not accepted by NS
+
+    When the enhanced replay path is used, ``metrics["verdict"]`` contains a
+    protocol-level verdict derived from RX-window timing and GPS-time correlation
+    of DeviceTimeAns responses — see ``_determine_verdict()`` in replay.py.
+    When only the legacy path is used, ``verdict`` is absent and the result is
+    reported as INCONCLUSIVE rather than emitting a downlink-count heuristic
+    that produces systematic false positives.
     """
     if criterion == "first_uplink_is_sent":
-        has_original = metrics.get("original_fcnt") is not None
+        has_original = (
+            metrics.get("original_fcnt") is not None or metrics.get("captured_fcnt") is not None
+        )
+        fcnt = metrics.get("original_fcnt", metrics.get("captured_fcnt"))
         if has_original:
-            return CriterionResult(
-                criterion, True, f"Original uplink sent with FCnt={metrics.get('original_fcnt')}"
-            )
+            return CriterionResult(criterion, True, f"Original uplink sent with FCnt={fcnt}")
         return CriterionResult(criterion, False, "No original uplink detected")
-    
+
     elif criterion in (
         "replayed_uplinks_with_same_fcnt_are_rejected",
         "replay_attack_is_blocked",
         "ns_maintains_fcnt_validation",
     ):
-        # Check if NS accepted or rejected replay
-        # For now, we infer from downlink count (if NS sends downlink, it accepted)
-        replays_count = metrics.get("replays_count", 0)
+        replays_count = metrics.get("replays_count", metrics.get("replay_count", 0))
         if replays_count == 0:
             return CriterionResult(
                 criterion, False, "No replay packets detected - attack did not execute"
             )
-        
-        # In a real scenario, we'd analyze downlinks specifically for replayed packets
-        # For MVP, we check if there are suspicious downlinks after replay
-        downlinks_count = capture_stats.get("total_downlinks", 0)
-        
-        # Heuristic: If NS sent many downlinks, it may have accepted replays
-        # Secure behavior: minimal/no downlinks after replay (NS ignoring duplicates)
-        if downlinks_count > 1:
-            return CriterionResult(
-                criterion,
-                False,
-                f"⚠️  Possible replay acceptance - {downlinks_count} downlinks observed (manual review recommended)",
-            )
-        
+
+        # If a protocol-level verdict is available (enhanced replay path), use it
+        # directly — it is based on RX-window timing and GPS-time correlation, not
+        # a raw downlink count.
+        verdict = metrics.get("verdict")
+        if verdict is not None:
+            if verdict == "protected":
+                return CriterionResult(criterion, True, "NS rejected replay (verdict=protected)")
+            elif verdict == "vulnerable":
+                return CriterionResult(
+                    criterion, False, "⚠️  NS accepted replay (verdict=vulnerable)"
+                )
+            elif verdict == "possible_vulnerability":
+                return CriterionResult(
+                    criterion,
+                    False,
+                    "⚠️  Possible replay acceptance (verdict=possible_vulnerability) — manual review recommended",
+                )
+            else:
+                # inconclusive or unknown verdict value
+                return CriterionResult(
+                    criterion, False, f"Verdict inconclusive ({verdict!r}) — manual review required"
+                )
+
+        # No protocol-level verdict available (legacy path).  Downlink count alone
+        # is not a reliable indicator of acceptance; report as not evaluated.
         return CriterionResult(
-            criterion, True, f"Replay likely rejected - minimal downlink activity ({downlinks_count} downlinks)"
+            criterion,
+            False,
+            "Criterion not fully evaluated — protocol-level verdict unavailable; manual review required",
         )
-    
+
     else:
-        # Unknown criterion - mark as not evaluated
-        return CriterionResult(criterion, False, f"Criterion not recognized for replay attack")
+        return CriterionResult(criterion, False, "Criterion not recognized for replay attack")
 
 
 def validate_join_criterion(
@@ -173,20 +179,24 @@ def validate_join_criterion(
 ) -> CriterionResult:
     """
     Validate join abuse attack criteria.
-    
+
     Supported criteria:
     - "first_join_request_is_accepted" - initial join succeeded
     - "replayed_join_requests_with_same_devnonce_are_rejected" - DevNonce validation working
     - "ns_maintains_devnonce_history" - DevNonce tracking in place
     """
     attack_type = metrics.get("attack_type")
-    
+
     if criterion == "first_join_request_is_accepted":
-        join_accepts = metrics.get("accepted_generation_count", metrics.get("join_accepts_received", 0))
+        join_accepts = metrics.get(
+            "accepted_generation_count", metrics.get("join_accepts_received", 0)
+        )
         if join_accepts >= 1:
-            return CriterionResult(criterion, True, f"Initial join succeeded ({join_accepts} accepted baseline joins)")
+            return CriterionResult(
+                criterion, True, f"Initial join succeeded ({join_accepts} accepted baseline joins)"
+            )
         return CriterionResult(criterion, False, "No JoinAccepts received - initial join failed")
-    
+
     elif criterion in (
         "replayed_join_requests_with_same_devnonce_are_rejected",
         "ns_maintains_devnonce_history",
@@ -202,14 +212,12 @@ def validate_join_criterion(
                     f"⚠️  VULNERABLE: NS accepted final DevNonce {dev_nonce}",
                 )
 
-            return CriterionResult(
-                criterion, True, f"Final DevNonce {dev_nonce} was rejected"
-            )
-        
+            return CriterionResult(criterion, True, f"Final DevNonce {dev_nonce} was rejected")
+
         return CriterionResult(criterion, False, "Criterion not applicable for this attack mode")
-    
+
     else:
-        return CriterionResult(criterion, False, f"Criterion not recognized for join abuse attack")
+        return CriterionResult(criterion, False, "Criterion not recognized for join abuse attack")
 
 
 def validate_mac_criterion(
@@ -217,7 +225,7 @@ def validate_mac_criterion(
 ) -> CriterionResult:
     """
     Validate MAC command abuse criteria.
-    
+
     Supported criteria:
     - "ns_validates_mac_command_syntax" - malformed commands rejected
     - "ns_rejects_out_of_spec_parameters" - invalid parameters rejected
@@ -227,11 +235,11 @@ def validate_mac_criterion(
     if criterion in ("ns_validates_mac_command_syntax", "ns_rejects_out_of_spec_parameters"):
         malformed_count = metrics.get("malformed_commands_sent", 0)
         invalid_count = metrics.get("invalid_commands_sent", 0)
-        
+
         # Check if NS acknowledged malformed/invalid commands
         # Secure behavior: NS should ignore or reject them
         adr_state_changes = metrics.get("adr_state_changes", 0)
-        
+
         if malformed_count > 0 or invalid_count > 0:
             if adr_state_changes > 0:
                 return CriterionResult(
@@ -239,37 +247,43 @@ def validate_mac_criterion(
                     False,
                     f"⚠️  NS may have processed {malformed_count + invalid_count} malformed/invalid commands (ADR state changed)",
                 )
-            
+
             return CriterionResult(
                 criterion,
                 True,
                 f"Malformed/invalid commands ({malformed_count + invalid_count}) likely rejected - no ADR state changes",
             )
-        
+
         return CriterionResult(criterion, True, "No malformed commands sent (attack not executed)")
-    
+
     elif criterion in ("ns_ignores_malicious_adr_manipulation", "ns_maintains_secure_adr_state"):
         # Check if ADR parameters stayed within secure bounds
         final_data_rate = metrics.get("final_data_rate")
         final_tx_power = metrics.get("final_tx_power")
-        
+
         if final_data_rate is None or final_tx_power is None:
             return CriterionResult(criterion, False, "ADR state not tracked")
-        
-        # Heuristic: SF12 or extreme TX power indicates potential manipulation
-        if final_data_rate == 0 or final_tx_power >= 14:
+
+        # LoRaWAN 1.0.3 §2.2.3 defines TX power as an index (0–7) into a
+        # region-specific table.  For EU868 index 0 is the highest power
+        # (14 dBm) and index 7 is the lowest.  Any value outside 0–7 is
+        # out-of-spec and indicates potential manipulation.
+        _MAX_TX_POWER_INDEX = 7
+        if final_tx_power > _MAX_TX_POWER_INDEX:
             return CriterionResult(
                 criterion,
                 False,
-                f"⚠️  Suspicious ADR state - DataRate={final_data_rate}, TXPower={final_tx_power}",
+                f"⚠️  TX power index {final_tx_power} out of spec (valid range 0–{_MAX_TX_POWER_INDEX} for EU868)",
             )
-        
+
         return CriterionResult(
-            criterion, True, f"ADR state within normal bounds - DR={final_data_rate}, TXPower={final_tx_power}"
+            criterion,
+            True,
+            f"ADR state within normal bounds - DR={final_data_rate}, TXPower={final_tx_power}",
         )
-    
+
     else:
-        return CriterionResult(criterion, False, f"Criterion not recognized for MAC command abuse")
+        return CriterionResult(criterion, False, "Criterion not recognized for MAC command abuse")
 
 
 def validate_criteria(
@@ -281,19 +295,19 @@ def validate_criteria(
 ) -> ValidationResult:
     """
     Validate success criteria against attack results.
-    
+
     Args:
         attack_type: Type of attack ("uplink_replay", "join_devnonce", "mac_command_injection")
         criteria: List of criterion strings to validate
         metrics: Attack-specific metrics from analyzer
         capture_stats: Packet capture statistics
         secure_behavior: Description of expected secure behavior
-    
+
     Returns:
         ValidationResult with all criterion evaluations
     """
     result = ValidationResult(secure_behavior)
-    
+
     for criterion in criteria:
         if attack_type in ("uplink_replay", "replay"):
             criterion_result = validate_replay_criterion(criterion, metrics, capture_stats)
@@ -305,7 +319,9 @@ def validate_criteria(
             criterion_result = CriterionResult(
                 criterion, False, f"Unknown attack type: {attack_type}"
             )
-        
-        result.add_result(criterion_result.criterion, criterion_result.passed, criterion_result.message)
-    
+
+        result.add_result(
+            criterion_result.criterion, criterion_result.passed, criterion_result.message
+        )
+
     return result

@@ -1,27 +1,36 @@
 """Scenario configuration: types, schema, and loader.
 
 This module is the single source of truth for:
-- Configuration dataclasses (DeviceConfig, GatewayConfig, etc.)
+- Configuration dataclasses (DeviceConfig, GatewayConfigV1, etc.)
 - Attack scenario schema v1.0 dataclasses
 - JSON scenario loading and validation
 
-Previously spread across core/base_types.py, core/schema.py,
-core/schema_v1.py, and core/loader.py.
+All *ConfigV1 dataclasses and parse_*_config() functions live here.
 """
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
+# ── Frozen-scope support sets ─────────────────────────────────────────────────
+# LoRAT targets a single, fixed profile (the diploma scope). Any scenario field
+# outside these sets is rejected rather than silently coerced.
+SUPPORTED_TRANSPORTS = frozenset({"semtech_udp"})
+SUPPORTED_REGIONS = frozenset({"EU868"})
+SUPPORTED_DEVICE_CLASSES = frozenset({"A"})
+SUPPORTED_ACTIVATION_MODES = frozenset({"OTAA"})
+SUPPORTED_LORAWAN_VERSIONS = frozenset({"1.0.3"})
 
 # ── Base types ────────────────────────────────────────────────────────────────
+
 
 @dataclass(frozen=True)
 class RadioMetadata:
     """Radio metadata for gateway simulator."""
+
     frequency: int
     data_rate: str
     rssi: int
@@ -29,25 +38,15 @@ class RadioMetadata:
 
 
 @dataclass(frozen=True)
-class SemtechUdpConfig:
-    """Semtech UDP protocol configuration."""
-    host: str
-    port: int
-    pull_data_interval_sec: int
-
-
-@dataclass(frozen=True)
-class GatewayConfig:
-    """Gateway simulator configuration."""
-    gateway_eui: str
-    semtech_udp: SemtechUdpConfig
-    radio_metadata: RadioMetadata
-
-
-@dataclass(frozen=True)
 class ActivationConfig:
-    """Device activation configuration."""
-    mode: str  # "OTAA" or "ABP"
+    """Device activation configuration (OTAA only).
+
+    ABP support is not yet implemented.  When it is added, a separate
+    ``ABPActivationConfig`` dataclass with ``dev_addr``, ``nwk_s_key``, and
+    ``app_s_key`` fields will be introduced rather than extending this class.
+    """
+
+    mode: Literal["OTAA"]
     dev_eui: str
     join_eui: str
     app_key: str
@@ -56,84 +55,50 @@ class ActivationConfig:
 @dataclass(frozen=True)
 class DeviceConfig:
     """Device simulator configuration."""
+
     name: str
     lorawan_version: str
     region: str
     device_class: str
     activation: ActivationConfig
-    duty_cycle_enforcement: bool = True
+    # Duty-cycle enforcement is disabled by default for the diploma scope: the
+    # simulator's purpose is to exercise the Network Server, not to self-limit
+    # transmissions to ETSI airtime. The duty-cycle machinery in lorawan.radio
+    # remains available (opt-in) and unit-tested, but the production path does
+    # not block on it. See README "Known Limitations".
+    duty_cycle_enforcement: bool = False
 
 
 @dataclass(frozen=True)
 class LoggingConfig:
     """Logging configuration."""
+
     level: str = "INFO"
     log_phy_payload: bool = False
     log_semtech_udp: bool = False
 
 
-# ── Legacy schema types (v0 — kept for internal loader compat) ────────────────
-
-@dataclass(frozen=True)
-class AttackMeta:
-    """Attack scenario metadata."""
-    name: str
-    description: str
-    attack_type: str
-    timeout_sec: float = 60.0
-
-
-@dataclass(frozen=True)
-class ReplayConfig:
-    """Configuration for replay attack."""
-    mode: str
-    delay_sec: float = 0.0
-    burst_count: int = 1
-    burst_interval_sec: float = 0.1
-
-
-@dataclass(frozen=True)
-class MACCommandConfig:
-    """Configuration for MAC command abuse attack."""
-    command_type: str
-    malformed: bool = False
-    parameters: dict[str, Any] | None = None
-
-
-@dataclass(frozen=True)
-class AttackScenarioConfig:
-    """Complete attack scenario configuration (legacy v0 format)."""
-    attack: AttackMeta
-    gateway: GatewayConfig
-    device: DeviceConfig
-    logging: LoggingConfig
-    replay: ReplayConfig | None = None
-    mac_command: MACCommandConfig | None = None
-
-    def validate(self) -> None:
-        attack_configs = [self.replay is not None, self.mac_command is not None]
-        if sum(attack_configs) != 1:
-            raise ValueError("Exactly one attack configuration must be provided")
-        if self.attack.attack_type == "replay" and self.replay is None:
-            raise ValueError("Replay attack requires replay configuration")
-        if self.attack.attack_type == "mac_abuse" and self.mac_command is None:
-            raise ValueError("MAC command abuse attack requires mac_command configuration")
-
-
 # ── Schema v1.0 types ─────────────────────────────────────────────────────────
+
 
 @dataclass(frozen=True)
 class TargetConfig:
     """Network Server target configuration."""
+
     name: str
     transport: str
     host: str
     port: int
+    # Optional descriptive metadata about the Network Server under test,
+    # captured into reproducibility provenance. Defaults to "unknown".
+    server_product: str = "unknown"
+    server_version: str = "unknown"
 
 
 @dataclass(frozen=True)
 class RadioConfig:
     """Radio metadata for gateway transmissions."""
+
     region: str
     frequency_hz: int
     data_rate: str
@@ -144,6 +109,7 @@ class RadioConfig:
 @dataclass(frozen=True)
 class GatewayConfigV1:
     """Gateway simulator configuration (v1.0)."""
+
     gateway_eui: str
     pull_data_interval_sec: int
     radio: RadioConfig
@@ -156,6 +122,7 @@ class ScenarioMeta:
     Only contains parameters that directly influence execution.
     Attack metadata (id, title, category, type) is resolved from the registry.
     """
+
     description: str = ""
     timeout_sec: float = 30.0
 
@@ -171,18 +138,35 @@ class ExpectedBehavior:
     - "lorawan_1_0_3_devnonce_validation"
     - "lorawan_uplink_replay_protection"
     - "lorawan_mac_command_validation"
+
+    Inline-profile scenarios (using ``secure_behavior`` + ``security_criteria``
+    keys directly in the JSON) populate *_inline_secure_behavior* and
+    *_inline_criteria* so the loader never needs to mutate the global
+    VALIDATION_PROFILES registry.
     """
+
     profile: str
+    # Populated by the loader for inline (non-named) profiles.  These take
+    # priority over the registry lookup so loading a scenario cannot mutate
+    # shared global state.
+    _inline_secure_behavior: str | None = field(default=None, compare=False)
+    _inline_criteria: tuple[str, ...] = field(default_factory=tuple, compare=False)
 
     @property
     def secure_behavior(self) -> str:
+        if self._inline_secure_behavior is not None:
+            return self._inline_secure_behavior
         from lora_attack_toolkit.attacks.validation import VALIDATION_PROFILES
+
         prof = VALIDATION_PROFILES.get(self.profile)
         return prof["secure_behavior"] if prof else self.profile
 
     @property
     def security_criteria(self) -> list[str]:
+        if self._inline_criteria:
+            return list(self._inline_criteria)
         from lora_attack_toolkit.attacks.validation import VALIDATION_PROFILES
+
         prof = VALIDATION_PROFILES.get(self.profile)
         return prof["security_criteria"] if prof else []
 
@@ -200,41 +184,76 @@ class AttackTiming:
     RX1/RX2 window parameters follow LoRaWAN 1.0.3 specification defaults
     and are not exposed to users.
     """
+
     join_accept_timeout_sec: float = 7.0
     rx1_delay_sec: float = 1.0
     rx1_window_sec: float = 1.0
     rx2_delay_sec: float = 2.0
     rx2_window_sec: float = 1.0
 
+    def in_rx_window(self, tx_mono: float, rx_mono: float, tolerance: float = 0.5) -> bool:
+        """Return True if *rx_mono* falls inside the RX1 or RX2 window after *tx_mono*.
 
-@dataclass(frozen=True)
-class ReplayPhaseConfig:
-    """Replay phase configuration for uplink replay attacks."""
-    mode: str
-    count: int
-    delay_sec: float
-
-
-@dataclass(frozen=True)
-class CapturePhaseConfig:
-    """Capture phase configuration for replay attacks."""
-    perform_join: bool
-    send_baseline_uplink: bool
-    payload_hex: str | None = None
+        A ``tolerance`` (seconds) is applied symmetrically to each window edge to
+        absorb scheduling jitter. This is the single canonical RX-window
+        correlation predicate shared by the replay and forgery attacks.
+        """
+        rx1_low = tx_mono + self.rx1_delay_sec - tolerance
+        rx1_high = tx_mono + self.rx1_delay_sec + self.rx1_window_sec + tolerance
+        rx2_low = tx_mono + self.rx2_delay_sec - tolerance
+        rx2_high = tx_mono + self.rx2_delay_sec + self.rx2_window_sec + tolerance
+        return (rx1_low <= rx_mono <= rx1_high) or (rx2_low <= rx_mono <= rx2_high)
 
 
 @dataclass(frozen=True)
-class ReplayConfigV1:
-    """Replay attack configuration (v1.0)."""
-    capture_phase: CapturePhaseConfig
-    replay_phase: ReplayPhaseConfig
-    fcnt_strategy: str
-    mic_strategy: str
+class UplinkReplayConfigV1:
+    """Enhanced uplink replay attack configuration.
+
+    Flat format (replaces the old nested capture_phase/replay_phase layout):
+
+    .. code-block:: json
+
+        {
+            "uplink_interval_sec": 5,
+            "capture_fcnt": 5,
+            "replay_attempt_interval_sec": 0.7,
+            "replay_count": 3,
+            "verification_uplink_count": 5,
+            "device_time_gps_tolerance_sec": 2
+        }
+    """
+
+    uplink_interval_sec: float = 5.0
+    capture_fcnt: int = 5
+    replay_attempt_interval_sec: float = 5.0
+    replay_count: int = 3
+    verification_uplink_count: int = 5
+    device_time_gps_tolerance_sec: float = 2.0
+
+
+#: Accepted ``final_check`` modes for the join-DevNonce attack.
+#:
+#: ``same_as_last``  — duplicate DevNonce replay protection.
+#: ``replay_first``  — historical DevNonce reuse protection.
+#: ``lorawan_1_0_4_monotonic_devnonce`` (alias ``lower_than_last``) — detects
+#:   the monotonic-DevNonce behaviour introduced in LoRaWAN 1.0.4 / 1.1; it is a
+#:   capability/behaviour test, not a universal 1.0.3 vulnerability test.
+#: ``custom``        — operator-supplied final DevNonce.
+JOIN_DEVNONCE_FINAL_CHECKS = frozenset(
+    {
+        "same_as_last",
+        "replay_first",
+        "lower_than_last",
+        "lorawan_1_0_4_monotonic_devnonce",
+        "custom",
+    }
+)
 
 
 @dataclass(frozen=True)
 class JoinDevNonceConfigV1:
     """Unified DevNonce validation configuration."""
+
     valid_join_count: int = 1
     valid_devnonce_start: int | str = 1
     valid_devnonce_step: int = 1
@@ -243,21 +262,93 @@ class JoinDevNonceConfigV1:
     result_cache_size: int = 10
     final_devnonce: int | None = None
     devnonce_seed: int | None = None
+    # When True, the target Network Server is explicitly evaluated as
+    # LoRaWAN 1.0.4-compatible, so accepting a lower DevNonce
+    # (final_check="lorawan_1_0_4_monotonic_devnonce") is a compliance
+    # violation. When False (unknown / 1.0.3 profile) the same observation is
+    # reported as capability detection only, never an automatic vulnerability.
+    target_lorawan_1_0_4: bool = False
     timing: AttackTiming | None = None
 
 
+# ── Supported forgery modes ───────────────────────────────────────────────────
+
+UPLINK_FORGERY_MODES = frozenset(
+    {
+        "invalid_mic",
+        "valid_mic_modified_payload",
+        "fcnt_jump_forward",
+        "fcnt_reuse_with_modified_payload",
+        "wrong_devaddr",
+        "mac_command_forgery",
+    }
+)
+
+#: Accepted values for the ``mac_command`` config field.
+UPLINK_FORGERY_MAC_COMMANDS = frozenset(
+    {
+        "DeviceTimeReq",
+        "LinkCheckReq",
+        "LinkADRAns",
+        "DutyCycleAns",
+        "RXParamSetupAns",
+    }
+)
+
+
 @dataclass(frozen=True)
-class MACCommandConfigV1:
-    """MAC command abuse configuration (v1.0)."""
-    command_type: str
-    malformed: bool
-    parameters: dict[str, Any] | None = None
-    malformation_type: str | None = None
+class UplinkForgeryConfigV1:
+    """Uplink forgery attack configuration (v1.0).
+
+    .. code-block:: json
+
+        {
+            "perform_join": true,
+            "baseline_uplink_count": 5,
+            "uplink_interval_sec": 5.0,
+            "forgery_mode": "invalid_mic",
+            "target_fcnt": null,
+            "fcnt_delta": 10000,
+            "payload_hex": "01020304",
+            "forged_payload_hex": "DEADBEEF",
+            "recalculate_mic": false,
+            "corrupt_mic": true,
+            "wrong_devaddr": "26000000",
+            "mac_command": "DeviceTimeReq",
+            "fport": 1,
+            "verification_uplink_count": 5
+        }
+
+    ``recalculate_mic`` and ``corrupt_mic`` are evaluated in order:
+
+    1. If ``recalculate_mic`` is ``true`` the MIC is freshly computed using the
+       known session keys.  The resulting frame is cryptographically valid.
+    2. If ``corrupt_mic`` is ``true`` (and ``recalculate_mic`` is ``false``) the
+       MIC is bit-flipped so the NS should reject the frame.
+    3. If both are ``false`` the MIC produced by the standard frame builder is
+       left unchanged.
+    """
+
+    forgery_mode: str = "invalid_mic"
+    perform_join: bool = True
+    baseline_uplink_count: int = 5
+    uplink_interval_sec: float = 5.0
+    target_fcnt: int | None = None
+    fcnt_delta: int = 10000
+    payload_hex: str = "01020304"
+    forged_payload_hex: str = "DEADBEEF"
+    recalculate_mic: bool = False
+    corrupt_mic: bool = True
+    wrong_devaddr: str = "26000000"
+    mac_command: str = "DeviceTimeReq"
+    fport: int = 1
+    verification_uplink_count: int = 5
 
 
 @dataclass(frozen=True)
 class AttackConfigV1:
     """Unified attack configuration (v1.0)."""
+
     type: str
     config: dict[str, Any]
 
@@ -265,6 +356,7 @@ class AttackConfigV1:
 @dataclass(frozen=True)
 class AttackScenarioV1:
     """Complete attack scenario configuration (v1.0 format)."""
+
     scenario: ScenarioMeta
     target: TargetConfig
     gateway: GatewayConfigV1
@@ -274,35 +366,118 @@ class AttackScenarioV1:
     logging: LoggingConfig
 
     def validate(self) -> None:
-        supported_transports = ["semtech_udp"]
-        if self.target.transport not in supported_transports:
+        if self.target.transport not in SUPPORTED_TRANSPORTS:
             raise ValueError(
-                f"Unsupported transport: {self.target.transport}. "
-                f"Supported: {supported_transports}"
+                f"target.transport must be one of {sorted(SUPPORTED_TRANSPORTS)!r}, "
+                f"got {self.target.transport!r}"
+            )
+        if self.device.region not in SUPPORTED_REGIONS:
+            raise ValueError(
+                f"device.region must be one of {sorted(SUPPORTED_REGIONS)!r}, "
+                f"got {self.device.region!r}"
+            )
+        if self.gateway.radio.region not in SUPPORTED_REGIONS:
+            raise ValueError(
+                f"gateway.radio.region must be one of {sorted(SUPPORTED_REGIONS)!r}, "
+                f"got {self.gateway.radio.region!r}"
+            )
+        if self.device.device_class not in SUPPORTED_DEVICE_CLASSES:
+            raise ValueError(
+                f"device.class must be one of {sorted(SUPPORTED_DEVICE_CLASSES)!r}, "
+                f"got {self.device.device_class!r}"
+            )
+        if self.device.activation.mode not in SUPPORTED_ACTIVATION_MODES:
+            raise ValueError(
+                f"device.activation.mode must be one of {sorted(SUPPORTED_ACTIVATION_MODES)!r}, "
+                f"got {self.device.activation.mode!r}"
+            )
+        if self.device.lorawan_version not in SUPPORTED_LORAWAN_VERSIONS:
+            raise ValueError(
+                f"device.lorawan_version must be one of {sorted(SUPPORTED_LORAWAN_VERSIONS)!r}, "
+                f"got {self.device.lorawan_version!r}"
             )
 
 
 # ── Attack-specific config parsers ────────────────────────────────────────────
 
-def parse_replay_config(config: dict[str, Any]) -> ReplayConfigV1:
-    """Parse uplink replay config from dict."""
-    capture_data = config.get("capture_phase", {})
-    capture = CapturePhaseConfig(
-        perform_join=capture_data.get("perform_join", True),
-        send_baseline_uplink=capture_data.get("send_baseline_uplink", True),
-        payload_hex=capture_data.get("payload_hex"),
-    )
-    replay_data = config.get("replay_phase", {})
-    replay = ReplayPhaseConfig(
-        mode=replay_data.get("mode", "immediate"),
-        count=replay_data.get("count", 1),
-        delay_sec=replay_data.get("delay_sec", 0.0),
-    )
-    return ReplayConfigV1(
-        capture_phase=capture,
-        replay_phase=replay,
-        fcnt_strategy=config.get("fcnt_strategy", "reuse_original"),
-        mic_strategy=config.get("mic_strategy", "reuse_original"),
+
+def _reject_unknown_attack_keys(
+    config: dict[str, Any], known: frozenset[str], context: str
+) -> None:
+    """Raise ValueError if *config* contains keys not listed in *known*."""
+    unknown = set(config) - known
+    if unknown:
+        raise ValueError(f"{context} config: unknown field(s): {', '.join(sorted(unknown))}")
+
+
+_REPLAY_KNOWN_KEYS: frozenset[str] = frozenset(
+    {
+        "uplink_interval_sec",
+        "capture_fcnt",
+        "replay_attempt_interval_sec",
+        "replay_count",
+        "verification_uplink_count",
+        "device_time_gps_tolerance_sec",
+    }
+)
+
+_JOIN_DEVNONCE_KNOWN_KEYS: frozenset[str] = frozenset(
+    {
+        "timing",
+        "valid_join_count",
+        "valid_devnonce_start",
+        "valid_devnonce_step",
+        "valid_devnonce_wrap",
+        "final_check",
+        "result_cache_size",
+        "final_devnonce",
+        "devnonce_seed",
+        "target_lorawan_1_0_4",
+    }
+)
+
+_FORGERY_KNOWN_KEYS: frozenset[str] = frozenset(
+    {
+        "forgery_mode",
+        "perform_join",
+        "baseline_uplink_count",
+        "uplink_interval_sec",
+        "target_fcnt",
+        "fcnt_delta",
+        "payload_hex",
+        "forged_payload_hex",
+        "recalculate_mic",
+        "corrupt_mic",
+        "wrong_devaddr",
+        "mac_command",
+        "fport",
+        "verification_uplink_count",
+    }
+)
+
+
+def parse_replay_config(config: dict[str, Any]) -> "UplinkReplayConfigV1":
+    """Parse uplink replay config from dict into :class:`UplinkReplayConfigV1`."""
+    _reject_unknown_attack_keys(config, _REPLAY_KNOWN_KEYS, "uplink_replay")
+    return UplinkReplayConfigV1(
+        uplink_interval_sec=_expect_float(
+            "uplink_interval_sec", config.get("uplink_interval_sec", 5.0), min_value=0.0
+        ),
+        capture_fcnt=_expect_int("capture_fcnt", config.get("capture_fcnt", 5), min_value=0),
+        replay_attempt_interval_sec=_expect_float(
+            "replay_attempt_interval_sec",
+            config.get("replay_attempt_interval_sec", 5.0),
+            min_value=0.0,
+        ),
+        replay_count=_expect_int("replay_count", config.get("replay_count", 3), min_value=1),
+        verification_uplink_count=_expect_int(
+            "verification_uplink_count", config.get("verification_uplink_count", 5), min_value=0
+        ),
+        device_time_gps_tolerance_sec=_expect_float(
+            "device_time_gps_tolerance_sec",
+            config.get("device_time_gps_tolerance_sec", 2.0),
+            min_value=0.0,
+        ),
     )
 
 
@@ -313,6 +488,7 @@ def parse_join_devnonce_config(config: dict[str, Any]) -> JoinDevNonceConfigV1:
     sub-section.  RX1/RX2 window values are internal protocol constants and
     are silently ignored if present in the input dict.
     """
+    _reject_unknown_attack_keys(config, _JOIN_DEVNONCE_KNOWN_KEYS, "join_devnonce")
     timing: AttackTiming | None = None
     if "timing" in config:
         timing_data = config["timing"]
@@ -340,29 +516,98 @@ def parse_join_devnonce_config(config: dict[str, Any]) -> JoinDevNonceConfigV1:
         valid_devnonce_start = int(valid_devnonce_start_raw)
 
     return JoinDevNonceConfigV1(
-        valid_join_count=int(config.get("valid_join_count", 1)),
+        valid_join_count=_expect_int(
+            "valid_join_count", config.get("valid_join_count", 1), min_value=1
+        ),
         valid_devnonce_start=valid_devnonce_start,
-        valid_devnonce_step=int(config.get("valid_devnonce_step", 1)),
-        valid_devnonce_wrap=bool(config.get("valid_devnonce_wrap", False)),
-        final_check=str(config.get("final_check", "same_as_last")),
-        result_cache_size=int(config.get("result_cache_size", 10)),
+        valid_devnonce_step=_expect_int(
+            "valid_devnonce_step", config.get("valid_devnonce_step", 1), min_value=1
+        ),
+        valid_devnonce_wrap=_expect_bool(
+            "valid_devnonce_wrap", config.get("valid_devnonce_wrap", False)
+        ),
+        final_check=_expect_enum(
+            "final_check",
+            str(config.get("final_check", "same_as_last")),
+            JOIN_DEVNONCE_FINAL_CHECKS,
+        ),
+        result_cache_size=_expect_int(
+            "result_cache_size", config.get("result_cache_size", 10), min_value=1
+        ),
         final_devnonce=config.get("final_devnonce"),
         devnonce_seed=config.get("devnonce_seed"),
+        target_lorawan_1_0_4=_expect_bool(
+            "target_lorawan_1_0_4", config.get("target_lorawan_1_0_4", False)
+        ),
         timing=timing,
     )
 
 
-def parse_mac_command_config(config: dict[str, Any]) -> MACCommandConfigV1:
-    """Parse MAC command abuse config from dict."""
-    return MACCommandConfigV1(
-        command_type=config["command_type"],
-        malformed=config.get("malformed", False),
-        parameters=config.get("parameters"),
-        malformation_type=config.get("malformation_type"),
+def parse_uplink_forgery_config(config: dict[str, Any]) -> UplinkForgeryConfigV1:
+    """Parse uplink forgery attack config from dict.
+
+    Raises:
+        ValueError: If forgery_mode or mac_command is not supported.
+    """
+    _reject_unknown_attack_keys(config, _FORGERY_KNOWN_KEYS, "uplink_forgery")
+    mode = config.get("forgery_mode", "invalid_mic")
+    if mode not in UPLINK_FORGERY_MODES:
+        raise ValueError(
+            f"Unknown forgery_mode: {mode!r}. Supported: {sorted(UPLINK_FORGERY_MODES)}"
+        )
+    mac_cmd = config.get("mac_command", "DeviceTimeReq")
+    if mac_cmd not in UPLINK_FORGERY_MAC_COMMANDS:
+        raise ValueError(
+            f"Unknown mac_command: {mac_cmd!r}. Supported: {sorted(UPLINK_FORGERY_MAC_COMMANDS)}"
+        )
+
+    recalculate_mic = _expect_bool("recalculate_mic", config.get("recalculate_mic", False))
+    corrupt_mic = _expect_bool("corrupt_mic", config.get("corrupt_mic", True))
+
+    # Cross-field: recalculate_mic and corrupt_mic are mutually exclusive
+    if recalculate_mic and corrupt_mic:
+        raise ValueError(
+            "recalculate_mic and corrupt_mic cannot both be true — "
+            "recalculate_mic produces a valid MIC; corrupt_mic deliberately breaks it"
+        )
+
+    perform_join = _expect_bool("perform_join", config.get("perform_join", True))
+    if not perform_join:
+        # Frozen scope is OTAA only; there is no config surface for supplying a
+        # pre-provisioned ABP session (DevAddr + session keys). Reject rather
+        # than running against an empty/invalid session.
+        raise ValueError(
+            "attack.config.perform_join=false is not supported: the frozen scope is OTAA "
+            "only and provides no way to supply a complete pre-provisioned session "
+            "(DevAddr, NwkSKey, AppSKey)"
+        )
+
+    return UplinkForgeryConfigV1(
+        forgery_mode=mode,
+        perform_join=perform_join,
+        baseline_uplink_count=_expect_int(
+            "baseline_uplink_count", config.get("baseline_uplink_count", 5), min_value=0
+        ),
+        uplink_interval_sec=_expect_float(
+            "uplink_interval_sec", config.get("uplink_interval_sec", 5.0), min_value=0.0
+        ),
+        target_fcnt=config.get("target_fcnt"),
+        fcnt_delta=_expect_int("fcnt_delta", config.get("fcnt_delta", 10000), min_value=1),
+        payload_hex=str(config.get("payload_hex", "01020304")),
+        forged_payload_hex=str(config.get("forged_payload_hex", "DEADBEEF")),
+        recalculate_mic=recalculate_mic,
+        corrupt_mic=corrupt_mic,
+        wrong_devaddr=str(config.get("wrong_devaddr", "26000000")),
+        mac_command=mac_cmd,
+        fport=_expect_int("fport", config.get("fport", 1), min_value=1, max_value=223),
+        verification_uplink_count=_expect_int(
+            "verification_uplink_count", config.get("verification_uplink_count", 5), min_value=0
+        ),
     )
 
 
 # ── Scenario loader ───────────────────────────────────────────────────────────
+
 
 def _expect_str(name: str, value: Any) -> str:
     if not isinstance(value, str) or not value:
@@ -370,27 +615,122 @@ def _expect_str(name: str, value: Any) -> str:
     return value
 
 
-def _expect_int(name: str, value: Any, min_value: int | None = None) -> int:
-    if not isinstance(value, int):
-        raise ValueError(f"{name} must be integer")
+def _expect_int(
+    name: str, value: Any, min_value: int | None = None, max_value: int | None = None
+) -> int:
+    # Reject booleans — isinstance(True, int) is True in Python
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{name} must be integer (got {type(value).__name__})")
     if min_value is not None and value < min_value:
         raise ValueError(f"{name} must be >= {min_value}")
+    if max_value is not None and value > max_value:
+        raise ValueError(f"{name} must be <= {max_value}")
     return value
+
+
+def _expect_float(
+    name: str, value: Any, min_value: float | None = None, max_value: float | None = None
+) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be a number (got {type(value).__name__})")
+    f = float(value)
+    if min_value is not None and f < min_value:
+        raise ValueError(f"{name} must be >= {min_value}")
+    if max_value is not None and f > max_value:
+        raise ValueError(f"{name} must be <= {max_value}")
+    return f
 
 
 def _expect_bool(name: str, value: Any) -> bool:
     if not isinstance(value, bool):
-        raise ValueError(f"{name} must be boolean")
+        raise ValueError(f"{name} must be boolean (true/false), got {type(value).__name__}")
     return value
 
 
-def _expect_hex(name: str, value: str, size_bytes: int) -> None:
+def _expect_enum(name: str, value: Any, allowed: frozenset[str] | set[str]) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{name} must be a string, got {type(value).__name__}")
+    if value not in allowed:
+        raise ValueError(f"{name} must be one of {sorted(allowed)!r}, got {value!r}")
+    return value
+
+
+def _expect_hex(name: str, value: Any, size_bytes: int) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{name} must be a hex string, got {type(value).__name__}")
     if len(value) != size_bytes * 2:
-        raise ValueError(f"{name} must be {size_bytes * 2} hex chars")
+        raise ValueError(f"{name} must be {size_bytes * 2} hex chars, got {len(value)}")
     try:
         bytes.fromhex(value)
     except ValueError as exc:
-        raise ValueError(f"{name} must be valid hex") from exc
+        raise ValueError(f"{name} must contain only valid hex characters") from exc
+    return value
+
+
+def _reject_unknown_keys(path: str, data: dict[str, Any], allowed: set[str]) -> None:
+    """Raise ValueError listing any keys in ``data`` outside ``allowed``.
+
+    Strict-scope validation: unknown / obsolete fields are rejected rather than
+    silently ignored, so stale README fields cannot fall back to defaults.
+    """
+    unknown = sorted(set(data) - allowed)
+    if unknown:
+        prefix = f"{path}." if path else ""
+        allowed_str = ", ".join(sorted(allowed))
+        raise ValueError(
+            f"unknown field(s) {', '.join(prefix + k for k in unknown)}; "
+            f"allowed {path or 'top-level'} fields: {allowed_str}"
+        )
+
+
+#: Allowed keys per scenario section (strict frozen-scope validation).
+_ALLOWED_TOP_KEYS = {
+    "scenario",
+    "target",
+    "gateway",
+    "device",
+    "attack",
+    "expected",
+    "logging",
+    # Optional metadata, ignored by the loader (resolved from the registry).
+    "schema_version",
+    "id",
+    "title",
+    "category",
+    "type",
+    "name",
+    "description",
+    "version",
+}
+_ALLOWED_SCENARIO_KEYS = {"description", "timeout_sec"}
+_ALLOWED_TARGET_KEYS = {
+    "name",
+    "transport",
+    "host",
+    "port",
+    "server_product",
+    "server_version",
+}
+_ALLOWED_GATEWAY_KEYS = {"gateway_eui", "pull_data_interval_sec", "radio"}
+_ALLOWED_RADIO_KEYS = {"region", "frequency_hz", "data_rate", "rssi", "snr"}
+_ALLOWED_DEVICE_KEYS = {
+    "name",
+    "lorawan_version",
+    "region",
+    "class",
+    "device_class",
+    "activation",
+    "duty_cycle_enforcement",
+}
+_ALLOWED_ACTIVATION_KEYS = {"mode", "dev_eui", "join_eui", "app_key"}
+_ALLOWED_ATTACK_KEYS = {"type", "config"}
+_ALLOWED_EXPECTED_KEYS = {
+    "profile",
+    "secure_behavior",
+    "security_criteria",
+    "success_criteria",
+}
+_ALLOWED_LOGGING_KEYS = {"level", "log_phy_payload", "log_semtech_udp"}
 
 
 def load_attack_scenario(path: str) -> AttackScenarioV1:
@@ -421,6 +761,9 @@ def load_attack_scenario(path: str) -> AttackScenarioV1:
 
 def _load_v1_format(raw: dict[str, Any]) -> AttackScenarioV1:
     """Load attack scenario in v1.0 format."""
+    if not isinstance(raw, dict):
+        raise ValueError("scenario root must be a JSON object")
+    _reject_unknown_keys("", raw, _ALLOWED_TOP_KEYS)
     try:
         target_data = raw["target"]
         gateway_data = raw["gateway"]
@@ -432,6 +775,18 @@ def _load_v1_format(raw: dict[str, Any]) -> AttackScenarioV1:
         raise ValueError(f"missing required section: {exc.args[0]}") from exc
 
     scenario_data = raw.get("scenario", {})
+    _reject_unknown_keys("scenario", scenario_data, _ALLOWED_SCENARIO_KEYS)
+    _reject_unknown_keys("target", target_data, _ALLOWED_TARGET_KEYS)
+    _reject_unknown_keys("gateway", gateway_data, _ALLOWED_GATEWAY_KEYS)
+    _reject_unknown_keys("gateway.radio", gateway_data.get("radio", {}), _ALLOWED_RADIO_KEYS)
+    _reject_unknown_keys("device", device_data, _ALLOWED_DEVICE_KEYS)
+    _reject_unknown_keys(
+        "device.activation", device_data.get("activation", {}), _ALLOWED_ACTIVATION_KEYS
+    )
+    _reject_unknown_keys("attack", attack_data, _ALLOWED_ATTACK_KEYS)
+    _reject_unknown_keys("expected", expected_data, _ALLOWED_EXPECTED_KEYS)
+    _reject_unknown_keys("logging", logging_data, _ALLOWED_LOGGING_KEYS)
+
     scenario = ScenarioMeta(
         description=scenario_data.get("description", ""),
         timeout_sec=float(scenario_data.get("timeout_sec", 30.0)),
@@ -442,6 +797,12 @@ def _load_v1_format(raw: dict[str, Any]) -> AttackScenarioV1:
         transport=_expect_str("target.transport", target_data["transport"]),
         host=_expect_str("target.host", target_data["host"]),
         port=_expect_int("target.port", target_data["port"], 1),
+        server_product=_expect_str(
+            "target.server_product", target_data.get("server_product", "unknown")
+        ),
+        server_version=_expect_str(
+            "target.server_version", target_data.get("server_version", "unknown")
+        ),
     )
 
     gateway_eui = _expect_str("gateway.gateway_eui", gateway_data["gateway_eui"]).lower()
@@ -456,7 +817,7 @@ def _load_v1_format(raw: dict[str, Any]) -> AttackScenarioV1:
             1,
         ),
         radio=RadioConfig(
-            region=_expect_str("gateway.radio.region", radio_data["region"]),
+            region=_expect_enum("gateway.radio.region", radio_data["region"], SUPPORTED_REGIONS),
             frequency_hz=_expect_int("gateway.radio.frequency_hz", radio_data["frequency_hz"], 1),
             data_rate=_expect_str("gateway.radio.data_rate", radio_data["data_rate"]),
             rssi=_expect_int("gateway.radio.rssi", radio_data["rssi"]),
@@ -465,8 +826,8 @@ def _load_v1_format(raw: dict[str, Any]) -> AttackScenarioV1:
     )
 
     activation = device_data["activation"]
-    if activation["mode"] != "OTAA":
-        raise ValueError("device.activation.mode must be OTAA")
+    # Validate (fail fast with a clear path) but pass the Literal to the dataclass.
+    _expect_enum("device.activation.mode", activation["mode"], SUPPORTED_ACTIVATION_MODES)
 
     dev_eui = _expect_str("device.activation.dev_eui", activation["dev_eui"]).lower()
     join_eui = _expect_str("device.activation.join_eui", activation["join_eui"]).lower()
@@ -477,14 +838,24 @@ def _load_v1_format(raw: dict[str, Any]) -> AttackScenarioV1:
 
     device = DeviceConfig(
         name=_expect_str("device.name", device_data["name"]),
-        lorawan_version=_expect_str("device.lorawan_version", device_data["lorawan_version"]),
-        region=_expect_str("device.region", device_data["region"]),
-        device_class=_expect_str(
+        lorawan_version=_expect_enum(
+            "device.lorawan_version",
+            device_data["lorawan_version"],
+            SUPPORTED_LORAWAN_VERSIONS,
+        ),
+        region=_expect_enum("device.region", device_data["region"], SUPPORTED_REGIONS),
+        device_class=_expect_enum(
             "device.class",
             device_data.get("class", device_data.get("device_class", "A")),
+            SUPPORTED_DEVICE_CLASSES,
         ),
-        activation=ActivationConfig(mode="OTAA", dev_eui=dev_eui, join_eui=join_eui, app_key=app_key),
-        duty_cycle_enforcement=bool(device_data.get("duty_cycle_enforcement", True)),
+        activation=ActivationConfig(
+            mode="OTAA", dev_eui=dev_eui, join_eui=join_eui, app_key=app_key
+        ),
+        duty_cycle_enforcement=_expect_bool(
+            "device.duty_cycle_enforcement",
+            device_data.get("duty_cycle_enforcement", False),
+        ),
     )
 
     attack = AttackConfigV1(
@@ -502,17 +873,14 @@ def _load_v1_format(raw: dict[str, Any]) -> AttackScenarioV1:
             "security_criteria",
             expected_data.get("success_criteria", []),
         )
-        from lora_attack_toolkit.attacks.validation import VALIDATION_PROFILES
-        if secure_behavior not in VALIDATION_PROFILES:
-            VALIDATION_PROFILES[secure_behavior] = {
-                "secure_behavior": secure_behavior,
-                "security_criteria": security_criteria,
-            }
-        expected = ExpectedBehavior(profile=secure_behavior)
+        expected = ExpectedBehavior(
+            profile=secure_behavior,
+            _inline_secure_behavior=secure_behavior,
+            _inline_criteria=tuple(security_criteria),
+        )
     else:
         raise ValueError(
-            "expected section must contain 'profile' "
-            "(e.g. \"lorawan_1_0_3_devnonce_validation\")"
+            "expected section must contain 'profile' (e.g. \"lorawan_1_0_3_devnonce_validation\")"
         )
 
     logging_cfg = LoggingConfig(

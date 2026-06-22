@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import struct
 import time
 from logging import Logger
 
-from lora_attack_toolkit.runtime.device import SimulatedDevice
-from lora_attack_toolkit.runtime.gateway import GatewaySimulator
 from lora_attack_toolkit.config import RadioMetadata
 from lora_attack_toolkit.lorawan.radio import AirtimeCalculator, Radio
+from lora_attack_toolkit.runtime.device import SimulatedDevice
+from lora_attack_toolkit.runtime.gateway import GatewaySimulator
 
 
 def perform_otaa_join(
@@ -20,207 +21,154 @@ def perform_otaa_join(
 ) -> bool:
     """
     Perform OTAA join and wait for JoinAccept from Network Server.
-    
+
     Steps:
     1. Device generates JoinRequest with new DevNonce
     2. Gateway forwards JoinRequest to NS
     3. Wait for PULL_RESP containing JoinAccept
     4. Parse JoinAccept and derive session keys
     5. Device is now in joined state
-    
+
     Args:
         device: Simulated device to perform join
         gateway: Gateway to forward packets through
         radio: Radio metadata for uplink
         timeout_sec: How long to wait for JoinAccept
         logger: Optional logger for diagnostics
-        
+
     Returns:
         True if join succeeded (JoinAccept received and applied)
         False if join failed (timeout or invalid JoinAccept)
     """
     if logger:
         logger.info("Attempting OTAA join...")
-    
+
     # 1. Build and send JoinRequest
+    dev_nonce = device.new_dev_nonce()
     join_request = device.build_join_request()
-    dev_nonce = device.runtime.dev_nonce
-    
+
     if logger:
-        logger.info(f"Sending JoinRequest with DevNonce={dev_nonce.hex()}")
-    
+        logger.info("Sending JoinRequest with DevNonce=%s", dev_nonce.hex())
+
     gateway.forward_uplink(join_request, radio)
-    
+
     # 2. Wait for JoinAccept from Network Server
     if logger:
-        logger.info(f"Waiting for JoinAccept (timeout={timeout_sec}s)...")
-    
+        logger.info("Waiting for JoinAccept (timeout=%.1fs)...", timeout_sec)
+
     join_accept = gateway.await_downlink(timeout_sec=timeout_sec)
-    
+
     if join_accept is None:
         if logger:
             logger.warning("OTAA join failed: No JoinAccept received from NS")
         return False
-    
+
     # 3. Parse and apply JoinAccept to device
     try:
         device.apply_join_accept(join_accept)
-        
+
         if logger:
             logger.info(
-                f"OTAA join succeeded: DevAddr={device.runtime.dev_addr_hex}",
+                "OTAA join succeeded: DevAddr=%s",
+                device.runtime.dev_addr_hex,
                 extra={"dev_addr": device.runtime.dev_addr_hex},
             )
-        
+
         return True
-        
-    except Exception as e:
+
+    except (ValueError, KeyError, struct.error) as e:
         if logger:
-            logger.error(f"OTAA join failed: Could not apply JoinAccept: {e}")
+            logger.error("OTAA join failed: Could not apply JoinAccept: %s", e)
         return False
 
 
-def perform_otaa_join_with_devnonce(
+def perform_otaa_join_via_radio(
     device: SimulatedDevice,
     gateway: GatewaySimulator,
-    radio: RadioMetadata,
-    dev_nonce: bytes,
+    radio_obj: Radio,
+    base_radio: RadioMetadata,
+    *,
+    seed: int | None = None,
     timeout_sec: float = 5.0,
     logger: Logger | None = None,
-) -> tuple[bool, bool]:
-    """
-    Perform OTAA join with a specific DevNonce (for replay attacks).
-    
-    Similar to perform_otaa_join, but allows specifying the DevNonce
-    instead of generating a random one. Used for testing DevNonce
-    validation by replaying previous values.
-    
+) -> bool:
+    """Perform OTAA join using the :class:`Radio` object for channel selection.
+
+    Unlike :func:`perform_otaa_join` (which uses a fixed :class:`RadioMetadata`),
+    this function selects the JoinRequest channel through ``radio_obj``, enabling:
+
+    * Pseudo-random channel rotation across the region's join channels.
+    * Duty-cycle enforcement per ETSI sub-band.
+    * Deterministic behavior when a ``seed`` is supplied (for tests).
+    * Automatic CFList application from the JoinAccept.
+
     Args:
-        device: Simulated device to perform join
-        gateway: Gateway to forward packets through
-        radio: Radio metadata for uplink
-        dev_nonce: Specific DevNonce value to use
-        timeout_sec: How long to wait for JoinAccept
-        logger: Optional logger for diagnostics
-        
+        device: Simulated end-device.
+        gateway: Gateway used to forward packets and receive downlinks.
+        radio_obj: :class:`Radio` instance — provides channel selection and
+            will have :meth:`~Radio.apply_cflist` called on JoinAccept.
+        base_radio: Used for RSSI/SNR metadata and as a fallback for the
+            downlink-listener configuration.
+        seed: Optional seed for pseudo-random channel selection.  When set
+            the function uses ``seed + attempt`` as the index, producing a
+            deterministic hop pattern without global RNG side-effects.
+        timeout_sec: How long to wait for a JoinAccept per attempt.
+        logger: Optional logger.
+
     Returns:
-        Tuple of (ns_responded, join_succeeded):
-        - ns_responded: True if NS sent any downlink (even if malformed)
-        - join_succeeded: True if JoinAccept was valid and applied successfully
+        ``True`` if the join succeeded; ``False`` otherwise.
     """
+    import time as _time
+
     if logger:
-        logger.info(f"Attempting OTAA join with DevNonce={dev_nonce.hex()}")
-    
-    # Manually set DevNonce before building JoinRequest
-    device.runtime.dev_nonce = dev_nonce
-    
-    # Build JoinRequest with specified DevNonce
-    from lora_attack_toolkit.lorawan.frames import build_join_request
-    
-    join_request = build_join_request(
-        join_eui=device._join_eui,
-        dev_eui=device._dev_eui,
-        dev_nonce=dev_nonce,
-        app_key=device._app_key,
+        logger.info("perform_otaa_join_via_radio: starting")
+
+    dev_nonce = device.new_dev_nonce()
+    join_request = device.build_join_request()
+
+    now = _time.monotonic()
+    attempt_index = seed if seed is not None else 0
+    tx = radio_obj.select_join_channel(attempt_index, now=now)
+    join_radio = RadioMetadata(
+        frequency=tx.frequency_hz,
+        data_rate=tx.data_rate,
+        rssi=base_radio.rssi,
+        snr=base_radio.snr,
     )
-    
     if logger:
-        logger.info(f"Sending JoinRequest with DevNonce={dev_nonce.hex()}")
-    
-    gateway.forward_uplink(join_request, radio)
-    
-    # Wait for JoinAccept
-    if logger:
-        logger.info(f"Waiting for JoinAccept (timeout={timeout_sec}s)...")
-    
+        logger.info(
+            "perform_otaa_join_via_radio: sending JoinRequest DevNonce=%s freq=%d dr=%s",
+            dev_nonce.hex(),
+            tx.frequency_hz,
+            tx.data_rate,
+        )
+
+    gateway.forward_uplink(join_request, join_radio)
+    airtime = AirtimeCalculator.calculate(tx.data_rate, len(join_request))
+    radio_obj.record_transmission(tx.frequency_hz, airtime, now)
+
     join_accept = gateway.await_downlink(timeout_sec=timeout_sec)
-    
     if join_accept is None:
         if logger:
-            logger.info("No JoinAccept received (NS rejected or timeout)")
-        return (False, False)  # NS did not respond
-    
-    # NS responded with something
-    if logger:
-        logger.info("downlink_received")
-        logger.debug(f"Raw downlink PHYPayload: {join_accept.hex()}")
-        logger.debug(f"Downlink size: {len(join_accept)} bytes")
-    
-    # Parse MHDR to check message type
-    if len(join_accept) == 0:
-        if logger:
-            logger.error("Empty downlink received from NS")
-        return (True, False)  # NS responded but empty
-    
-    mhdr = join_accept[0]
-    mtype = (mhdr >> 5) & 0x07  # Extract MType from bits 7-5
-    
-    # Import MHDR constants
-    from lora_attack_toolkit.lorawan.frames import (
-        MHDR_JOIN_ACCEPT,
-        MHDR_UNCONFIRMED_DATA_UP,
-        MHDR_CONFIRMED_DATA_UP,
-    )
-    
-    # Map MType to human-readable name
-    mtype_names = {
-        0x00: "JoinRequest",
-        0x01: "JoinAccept",
-        0x02: "UnconfirmedDataUp",
-        0x03: "UnconfirmedDataDown",
-        0x04: "ConfirmedDataUp",
-        0x05: "ConfirmedDataDown",
-        0x06: "RFU",
-        0x07: "Proprietary",
-    }
-    
-    mtype_name = mtype_names.get(mtype, f"Unknown({mtype})")
-    
-    if logger:
-        logger.debug(f"Downlink MHDR: 0x{mhdr:02x}, MType: {mtype} ({mtype_name})")
-    
-    # Check if it's actually a JoinAccept
-    if mhdr != MHDR_JOIN_ACCEPT:
-        if logger:
-            logger.info(
-                f"NS sent {mtype_name} instead of JoinAccept (MHDR=0x{mhdr:02x})"
-            )
-            logger.info(
-                "This is NOT a JoinAccept - NS did not establish new session (not a vulnerability)"
-            )
-            logger.info(
-                "Possible reasons: NS responding to existing session, protocol quirk, or implementation bug"
-            )
-        return (False, False)  # NS did not send JoinAccept = did not accept replay
-    
-    # Try to apply JoinAccept
+            logger.warning("perform_otaa_join_via_radio: no JoinAccept received")
+        return False
+
     try:
         device.apply_join_accept(join_accept)
-        
+        # Mirror CFList into Radio so channel plan is up to date.
+        cflist = getattr(device.runtime, "cflist", None)
+        if cflist:
+            radio_obj.apply_cflist(cflist)
         if logger:
             logger.info(
-                f"JoinAccept received: DevAddr={device.runtime.dev_addr_hex}",
-                extra={"dev_addr": device.runtime.dev_addr_hex},
+                "perform_otaa_join_via_radio: joined DevAddr=%s",
+                device.runtime.dev_addr_hex,
             )
-        
-        return (True, True)  # NS responded and JoinAccept valid
-        
-    except Exception as e:
-        # NS responded with JoinAccept but it's malformed
+        return True
+    except (ValueError, KeyError, struct.error) as e:
         if logger:
-            logger.error(f"Could not parse JoinAccept: {e}")
-            logger.debug(f"Exception type: {type(e).__name__}")
-            logger.debug(f"Exception details: {str(e)}")
-            
-            # Try to provide more context
-            if "MIC" in str(e):
-                logger.debug("MIC verification failed - NS may have used wrong AppKey")
-            elif "size" in str(e):
-                logger.debug(f"Invalid size - expected multiple of 16, got {len(join_accept)-1} encrypted bytes")
-            elif "too short" in str(e):
-                logger.debug("Payload too short after decryption")
-        
-        return (True, False)  # NS responded but JoinAccept invalid
+            logger.error("perform_otaa_join_via_radio: could not apply JoinAccept: %s", e)
+        return False
 
 
 def send_periodic_uplinks(
@@ -257,7 +205,7 @@ def send_periodic_uplinks(
 
     for i in range(count):
         try:
-            now = time.time()
+            now = time.monotonic()
             uplink_radio = _select_uplink_radio(device, radio, now=now)
 
             payload = bytes([i % 256])
@@ -269,10 +217,8 @@ def send_periodic_uplinks(
 
             gateway.forward_uplink(uplink, uplink_radio)
 
-            # Record actual airtime so Radio can enforce duty-cycle correctly.
-            if isinstance(device.runtime.radio, Radio) and device.runtime.radio.supports_duty_cycle():
-                airtime = AirtimeCalculator.calculate(uplink_radio.data_rate, len(uplink))
-                device.runtime.radio.record_transmission(uplink_radio.frequency, airtime, now)
+            # Commit airtime exactly once (selection above is read-only).
+            device.record_uplink_airtime(uplink_radio, len(uplink), now)
 
             device.runtime.uplink_index += 1
             sent_count += 1
@@ -289,14 +235,16 @@ def send_periodic_uplinks(
             if i < count - 1:
                 time.sleep(interval_sec)
 
-        except Exception as e:
+        except (OSError, ValueError) as e:
             if logger:
-                logger.error(f"Failed to send uplink {i+1}: {e}")
+                logger.error("Failed to send uplink %d: %s", i + 1, e)
 
     return sent_count
 
 
-def _select_uplink_radio(device: SimulatedDevice, base_radio: RadioMetadata, now: float | None = None) -> RadioMetadata:
+def _select_uplink_radio(
+    device: SimulatedDevice, base_radio: RadioMetadata, now: float | None = None
+) -> RadioMetadata:
     """Return RadioMetadata for the next uplink.
 
     Uses ``device.runtime.radio`` (the :class:`~lora_attack_toolkit.lorawan.radio.Radio`
@@ -312,118 +260,3 @@ def _select_uplink_radio(device: SimulatedDevice, base_radio: RadioMetadata, now
             snr=base_radio.snr,
         )
     return base_radio
-
-
-def wait_for_rx_windows(
-    gateway: GatewaySimulator,
-    rx1_delay_sec: float,
-    rx2_delay_sec: float,
-    logger: Logger | None = None,
-) -> list[bytes]:
-    """
-    Wait for LoRaWAN RX1 and RX2 windows, collecting all downlinks.
-    
-    Follows LoRaWAN timing specification:
-    - RX1 window opens rx1_delay_sec after uplink
-    - RX2 window opens rx2_delay_sec after uplink (total, not additional)
-    
-    This function actively collects downlinks during the RX windows
-    instead of just sleeping, ensuring we capture all NS responses.
-    
-    Args:
-        gateway: Gateway simulator to collect downlinks from
-        rx1_delay_sec: Delay until RX1 window (typically 1.0s)
-        rx2_delay_sec: Delay until RX2 window (typically 2.0s, total from uplink)
-        logger: Optional logger for diagnostics
-        
-    Returns:
-        List of downlink PHYPayload bytes received during windows
-    """
-    downlinks = []
-    
-    if logger:
-        logger.debug(f"Waiting for RX1 window ({rx1_delay_sec}s)...")
-    
-    # Wait until RX1 window
-    start_time = time.time()
-    deadline_rx1 = start_time + rx1_delay_sec
-    
-    while time.time() < deadline_rx1:
-        remaining = deadline_rx1 - time.time()
-        if remaining <= 0:
-            break
-        
-        downlink = gateway.await_downlink(timeout_sec=min(remaining, 0.1))
-        if downlink:
-            downlinks.append(downlink)
-            if logger:
-                logger.debug(f"Downlink received in RX1: {downlink.hex()[:32]}...")
-    
-    if logger:
-        logger.debug(f"RX1 window complete, waiting for RX2 ({rx2_delay_sec - rx1_delay_sec}s more)...")
-    
-    # Wait until RX2 window
-    deadline_rx2 = start_time + rx2_delay_sec
-    
-    while time.time() < deadline_rx2:
-        remaining = deadline_rx2 - time.time()
-        if remaining <= 0:
-            break
-        
-        downlink = gateway.await_downlink(timeout_sec=min(remaining, 0.1))
-        if downlink:
-            downlinks.append(downlink)
-            if logger:
-                logger.debug(f"Downlink received in RX2: {downlink.hex()[:32]}...")
-    
-    if logger:
-        logger.info(f"RX windows complete: {len(downlinks)} downlink(s) received")
-    
-    return downlinks
-
-
-
-def capture_downlinks(
-    gateway: GatewaySimulator,
-    timeout_sec: float,
-    max_count: int = 10,
-    logger: Logger | None = None,
-) -> list[bytes]:
-    """
-    Capture downlinks from Network Server.
-    
-    Polls for PULL_RESP packets containing downlinks.
-    
-    Args:
-        gateway: Gateway to receive downlinks from
-        timeout_sec: How long to wait for downlinks
-        max_count: Maximum number of downlinks to capture
-        logger: Optional logger for diagnostics
-        
-    Returns:
-        List of captured PHYPayload bytes
-    """
-    captured = []
-    start_time = time.time()
-    
-    while len(captured) < max_count:
-        elapsed = time.time() - start_time
-        if elapsed >= timeout_sec:
-            break
-        
-        remaining = timeout_sec - elapsed
-        downlink = gateway.await_downlink(timeout_sec=min(remaining, 1.0))
-        
-        if downlink:
-            captured.append(downlink)
-            if logger:
-                logger.info(f"Captured downlink {len(captured)}/{max_count}")
-        else:
-            # Short sleep before retry
-            time.sleep(0.1)
-    
-    if logger:
-        logger.info(f"Captured {len(captured)} downlink(s) in {timeout_sec}s")
-    
-    return captured
-

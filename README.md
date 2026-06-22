@@ -4,14 +4,18 @@
 
 LoRAT enables security researchers and network operators to validate LoRaWAN Network Server implementations against protocol-level attacks and abuse scenarios.
 
+> **Scope.** LoRAT is a focused research prototype for security testing of
+> LoRaWAN Network Servers using Class A, OTAA, EU868, LoRaWAN 1.0.3, and the
+> Semtech UDP Packet Forwarder protocol.
+
 ## Features
 
 - **Attack Plugin Architecture**: Extensible attack system with typed configurations
-- **Built-in Attack Library**: Join DevNonce validation, uplink replay, MAC command abuse
+- **Built-in Attack Library**: Join DevNonce validation, uplink replay, and uplink forgery
 - **Interactive Shell**: Real-time attack execution with scenario management
-- **Protocol Validation**: Test DevNonce handling, frame counter validation, MAC command processing
+- **Protocol Validation**: Test DevNonce handling, frame counter validation, and MIC verification
 - **Comprehensive Logging**: Structured logs with attack traces and metrics
-- **Type-Safe Configuration**: JSON schemas with typed Python models
+- **Type-Safe Configuration**: Typed Python configuration models with strict validation
 
 ## Installation
 
@@ -83,7 +87,11 @@ Tests DevNonce replay protection:
 
 **Modes (`final_check`):**
 - `same_as_last`: Replay the last accepted DevNonce
-- `lower_than_last`: Send a lower DevNonce than the last accepted one
+- `lower_than_last` (alias: `lorawan_1_0_4_monotonic_devnonce`): Send a lower DevNonce than
+  the last accepted one. Tests support for the monotonic DevNonce behaviour introduced in
+  LoRaWAN 1.0.4. Acceptance of a lower DevNonce is a vulnerability / non-compliance result
+  **only** when `target_lorawan_1_0_4=true`; under a LoRaWAN 1.0.3 profile it is reported
+  as an `INCONCLUSIVE` capability result.
 - `replay_first`: Replay the first accepted DevNonce after N valid joins
 - `custom`: Use an explicitly configured final DevNonce
 
@@ -117,18 +125,12 @@ Tests frame counter validation:
   "attack": {
     "type": "uplink_replay",
     "config": {
-      "capture_phase": {
-        "perform_join": true,
-        "send_baseline_uplink": true,
-        "payload_hex": "01020304"
-      },
-      "replay_phase": {
-        "mode": "immediate",
-        "count": 3,
-        "delay_sec": 0.1
-      },
-      "fcnt_strategy": "reuse_original",
-      "mic_strategy": "reuse_original"
+      "uplink_interval_sec": 5.0,
+      "capture_fcnt": 5,
+      "replay_attempt_interval_sec": 0.7,
+      "replay_count": 3,
+      "verification_uplink_count": 5,
+      "device_time_gps_tolerance_sec": 2.0
     }
   },
   "expected": {
@@ -137,31 +139,14 @@ Tests frame counter validation:
 }
 ```
 
-### MAC Command Abuse
+### MAC Command Abuse (designed, not shipped)
 
-Tests MAC command handling:
-
-```json
-{
-  "scenario": {
-    "timeout_sec": 30
-  },
-  "attack": {
-    "type": "mac_command_injection",
-    "config": {
-      "command_type": "LinkADRReq",
-      "malformed": false,
-      "parameters": {
-        "data_rate": 5,
-        "tx_power": 2
-      }
-    }
-  },
-  "expected": {
-    "profile": "lorawan_mac_command_validation"
-  }
-}
-```
+> **Not part of the shipped attack set.** A MAC-command abuse attack was designed
+> but excluded because, within the current scope (simulated device + Network
+> Server under test over Semtech UDP), it could not demonstrate a valid threat
+> model: it never transmits an authenticated frame nor validates a target
+> response. The prototype implementation is retained under
+> `lora_attack_toolkit.experimental` for documentation and future work only.
 
 ## Writing Custom Attacks
 
@@ -171,32 +156,44 @@ LoRAT uses a plugin architecture. Create a new attack in 3 steps:
 
 ```python
 from lora_attack_toolkit.attacks.base import BaseAttack
-from lora_attack_toolkit.attacks.result import AttackResult
+from lora_attack_toolkit.attacks.result import (
+    AttackResult,
+    Confidence,
+    ExecutionStatus,
+    SecurityVerdict,
+)
 
 class CustomAttack(BaseAttack):
     name = "custom_attack"
-    
+
     def run(self, ctx):
         """Execute attack using context services."""
         config = ctx.config
-        
+
         ctx.gateway.start()
         ctx.logger.info("Starting custom attack")
-        
+
         uplink = ctx.device.build_data_uplink(...)
         ctx.gateway.forward_uplink(uplink, ctx.radio)
         ctx.capture.capture_uplink(uplink, ...)
-        
+
         ctx.gateway.stop()
-        
+
         return AttackResult(
             attack_name=self.name,
             attack_type="custom",
-            success=True,
             message="Attack completed",
+            execution_status=ExecutionStatus.COMPLETED,
+            security_verdict=SecurityVerdict.INCONCLUSIVE,
+            confidence=Confidence.LOW,
             metrics={},
         )
 ```
+
+> `AttackResult` reports an `execution_status` (did the attack run?) and a
+> `security_verdict` (`SECURE` / `VULNERABLE` / `INCONCLUSIVE`) with a
+> `confidence`. There is no boolean `success` field — absent or unattributable
+> evidence must be reported as `INCONCLUSIVE`, never coerced to a pass/fail.
 
 ### 2. Register Attack
 
@@ -280,7 +277,7 @@ AttackRegistry.register(
 
 `timeout_sec` controls the wait interval between consecutive messages:
 - JoinRequest → JoinRequest
-- JoinRequest → Uplink  
+- JoinRequest → Uplink
 - Uplink → Uplink
 
 ### Validation Profiles
@@ -292,7 +289,11 @@ Built-in profiles:
 |---------|-------------|
 | `lorawan_1_0_3_devnonce_validation` | LoRaWAN 1.0.3 DevNonce replay protection |
 | `lorawan_uplink_replay_protection` | Uplink frame counter replay protection |
-| `lorawan_mac_command_validation` | MAC command syntax and ADR state validation |
+| `lorawan_uplink_forgery_protection` | Uplink MIC / FCnt / DevAddr forgery rejection |
+
+> The `lorawan_mac_command_validation` profile exists only for the experimental,
+> unregistered MAC-command attack (see *MAC Command Abuse — designed, not
+> shipped*) and is not part of the shipped attack set.
 
 ### Device Configuration
 
@@ -383,9 +384,23 @@ LoRAT follows SOLID principles:
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.12+
 - Virtual environment recommended
 - No external LoRaWAN server required for testing (uses built-in simulators)
+
+## Known Limitations
+
+LoRAT is a research prototype with a deliberately frozen scope:
+
+- **Transports**: Semtech UDP Packet Forwarder only (MQTT / WebSocket not implemented). The transport is a limited packet forwarder simulator.
+- **Region**: EU868 only.
+- **Device class**: Class A only.
+- **Activation**: OTAA only (ABP not supported).
+- **LoRaWAN version**: 1.0.3 only.
+- **Duty cycle**: enforcement is **disabled by default** (`duty_cycle_enforcement` defaults to `false`). The simulator's role is to exercise the Network Server, not to self-limit to ETSI airtime, so production uplink/join paths do not block on duty cycle. The duty-cycle machinery remains available and unit-tested for callers that opt in (`duty_cycle_enforcement: true`); when enabled it uses a single monotonic clock and commits airtime once per transmission.
+- **Attacks**: `join_devnonce`, `uplink_replay`, `uplink_forgery`. The MAC-command abuse attack is designed but not shipped (kept under `lora_attack_toolkit.experimental`, unregistered).
+
+Scenarios outside this scope (e.g. `region: US915`, `class: C`, ABP activation) are rejected at config-parse time with an explicit error.
 
 ## License
 
@@ -411,6 +426,6 @@ LoRAT is intended for authorized security testing only. Users are responsible fo
 
 ---
 
-**Version**: 0.2.0  
-**Status**: Active Development  
+**Version**: 1.0.0
+**Status**: Active Development
 **Maintainer**: [@Swingyboy](https://github.com/Swingyboy)

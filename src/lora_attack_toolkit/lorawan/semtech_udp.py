@@ -35,7 +35,13 @@ def encode_pull_data(gateway_eui_hex: str) -> bytes:
 def encode_push_data(gateway_eui_hex: str, body: dict) -> bytes:
     gateway_eui = bytes.fromhex(gateway_eui_hex)
     token = _new_token()
-    return bytes([PROTOCOL_VERSION]) + token + bytes([PUSH_DATA]) + gateway_eui + json.dumps(body).encode("utf-8")
+    return (
+        bytes([PROTOCOL_VERSION])
+        + token
+        + bytes([PUSH_DATA])
+        + gateway_eui
+        + json.dumps(body).encode("utf-8")
+    )
 
 
 def encode_tx_ack(token: bytes, gateway_eui_hex: str) -> bytes:
@@ -51,7 +57,13 @@ def decode_packet(packet: bytes) -> SemtechPacket:
 
     token = packet[1:3]
     packet_type = packet[3]
-    gateway_eui = packet[4:12] if len(packet) >= 12 and packet_type in (PUSH_DATA, PULL_DATA, TX_ACK) else None
+    gateway_eui = (
+        packet[4:12]
+        if len(packet) >= 12 and packet_type in (PUSH_DATA, PULL_DATA, TX_ACK)
+        else None
+    )
     payload = packet[12:] if gateway_eui is not None else packet[4:]
     json_body = json.loads(payload.decode("utf-8")) if payload else None
-    return SemtechPacket(packet_type=packet_type, token=token, gateway_eui=gateway_eui, json_body=json_body)
+    return SemtechPacket(
+        packet_type=packet_type, token=token, gateway_eui=gateway_eui, json_body=json_body
+    )

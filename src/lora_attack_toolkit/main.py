@@ -20,10 +20,10 @@ import sys
 
 def main() -> int:
     """Bootstrap the application and start the interactive console."""
-    from lora_attack_toolkit.attacks.bootstrap import register_builtin_attacks
-    from lora_attack_toolkit.logging.logging import configure_logging
-    from lora_attack_toolkit.runtime.session import Session
     from lora_attack_toolkit.app.console import LoRaWANConsole
+    from lora_attack_toolkit.attacks.bootstrap import register_builtin_attacks
+    from lora_attack_toolkit.logging.setup import configure_logging
+    from lora_attack_toolkit.runtime.session import Session
 
     parser = argparse.ArgumentParser(
         prog="lorat",
@@ -36,7 +36,9 @@ def main() -> int:
             "Pass a command string to execute a single command."
         ),
     )
-    parser.add_argument("--version", action="version", version="LoRAT 0.2.0")
+    from lora_attack_toolkit import __version__
+
+    parser.add_argument("--version", action="version", version=f"LoRAT {__version__}")
     parser.add_argument(
         "command",
         nargs="*",

@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from lora_attack_toolkit.lorawan.crypto import aes_cmac_4, data_mic, derive_session_key, lorawan_payload_cipher
+from lora_attack_toolkit.lorawan.crypto import (
+    aes_cmac_4,
+    data_mic,
+    derive_session_key,
+    lorawan_payload_cipher,
+)
 
 MHDR_JOIN_REQUEST = 0x00
 MHDR_JOIN_ACCEPT = 0x20
@@ -52,7 +57,9 @@ def decode_join_accept(phy_payload: bytes, app_key: bytes) -> JoinAcceptData:
     expected_mic = aes_cmac_4(app_key, signed)
     if mic != expected_mic:
         raise ValueError("join-accept MIC mismatch")
-    return JoinAcceptData(app_nonce=app_nonce, net_id=net_id, dev_addr_le=dev_addr_le, cflist=cflist)
+    return JoinAcceptData(
+        app_nonce=app_nonce, net_id=net_id, dev_addr_le=dev_addr_le, cflist=cflist
+    )
 
 
 def build_unconfirmed_data_up(
@@ -63,18 +70,24 @@ def build_unconfirmed_data_up(
     app_s_key: bytes,
     nwk_s_key: bytes,
     confirmed: bool,
+    f_opts: bytes = b"",
 ) -> bytes:
     mhdr = MHDR_CONFIRMED_DATA_UP if confirmed else MHDR_UNCONFIRMED_DATA_UP
-    fctrl = 0x00
+    f_opts_len = len(f_opts) & 0x0F  # FOpts can be 0-15 bytes
+    fctrl = f_opts_len  # upper 4 bits (ADR/ACK/…) left as 0
     fcnt_le = (fcnt_up & 0xFFFF).to_bytes(2, "little")
-    fhdr = dev_addr_le + bytes([fctrl]) + fcnt_le
-    encrypted = lorawan_payload_cipher(app_s_key, dev_addr_le, fcnt_up, direction=0, payload=frm_payload)
+    fhdr = dev_addr_le + bytes([fctrl]) + fcnt_le + f_opts
+    encrypted = lorawan_payload_cipher(
+        app_s_key, dev_addr_le, fcnt_up, direction=0, payload=frm_payload
+    )
     msg = bytes([mhdr]) + fhdr + bytes([f_port]) + encrypted
     mic = data_mic(nwk_s_key, dev_addr_le, fcnt_up, direction=0, msg=msg)
     return msg + mic
 
 
-def derive_session_keys(app_key: bytes, app_nonce: bytes, net_id: bytes, dev_nonce: bytes) -> tuple[bytes, bytes]:
+def derive_session_keys(
+    app_key: bytes, app_nonce: bytes, net_id: bytes, dev_nonce: bytes
+) -> tuple[bytes, bytes]:
     nwk_s_key = derive_session_key(app_key, 0x01, app_nonce, net_id, dev_nonce)
     app_s_key = derive_session_key(app_key, 0x02, app_nonce, net_id, dev_nonce)
     return nwk_s_key, app_s_key

@@ -18,9 +18,8 @@ from typing import Any
 
 from lora_attack_toolkit.attacks.base import BaseAttack
 from lora_attack_toolkit.attacks.context import AttackContext
-from lora_attack_toolkit.attacks.result import AttackResult
 from lora_attack_toolkit.attacks.registry import AttackRegistry, AttackSpec
-
+from lora_attack_toolkit.attacks.result import AttackResult
 
 # ─── Step 1: Config dataclass ─────────────────────────────────────────────────
 
@@ -80,9 +79,7 @@ class CustomAttack(BaseAttack):
         logger.info("OTAA join successful; sending %d uplinks", cfg.burst_size)
         for i in range(cfg.burst_size):
             payload = f"uplink-{i}".encode()
-            uplink_frame = ctx.device.build_data_uplink(
-                payload=payload, f_port=1, confirmed=False
-            )
+            uplink_frame = ctx.device.build_data_uplink(payload=payload, f_port=1, confirmed=False)
             ctx.gateway.forward_uplink(uplink_frame, ctx.radio)
             if i < cfg.burst_size - 1:
                 time.sleep(cfg.interval_sec)

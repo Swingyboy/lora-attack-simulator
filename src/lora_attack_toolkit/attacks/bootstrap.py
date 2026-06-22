@@ -9,13 +9,13 @@ from __future__ import annotations
 import logging
 
 from lora_attack_toolkit.attacks.builtin.join_devnonce import JoinDevNonceAttack
-from lora_attack_toolkit.attacks.builtin.mac_abuse import MACCommandAbuse
-from lora_attack_toolkit.attacks.registry import AttackRegistry, AttackSpec
 from lora_attack_toolkit.attacks.builtin.replay import UplinkReplayAttack
+from lora_attack_toolkit.attacks.builtin.uplink_forgery import UplinkForgeryAttack
+from lora_attack_toolkit.attacks.registry import AttackRegistry, AttackSpec
 from lora_attack_toolkit.config import (
     parse_join_devnonce_config,
-    parse_mac_command_config,
     parse_replay_config,
+    parse_uplink_forgery_config,
 )
 
 logger = logging.getLogger(__name__)
@@ -41,15 +41,15 @@ def _register_builtin(spec: AttackSpec) -> None:
 
 def register_builtin_attacks() -> None:
     """Register all built-in attack plugins.
-    
+
     This function must be called during app startup to populate
     the attack registry with built-in attack types.
-    
+
     Raises:
         ValueError: If duplicate registration detected
     """
     logger.info("Registering built-in attack plugins...")
-    
+
     # Uplink Replay Attack
     _register_builtin(
         AttackSpec(
@@ -63,7 +63,7 @@ def register_builtin_attacks() -> None:
             description="Replay captured uplink frames to test frame counter validation",
         )
     )
-    
+
     # Join Replay Attack (with multiple modes)
     _register_builtin(
         AttackSpec(
@@ -76,22 +76,32 @@ def register_builtin_attacks() -> None:
             description="Test DevNonce replay protection with unified validation modes",
         )
     )
-    
-    # MAC Command Injection/Abuse
+
+    # MAC Command Injection/Abuse — DESIGNED BUT NOT SHIPPED.
+    # Excluded from the registered attack set because, within the current scope,
+    # it cannot demonstrate a valid threat model (it never transmits an
+    # authenticated frame nor validates a target response). The implementation
+    # is retained under lora_attack_toolkit.experimental for documentation only.
+
+    # Uplink Forgery Attack
     _register_builtin(
         AttackSpec(
-            name="mac_command_injection",
-            attack_class=MACCommandAbuse,
-            config_parser=parse_mac_command_config,
-            aliases=["mac_malformed"],
-            title="MAC Command Injection",
-            category="mac_abuse",
-            attack_id="mac-command-injection-v1",
-            description="Inject legitimate or malformed MAC commands",
+            name="uplink_forgery",
+            attack_class=UplinkForgeryAttack,
+            config_parser=parse_uplink_forgery_config,
+            aliases=[],
+            title="Uplink Forgery Attack",
+            category="forgery",
+            attack_id="uplink-forgery-v1",
+            description=(
+                "Construct attacker-controlled uplinks to evaluate Network Server "
+                "MIC validation, FCnt validation, session binding, and DevAddr validation"
+            ),
         )
     )
-    
+
     logger.info(
-        f"Registered {len(AttackRegistry.list_attacks())} attack types: "
-        f"{', '.join(AttackRegistry.list_attacks())}"
+        "Registered %d attack types: %s",
+        len(AttackRegistry.list_attacks()),
+        ", ".join(AttackRegistry.list_attacks()),
     )

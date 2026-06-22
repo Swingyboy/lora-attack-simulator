@@ -3,24 +3,24 @@
 from __future__ import annotations
 
 import random
-import time
+import struct
 from collections import deque
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from lora_attack_toolkit.attacks.analyzer import AttackAnalyzer
 from lora_attack_toolkit.attacks.base import BaseAttack
-from lora_attack_toolkit.attacks.packet_capture import PacketCapture
-from lora_attack_toolkit.attacks.result import AttackResult
-from lora_attack_toolkit.attacks.validation import validate_criteria
+from lora_attack_toolkit.attacks.result import (
+    AttackResult,
+    Confidence,
+    ExecutionStatus,
+    SecurityVerdict,
+)
 from lora_attack_toolkit.lorawan.frames import build_join_request
 
 if TYPE_CHECKING:
-    from logging import Logger
-
     from lora_attack_toolkit.attacks.context import AttackContext
-    from lora_attack_toolkit.config import ExpectedBehavior, JoinDevNonceConfigV1
-    from lora_attack_toolkit.config import AttackTiming
+    from lora_attack_toolkit.config import AttackTiming, JoinDevNonceConfigV1
+    from lora_attack_toolkit.lorawan.time_utils import SimClock
 
 
 @dataclass(frozen=True)
@@ -30,6 +30,17 @@ class JoinStepResult:
     dev_nonce: bytes
     join_accepted: bool
     timestamp: float
+
+
+#: Canonical ``final_check`` name for the LoRaWAN 1.0.4 monotonic-DevNonce
+#: behaviour test. ``lower_than_last`` is retained as a historical alias.
+MONOTONIC_DEVNONCE_CHECK = "lorawan_1_0_4_monotonic_devnonce"
+_MONOTONIC_DEVNONCE_ALIASES = frozenset({"lower_than_last", MONOTONIC_DEVNONCE_CHECK})
+
+
+def _is_monotonic_devnonce_check(final_check: str) -> bool:
+    """True for the LoRaWAN 1.0.4 monotonic-DevNonce behaviour test (+alias)."""
+    return final_check in _MONOTONIC_DEVNONCE_ALIASES
 
 
 @dataclass
@@ -62,51 +73,13 @@ class DevNonceResultCache:
         self.all_accepted_devnonces.add(result.dev_nonce)
 
 
-class JoinDevNonceAnalyzer(AttackAnalyzer):
-    """Analyze DevNonce validation results from capture metadata."""
-
-    def analyze(
-        self, capture: PacketCapture, expected: ExpectedBehavior | None = None
-    ) -> dict[str, Any]:
-        stats = capture.get_stats()
-        metrics = capture.metadata.get("devnonce_validation", {})
-        final_join_accepted = metrics.get("final_join_accepted", False)
-        final_result_known = metrics.get("final_result_known", False)
-        message = metrics.get("message", "Attack results unavailable")
-
-        result = {
-            "success": final_result_known and not final_join_accepted,
-            "message": message,
-            "metrics": {
-                **metrics,
-                "total_uplinks": stats["total_uplinks"],
-                "total_downlinks": stats["total_downlinks"],
-            },
-        }
-
-        if expected and final_result_known:
-            validation = validate_criteria(
-                attack_type="join_devnonce",
-                criteria=expected.security_criteria,
-                metrics=result["metrics"],
-                capture_stats=stats,
-                secure_behavior=expected.secure_behavior,
-            )
-            result.update(validation.to_dict())
-            result["validation_summary"] = validation.get_summary()
-        elif expected:
-            result["validation_summary"] = "⚠️  INCONCLUSIVE: final DevNonce check was not executed"
-
-        return result
-
-
 class JoinDevNonceAttack(BaseAttack):
     """Unified Join attack focused on DevNonce validation."""
 
     name = "join_devnonce"
 
     def run(self, ctx: "AttackContext") -> AttackResult:
-        ctx.logger.info(f"Starting {self.name} attack")
+        ctx.logger.info("Starting %s attack", self.name)
 
         config: JoinDevNonceConfigV1 = ctx.config
         timing = self._resolve_timing(config)
@@ -119,16 +92,24 @@ class JoinDevNonceAttack(BaseAttack):
 
             if ctx.cancel_event.is_set():
                 metrics = self._build_metrics(
-                    config=config, timing=timing,
+                    config=config,
+                    timing=timing,
                     generation_cache=generation_cache,
-                    final_devnonce=None, final_result=None,
-                    generation_complete=False, generation_partial=generation_cache.accepted_count > 0,
-                    final_check_executed=False, resolved_devnonce_start=resolved_start,
+                    final_devnonce=None,
+                    final_result=None,
+                    generation_complete=False,
+                    generation_partial=generation_cache.accepted_count > 0,
+                    final_check_executed=False,
+                    resolved_devnonce_start=resolved_start,
                 )
                 ctx.capture.metadata["devnonce_validation"] = metrics
                 return AttackResult(
-                    attack_name=self.name, attack_type=self.name,
-                    success=False, interrupted=True,
+                    attack_name=self.name,
+                    attack_type=self.name,
+                    execution_status=ExecutionStatus.CANCELLED,
+                    security_verdict=SecurityVerdict.INCONCLUSIVE,
+                    confidence=Confidence.LOW,
+                    interrupted=True,
                     message="Attack interrupted by user",
                     metrics=metrics,
                     captured_packets=len(ctx.capture.uplinks) + len(ctx.capture.downlinks),
@@ -152,11 +133,17 @@ class JoinDevNonceAttack(BaseAttack):
                     resolved_devnonce_start=resolved_start,
                 )
                 ctx.capture.metadata["devnonce_validation"] = metrics
-                ctx.logger.debug(f"Received uplinks: {ctx.capture.uplinks}. Received downlinks: {ctx.capture.downlinks}")
+                ctx.logger.debug(
+                    "Received uplinks: %s. Received downlinks: %s",
+                    ctx.capture.uplinks,
+                    ctx.capture.downlinks,
+                )
                 return AttackResult(
                     attack_name=self.name,
                     attack_type=self.name,
-                    success=False,
+                    execution_status=ExecutionStatus.COMPLETED,
+                    security_verdict=SecurityVerdict.INCONCLUSIVE,
+                    confidence=Confidence.LOW,
                     message=f"Final DevNonce check was not executed: {reason}",
                     metrics=metrics,
                     captured_packets=len(ctx.capture.uplinks) + len(ctx.capture.downlinks),
@@ -170,7 +157,7 @@ class JoinDevNonceAttack(BaseAttack):
                 ctx.logger.debug(
                     "Inter-message delay: %.1fs before final DevNonce check", inter_delay
                 )
-                self._sleep_until(time.monotonic() + inter_delay, ctx.cancel_event)
+                self._sleep_until(ctx.clock, ctx.clock.monotonic() + inter_delay, ctx.cancel_event)
 
             final_result = self._execute_join_step(
                 ctx=ctx,
@@ -183,21 +170,64 @@ class JoinDevNonceAttack(BaseAttack):
 
             if ctx.cancel_event.is_set():
                 metrics = self._build_metrics(
-                    config=config, timing=timing,
+                    config=config,
+                    timing=timing,
                     generation_cache=generation_cache,
-                    final_devnonce=final_devnonce, final_result=None,
-                    generation_complete=generation_complete, generation_partial=generation_partial,
-                    final_check_executed=False, resolved_devnonce_start=resolved_start,
+                    final_devnonce=final_devnonce,
+                    final_result=None,
+                    generation_complete=generation_complete,
+                    generation_partial=generation_partial,
+                    final_check_executed=False,
+                    resolved_devnonce_start=resolved_start,
                     selection_meta=selection_meta,
                 )
                 ctx.capture.metadata["devnonce_validation"] = metrics
                 return AttackResult(
-                    attack_name=self.name, attack_type=self.name,
-                    success=False, interrupted=True,
+                    attack_name=self.name,
+                    attack_type=self.name,
+                    execution_status=ExecutionStatus.CANCELLED,
+                    security_verdict=SecurityVerdict.INCONCLUSIVE,
+                    confidence=Confidence.LOW,
+                    interrupted=True,
                     message="Attack interrupted by user",
                     metrics=metrics,
                     captured_packets=len(ctx.capture.uplinks) + len(ctx.capture.downlinks),
                 )
+
+            # Control probe: when the tested (replayed/invalid) DevNonce was
+            # rejected, a "no JoinAccept" result is only meaningful if the path
+            # and target are actually up. Send a known-valid JoinRequest with a
+            # guaranteed-fresh DevNonce as a control; its outcome gates the
+            # negative verdict so we never assert SECURE against a dead target.
+            #
+            # For monotonic (1.0.4) mode the control DevNonce must be strictly
+            # greater than last_accepted so a compliant server accepts it.
+            control_executed = False
+            control_devnonce: bytes | None = None
+            control_accepted: bool | None = None
+            control_impossible_reason: str = ""
+            if not final_result.join_accepted and not ctx.cancel_event.is_set():
+                control_devnonce, control_impossible_reason = self._select_control_devnonce(
+                    generation_cache,
+                    final_devnonce,
+                    final_check=config.final_check,
+                )
+                if control_devnonce is not None:
+                    control_executed = True
+                    inter_delay = ctx.timeout
+                    if inter_delay > 0:
+                        self._sleep_until(
+                            ctx.clock, ctx.clock.monotonic() + inter_delay, ctx.cancel_event
+                        )
+                    control_result = self._execute_join_step(
+                        ctx=ctx,
+                        config=config,
+                        timing=timing,
+                        dev_nonce=control_devnonce,
+                        attempt_index=config.valid_join_count + 2,
+                        phase="control",
+                    )
+                    control_accepted = control_result.join_accepted
 
             metrics = self._build_metrics(
                 config=config,
@@ -211,41 +241,109 @@ class JoinDevNonceAttack(BaseAttack):
                 resolved_devnonce_start=resolved_start,
                 selection_meta=selection_meta,
             )
+            metrics["control_probe_executed"] = control_executed
+            if control_impossible_reason:
+                metrics["control_probe_impossible_reason"] = control_impossible_reason
+            if control_executed and control_devnonce is not None:
+                metrics["control_probe_devnonce"] = control_devnonce.hex()
+                metrics["control_probe_accepted"] = control_accepted
             ctx.capture.metadata["devnonce_validation"] = metrics
 
-            prefix = "Final DevNonce check executed after partial generation phase; " if generation_partial else ""
+            # If the control probe was impossible in monotonic mode, we cannot
+            # distinguish "rejected because monotonic" from "unreachable" for the
+            # non-final-accepted branch — report INCONCLUSIVE with an explicit reason.
+            if not final_result.join_accepted and control_impossible_reason:
+                reason_msg = control_impossible_reason
+                inc_metrics = metrics.copy()
+                inc_metrics["behavior_under_test"] = MONOTONIC_DEVNONCE_CHECK
+                inc_metrics["rationale"] = reason_msg
+                ctx.capture.metadata["devnonce_validation"] = inc_metrics
+                return AttackResult(
+                    attack_name=self.name,
+                    attack_type=self.name,
+                    execution_status=ExecutionStatus.COMPLETED,
+                    security_verdict=SecurityVerdict.INCONCLUSIVE,
+                    confidence=Confidence.LOW,
+                    message=reason_msg,
+                    metrics=inc_metrics,
+                    captured_packets=len(ctx.capture.uplinks) + len(ctx.capture.downlinks),
+                )
+
+            prefix = (
+                "Final DevNonce check executed after partial generation phase; "
+                if generation_partial
+                else ""
+            )
             devnonce_int = int.from_bytes(final_devnonce, "little")
 
-            if final_result.join_accepted:
-                message = f"{prefix}Network Server accepted the final JoinRequest with DevNonce {devnonce_int}"
+            monotonic_mode = _is_monotonic_devnonce_check(config.final_check)
+            if monotonic_mode:
+                metrics["behavior_under_test"] = MONOTONIC_DEVNONCE_CHECK
+                sv, protected, conf, message, behavior_supported = self._monotonic_devnonce_verdict(
+                    config=config,
+                    prefix=prefix,
+                    devnonce_int=devnonce_int,
+                    final_accepted=final_result.join_accepted,
+                    control_accepted=control_accepted,
+                )
+                metrics["behavior_supported"] = behavior_supported
+            elif final_result.join_accepted:
+                # Verdict gating (replay modes):
+                #   accepted              → VULNERABLE (NS accepted the replayed DevNonce)
+                #   rejected + control ok → SECURE     (rejection is meaningful, path up)
+                #   rejected + control bad→ INCONCLUSIVE (target may be unreachable)
+                sv = SecurityVerdict.VULNERABLE
+                protected = False
+                conf = Confidence.HIGH
+                message = (
+                    f"{prefix}Network Server accepted the final JoinRequest "
+                    f"with DevNonce {devnonce_int}"
+                )
+            elif control_accepted:
+                sv = SecurityVerdict.SECURE
+                protected = True
+                conf = Confidence.HIGH
+                message = (
+                    f"{prefix}Network Server rejected the final JoinRequest with DevNonce "
+                    f"{devnonce_int}; control join (fresh DevNonce) was accepted, so the "
+                    f"rejection is meaningful"
+                )
             else:
-                message = f"{prefix}Network Server rejected the final JoinRequest with DevNonce {devnonce_int}"
+                sv = SecurityVerdict.INCONCLUSIVE
+                protected = None
+                conf = Confidence.LOW
+                message = (
+                    f"{prefix}Network Server did not answer the final JoinRequest with DevNonce "
+                    f"{devnonce_int}; the control join (fresh DevNonce) was also unanswered, so "
+                    f"the target may be unreachable — result is inconclusive"
+                )
 
             return AttackResult(
                 attack_name=self.name,
                 attack_type=self.name,
-                success=not final_result.join_accepted,
+                execution_status=ExecutionStatus.COMPLETED,
+                security_verdict=sv,
+                confidence=conf,
+                target_protected=protected,
                 message=message,
                 metrics=metrics,
                 captured_packets=len(ctx.capture.uplinks) + len(ctx.capture.downlinks),
             )
-        except Exception as exc:
-            ctx.logger.error(f"Attack failed: {exc}", exc_info=True)
-            return AttackResult(
+        except Exception as exc:  # noqa: BLE001
+            # Top-level attack boundary: any unexpected failure becomes a
+            # structured execution error (not a security verdict) so the runner
+            # never crashes. Logged at error with full traceback.
+            ctx.logger.exception("Attack failed: %s", exc)
+            return AttackResult.failed(
                 attack_name=self.name,
                 attack_type=self.name,
-                success=False,
-                message=f"Attack execution failed: {exc}",
-                metrics={},
                 error=str(exc),
-                captured_packets=len(ctx.capture.uplinks) + len(ctx.capture.downlinks),
+                metrics={},
             )
         finally:
             ctx.gateway.stop()
 
-    def _validate_config(
-        self, config: "JoinDevNonceConfigV1", timing: "AttackTiming"
-    ) -> None:
+    def _validate_config(self, config: "JoinDevNonceConfigV1", timing: "AttackTiming") -> None:
         if config.valid_join_count < 1:
             raise ValueError("valid_join_count must be >= 1")
         if config.valid_devnonce_step < 1:
@@ -262,12 +360,91 @@ class JoinDevNonceAttack(BaseAttack):
         if config.final_check not in {
             "same_as_last",
             "lower_than_last",
+            "lorawan_1_0_4_monotonic_devnonce",
             "replay_first",
             "custom",
         }:
             raise ValueError(f"Unsupported final_check: {config.final_check}")
         if config.final_check == "custom" and config.final_devnonce is None:
             raise ValueError("final_devnonce is required when final_check='custom'")
+
+    def _monotonic_devnonce_verdict(
+        self,
+        *,
+        config: "JoinDevNonceConfigV1",
+        prefix: str,
+        devnonce_int: int,
+        final_accepted: bool,
+        control_accepted: bool | None,
+    ) -> tuple["SecurityVerdict", bool | None, "Confidence", str, bool | None]:
+        """Interpret the LoRaWAN 1.0.4 monotonic-DevNonce behaviour test.
+
+        This mode is a capability/behaviour probe, not a universal 1.0.3
+        vulnerability test. It detects whether the Network Server implements the
+        monotonic-DevNonce rule introduced in LoRaWAN 1.0.4 (also used in 1.1).
+
+        Returns ``(verdict, target_protected, confidence, message, behavior_supported)``.
+
+        * lower DevNonce rejected + fresh higher (control) accepted →
+          ``behavior_supported=True`` → SECURE (NS enforces monotonic DevNonce).
+        * lower DevNonce accepted → ``behavior_supported=False``:
+            * target explicitly evaluated as 1.0.4-compatible → VULNERABLE
+              (non-compliant with the monotonic-DevNonce requirement);
+            * otherwise (unknown / 1.0.3 profile) → INCONCLUSIVE, reported as a
+              capability result only — never an automatic vulnerability.
+        * no answer to both tested and control joins → INCONCLUSIVE.
+        """
+        if final_accepted:
+            behavior_supported = False
+            if config.target_lorawan_1_0_4:
+                return (
+                    SecurityVerdict.VULNERABLE,
+                    False,
+                    Confidence.HIGH,
+                    (
+                        f"{prefix}Network Server accepted a lower DevNonce {devnonce_int}; the "
+                        f"target is evaluated as LoRaWAN 1.0.4-compatible, so this violates the "
+                        f"monotonic-DevNonce requirement"
+                    ),
+                    behavior_supported,
+                )
+            return (
+                SecurityVerdict.INCONCLUSIVE,
+                None,
+                Confidence.MEDIUM,
+                (
+                    f"{prefix}Network Server accepted a lower DevNonce {devnonce_int}; the "
+                    f"LoRaWAN 1.0.4 monotonic-DevNonce behaviour is NOT implemented. Under an "
+                    f"unknown / LoRaWAN 1.0.3 profile this is a capability result, not a "
+                    f"vulnerability (set target_lorawan_1_0_4=true to evaluate compliance)"
+                ),
+                behavior_supported,
+            )
+
+        if control_accepted:
+            return (
+                SecurityVerdict.SECURE,
+                True,
+                Confidence.HIGH,
+                (
+                    f"{prefix}Network Server rejected the lower DevNonce {devnonce_int} and "
+                    f"accepted a fresh higher control DevNonce; the LoRaWAN 1.0.4 "
+                    f"monotonic-DevNonce behaviour IS implemented"
+                ),
+                True,
+            )
+
+        return (
+            SecurityVerdict.INCONCLUSIVE,
+            None,
+            Confidence.LOW,
+            (
+                f"{prefix}Network Server did not answer the lower DevNonce {devnonce_int} nor the "
+                f"fresh higher control join; the target may be unreachable — monotonic-DevNonce "
+                f"behaviour could not be determined"
+            ),
+            None,
+        )
 
     def _can_execute_final_check(
         self, config: "JoinDevNonceConfigV1", cache: DevNonceResultCache
@@ -281,7 +458,7 @@ class JoinDevNonceAttack(BaseAttack):
                 return False, "no accepted baseline DevNonce was available"
             return True, ""
 
-        if config.final_check == "lower_than_last":
+        if _is_monotonic_devnonce_check(config.final_check):
             if cache.last_accepted_devnonce is None:
                 return False, "no accepted baseline DevNonce was available"
             if int.from_bytes(cache.last_accepted_devnonce, "little") == 0:
@@ -334,7 +511,9 @@ class JoinDevNonceAttack(BaseAttack):
                         inter_delay,
                         index + 2,
                     )
-                    self._sleep_until(time.monotonic() + inter_delay, ctx.cancel_event)
+                    self._sleep_until(
+                        ctx.clock, ctx.clock.monotonic() + inter_delay, ctx.cancel_event
+                    )
 
         ctx.logger.info(
             "Accepted joins: %d/%d",
@@ -352,8 +531,8 @@ class JoinDevNonceAttack(BaseAttack):
         attempt_index: int,
         phase: str,
     ) -> JoinStepResult:
-        timestamp = time.time()
-        # Set runtime DevNonce so apply_join_accept() can derive session keys
+        timestamp = ctx.clock.unix_time()
+        # Set runtime DevNonce so process_downlink(..., expect_join=True) can derive session keys
         ctx.device.runtime.dev_nonce = dev_nonce
 
         # Resolve per-attempt radio: use channel plan when available
@@ -374,6 +553,7 @@ class JoinDevNonceAttack(BaseAttack):
         )
 
         ctx.gateway.forward_uplink(join_request, radio)
+        ctx.device.record_uplink_airtime(radio, len(join_request), ctx.clock.monotonic())
         ctx.capture.capture_uplink(
             phy_payload=join_request,
             packet_type="join_request",
@@ -413,7 +593,7 @@ class JoinDevNonceAttack(BaseAttack):
 
         radio = ctx.device.runtime.radio
         if isinstance(radio, Radio):
-            tx = radio.select_join_channel(attempt_index - 1, now=time.time())
+            tx = radio.select_join_channel(attempt_index - 1, now=ctx.clock.unix_time())
             return RadioMetadata(
                 frequency=tx.frequency_hz,
                 data_rate=tx.data_rate,
@@ -430,7 +610,7 @@ class JoinDevNonceAttack(BaseAttack):
         phase: str,
         dev_nonce: bytes,
     ) -> bool:
-        start = time.monotonic()
+        start = ctx.clock.monotonic()
         windows = (
             ("RX1", timing.rx1_delay_sec, timing.rx1_window_sec),
             ("RX2", timing.rx2_delay_sec, timing.rx2_window_sec),
@@ -439,30 +619,40 @@ class JoinDevNonceAttack(BaseAttack):
         for window_name, window_start_offset, window_size in windows:
             if ctx.cancel_event.is_set():
                 return False
-            if not self._sleep_until(start + window_start_offset, ctx.cancel_event):
+            if not self._sleep_until(ctx.clock, start + window_start_offset, ctx.cancel_event):
                 return False
             window_deadline = start + window_start_offset + window_size
 
-            ctx.logger.debug(f"Opening window {window_name}")
+            ctx.logger.debug("Opening window %s", window_name)
 
-            while time.monotonic() < window_deadline:
+            while ctx.clock.monotonic() < window_deadline:
                 if ctx.cancel_event.is_set():
                     return False
-                remaining = window_deadline - time.monotonic()
+                remaining = window_deadline - ctx.clock.monotonic()
                 if remaining <= 0:
                     break
 
                 downlink = ctx.gateway.await_downlink(timeout_sec=min(remaining, 0.1))
                 if downlink is None:
+                    # Advance the clock so the window eventually closes (instant
+                    # under FakeClock, real under WallClock).
+                    ctx.clock.sleep(min(remaining, 0.1), ctx.cancel_event)
                     continue
                 try:
-                    ctx.logger.debug(f"Received JoinAccept downlink in {window_name}: {downlink}")
-                    ctx.device.apply_join_accept(downlink)
-                except Exception as exc:
+                    ctx.logger.debug(
+                        "Received JoinAccept downlink in %s: %s", window_name, downlink
+                    )
+                    result = ctx.device.process_downlink(downlink, expect_join=True)
+                    if not result.accepted:
+                        ctx.logger.warning(
+                            "JoinAccept received but process_downlink rejected it: %s",
+                            result.reject_reason,
+                        )
+                        continue
+                except (ValueError, KeyError, struct.error) as exc:
                     ctx.logger.warning(
-                        "JoinAccept received but apply_join_accept failed: %s",
+                        "JoinAccept received but process_downlink failed: %s",
                         exc,
-                        exc_info=True,
                     )
                     continue
 
@@ -480,6 +670,58 @@ class JoinDevNonceAttack(BaseAttack):
 
         return False
 
+    def _select_control_devnonce(
+        self,
+        cache: DevNonceResultCache,
+        final_devnonce: bytes,
+        *,
+        final_check: str = "",
+    ) -> tuple[bytes | None, str]:
+        """Pick a guaranteed-fresh DevNonce for the control probe.
+
+        For non-monotonic modes returns the lowest 16-bit DevNonce that was
+        neither accepted during the generation phase nor used as the tested
+        final DevNonce.
+
+        For the LoRaWAN 1.0.4 monotonic-DevNonce modes the control DevNonce
+        must additionally be **strictly greater than last_accepted** so that a
+        compliant 1.0.4 server accepts it (and thus proves the path is up).
+        If no such DevNonce exists (e.g. last_accepted == 0xFFFF), returns
+        ``(None, reason)`` and the caller must report INCONCLUSIVE.
+
+        Returns:
+            ``(devnonce, "")`` on success, or ``(None, reason)`` when no valid
+            control DevNonce can be found.
+        """
+        used = set(cache.all_accepted_devnonces)
+        used.add(final_devnonce)
+
+        if _is_monotonic_devnonce_check(final_check):
+            last = cache.last_accepted_devnonce
+            if last is None:
+                return None, "monotonic control probe impossible: no last accepted DevNonce"
+            last_value = int.from_bytes(last, "little")
+            if last_value >= 0xFFFF:
+                return (
+                    None,
+                    "monotonic control probe impossible: no DevNonce above last accepted "
+                    f"(last_accepted=0x{last_value:04X})",
+                )
+            for value in range(last_value + 1, 0x10000):
+                candidate = value.to_bytes(2, "little")
+                if candidate not in used:
+                    return candidate, ""
+            return (
+                None,
+                "monotonic control probe impossible: all DevNonces above last accepted are used",
+            )
+
+        for value in range(0x10000):
+            candidate = value.to_bytes(2, "little")
+            if candidate not in used:
+                return candidate, ""
+        return None, "no unused DevNonce available for the control probe"
+
     def _select_final_devnonce(
         self, config: "JoinDevNonceConfigV1", cache: DevNonceResultCache
     ) -> tuple[bytes, dict[str, Any]]:
@@ -489,10 +731,10 @@ class JoinDevNonceAttack(BaseAttack):
                 raise ValueError("No accepted DevNonce available for final_check='same_as_last'")
             return cache.last_accepted_devnonce, {}
 
-        if config.final_check == "lower_than_last":
+        if _is_monotonic_devnonce_check(config.final_check):
             if cache.last_accepted_devnonce is None:
                 raise ValueError(
-                    "No accepted DevNonce available for final_check='lower_than_last'"
+                    f"No accepted DevNonce available for final_check={config.final_check!r}"
                 )
             last_value = int.from_bytes(cache.last_accepted_devnonce, "little")
             if last_value == 0:
@@ -547,15 +789,20 @@ class JoinDevNonceAttack(BaseAttack):
             raise ValueError(f"DevNonce must fit in 16 bits: {value}")
         return value.to_bytes(2, "little")
 
-    def _sleep_until(self, deadline: float, cancel_event=None) -> bool:
-        """Sleep in short increments until deadline. Returns False if cancelled."""
-        while time.monotonic() < deadline:
+    def _sleep_until(self, clock: "SimClock", deadline: float, cancel_event=None) -> bool:
+        """Sleep in short increments until deadline. Returns False if cancelled.
+
+        Uses the injected clock so unit tests with a :class:`FakeClock` advance
+        instantly and deterministically instead of blocking on real time.
+        """
+        while clock.monotonic() < deadline:
             if cancel_event is not None and cancel_event.is_set():
                 return False
-            remaining = deadline - time.monotonic()
+            remaining = deadline - clock.monotonic()
             if remaining <= 0:
                 break
-            time.sleep(min(0.05, remaining))
+            if not clock.sleep(min(0.05, remaining), cancel_event):
+                return False
         return True
 
     def _build_metrics(
@@ -577,7 +824,8 @@ class JoinDevNonceAttack(BaseAttack):
             "valid_join_count": config.valid_join_count,
             "generation_attempt_count": generation_cache.attempt_count,
             "accepted_generation_count": generation_cache.accepted_count,
-            "failed_generation_count": generation_cache.attempt_count - generation_cache.accepted_count,
+            "failed_generation_count": generation_cache.attempt_count
+            - generation_cache.accepted_count,
             "generation_complete": generation_complete,
             "generation_partial": generation_partial,
             "final_check_executed": final_check_executed,
@@ -593,7 +841,9 @@ class JoinDevNonceAttack(BaseAttack):
                 if generation_cache.last_accepted_devnonce is not None
                 else None
             ),
-            "recent_accepted_devnonces": [value.hex() for value in generation_cache.recent_accepted_devnonces],
+            "recent_accepted_devnonces": [
+                value.hex() for value in generation_cache.recent_accepted_devnonces
+            ],
             "timing": {
                 "join_accept_timeout_sec": timing.join_accept_timeout_sec,
             },

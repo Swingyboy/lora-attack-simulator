@@ -12,8 +12,8 @@ Public API
 """
 
 from lora_attack_toolkit.transport.errors import (
-    ConnectionResetError,
     DnsResolutionError,
+    RemoteResetError,
     TemporaryNetworkError,
     TransportError,
     TransportPermanentError,
@@ -36,7 +36,7 @@ __all__ = [
     "TransportTemporaryError",
     "TransportPermanentError",
     "DnsResolutionError",
-    "ConnectionResetError",
+    "RemoteResetError",
     "TemporaryNetworkError",
     "TransportUnavailableError",
 ]

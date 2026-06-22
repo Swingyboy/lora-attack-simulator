@@ -4,7 +4,14 @@ LoRaWAN Attack Simulator
 A LoRaWAN Network Server offensive-security testing framework.
 """
 
-__version__ = "0.1.0"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("lora-attack-toolkit")
+except PackageNotFoundError:
+    # Source checkout without installed metadata.
+    __version__ = "1.0.0"
+
 __author__ = "Swingyboy"
 
 # Package metadata

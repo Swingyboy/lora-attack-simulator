@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import socket
 import unittest
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from lora_attack_toolkit.transport.errors import (
     DnsResolutionError,
@@ -13,10 +15,10 @@ from lora_attack_toolkit.transport.errors import (
 )
 from lora_attack_toolkit.transport.udp import UdpTransport
 
+pytestmark = pytest.mark.unit
 
-_FAKE_ADDR_INFO = [
-    (socket.AF_INET, socket.SOCK_DGRAM, 0, "", ("1.2.3.4", 1700))
-]
+
+_FAKE_ADDR_INFO = [(socket.AF_INET, socket.SOCK_DGRAM, 0, "", ("1.2.3.4", 1700))]
 
 
 class TestUdpTransportConnect(unittest.TestCase):
@@ -60,7 +62,9 @@ class TestUdpTransportDisconnect(unittest.TestCase):
 
 class TestUdpTransportSend(unittest.TestCase):
     def _connected_transport(self):
-        with patch("lora_attack_toolkit.transport.udp.socket.getaddrinfo", return_value=_FAKE_ADDR_INFO):
+        with patch(
+            "lora_attack_toolkit.transport.udp.socket.getaddrinfo", return_value=_FAKE_ADDR_INFO
+        ):
             with patch("lora_attack_toolkit.transport.udp.socket.socket") as mock_sock_cls:
                 mock_sock = MagicMock()
                 mock_sock_cls.return_value = mock_sock
@@ -87,7 +91,9 @@ class TestUdpTransportSend(unittest.TestCase):
 
 class TestUdpTransportReceive(unittest.TestCase):
     def _connected_transport(self):
-        with patch("lora_attack_toolkit.transport.udp.socket.getaddrinfo", return_value=_FAKE_ADDR_INFO):
+        with patch(
+            "lora_attack_toolkit.transport.udp.socket.getaddrinfo", return_value=_FAKE_ADDR_INFO
+        ):
             with patch("lora_attack_toolkit.transport.udp.socket.socket") as mock_sock_cls:
                 mock_sock = MagicMock()
                 mock_sock_cls.return_value = mock_sock

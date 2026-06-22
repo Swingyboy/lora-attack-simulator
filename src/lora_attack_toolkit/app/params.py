@@ -22,7 +22,13 @@ REGISTRY: list[ParamMeta] = [
         type_str="enum",
         description="How the final DevNonce validation request is generated.",
         default="same_as_last",
-        allowed_values=["replay_first", "same_as_last", "lower_than_last", "custom"],
+        allowed_values=[
+            "replay_first",
+            "same_as_last",
+            "lower_than_last",
+            "lorawan_1_0_4_monotonic_devnonce",
+            "custom",
+        ],
     ),
     ParamMeta(
         path="attack.config.valid_join_count",
@@ -85,13 +91,13 @@ REGISTRY: list[ParamMeta] = [
         description=(
             "Validation profile name used to assess NS security posture. "
             "Built-in profiles: lorawan_1_0_3_devnonce_validation, "
-            "lorawan_uplink_replay_protection, lorawan_mac_command_validation."
+            "lorawan_uplink_replay_protection, lorawan_uplink_forgery_protection."
         ),
         default=None,
         allowed_values=[
             "lorawan_1_0_3_devnonce_validation",
             "lorawan_uplink_replay_protection",
-            "lorawan_mac_command_validation",
+            "lorawan_uplink_forgery_protection",
         ],
     ),
     # ── device ───────────────────────────────────────────────────────

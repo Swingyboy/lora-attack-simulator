@@ -1,7 +1,7 @@
 {
   "scenario": {
-    "description": "Test NS handling of LinkADRReq MAC commands to manipulate ADR state",
-    "timeout_sec": 30.0
+    "description": "Evaluate Network Server MIC validation by sending uplinks with an intentionally corrupted MIC",
+    "timeout_sec": 60.0
   },
   "target": {
     "name": "chirpstack-local",
@@ -21,7 +21,7 @@
     }
   },
   "device": {
-    "name": "attack-device-mac-v1",
+    "name": "attack-device-forgery-v1",
     "lorawan_version": "1.0.3",
     "region": "EU868",
     "class": "A",
@@ -33,20 +33,26 @@
     }
   },
   "attack": {
-    "type": "mac_command_injection",
+    "type": "uplink_forgery",
     "config": {
-      "command_type": "LinkADRReq",
-      "malformed": false,
-      "parameters": {
-        "data_rate": 5,
-        "tx_power": 2,
-        "ch_mask": 255,
-        "redundancy": 1
-      }
+      "perform_join": true,
+      "baseline_uplink_count": 5,
+      "uplink_interval_sec": 5.0,
+      "forgery_mode": "invalid_mic",
+      "payload_hex": "01020304",
+      "forged_payload_hex": "DEADBEEF",
+      "target_fcnt": null,
+      "fcnt_delta": 10000,
+      "recalculate_mic": false,
+      "corrupt_mic": true,
+      "wrong_devaddr": "26000000",
+      "mac_command": "DeviceTimeReq",
+      "fport": 1,
+      "verification_uplink_count": 3
     }
   },
   "expected": {
-    "profile": "lorawan_mac_command_validation"
+    "profile": "lorawan_uplink_forgery_protection"
   },
   "logging": {
     "level": "info",

@@ -4,8 +4,7 @@ Streams logs from the ChirpStack Docker container, parses structured entries,
 color-highlights by log level, and reports event statistics on exit.
 
 Usage:
-    python -m lora_attack_toolkit.observability.chirpstack_monitor [options]
-    lorawan-sim monitor [options]          (via console entry point)
+    python tools/chirpstack_monitor.py [options]
 
 ChirpStack log format:
     <ISO8601Z>  <LEVEL> <module::path>: <message>  [key=value ...]
@@ -106,6 +105,7 @@ def parse_line(raw: str) -> ParsedLine:
 # Stats tracker
 # ---------------------------------------------------------------------------
 
+
 class Stats:
     def __init__(self) -> None:
         self.started_at = datetime.now(tz=timezone.utc)
@@ -134,8 +134,8 @@ class Stats:
             return f"{colour}{text}{_RESET}" if use_color else text
 
         print(f"\n{c(_BOLD, '─' * 50)}")
-        print(c(_BOLD, f"  ChirpStack Monitor — Session Summary"))
-        print(c(_BOLD, '─' * 50))
+        print(c(_BOLD, "  ChirpStack Monitor — Session Summary"))
+        print(c(_BOLD, "─" * 50))
         print(f"  Duration   : {h:02d}h {m:02d}m {s:02d}s")
         print(f"  Total lines: {self.total}")
         print(f"  Unparsed   : {self.unparsed}")
@@ -151,20 +151,29 @@ class Stats:
             print(c(_BOLD, "  Detected events:"))
             for name, count in sorted(self.events.items(), key=lambda x: -x[1]):
                 print(f"    {name:<25} {count}")
-        print(c(_BOLD, '─' * 50))
+        print(c(_BOLD, "─" * 50))
 
 
 # ---------------------------------------------------------------------------
 # Container discovery
 # ---------------------------------------------------------------------------
 
+
 def discover_container() -> Optional[str]:
     """Find the chirpstack container by Docker Compose service label."""
     try:
         result = subprocess.run(
-            ["docker", "ps", "--filter", "label=com.docker.compose.service=chirpstack",
-             "--format", "{{.Names}}"],
-            capture_output=True, text=True, timeout=5,
+            [
+                "docker",
+                "ps",
+                "--filter",
+                "label=com.docker.compose.service=chirpstack",
+                "--format",
+                "{{.Names}}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         name = result.stdout.strip().splitlines()
         return name[0] if name else None
@@ -176,6 +185,7 @@ def discover_container() -> Optional[str]:
 # Formatter
 # ---------------------------------------------------------------------------
 
+
 def format_line(line: ParsedLine, use_color: bool, show_module: bool) -> str:
     if not line.parsed:
         return line.raw
@@ -186,7 +196,11 @@ def format_line(line: ParsedLine, use_color: bool, show_module: bool) -> str:
 
     level_str = f"{colour}{line.level:<7}{reset}"
     ts_str = f"{ts_col}{line.ts}{reset}"
-    module_str = f" {_CYAN}{line.module}{reset}" if (use_color and show_module) else (f" {line.module}" if show_module else "")
+    module_str = (
+        f" {_CYAN}{line.module}{reset}"
+        if (use_color and show_module)
+        else (f" {line.module}" if show_module else "")
+    )
 
     return f"{ts_str}  {level_str}{module_str}: {line.message}"
 
@@ -194,6 +208,7 @@ def format_line(line: ParsedLine, use_color: bool, show_module: bool) -> str:
 # ---------------------------------------------------------------------------
 # Main monitor loop
 # ---------------------------------------------------------------------------
+
 
 def run_monitor(args: argparse.Namespace) -> int:
     container = args.container or discover_container()
@@ -272,6 +287,7 @@ def run_monitor(args: argparse.Namespace) -> int:
                 else:
                     print("Container stream ended, reconnecting...")
                 import time
+
                 time.sleep(2)
             else:
                 stats.print_summary(use_color)
@@ -290,6 +306,7 @@ def run_monitor(args: argparse.Namespace) -> int:
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="chirpstack-monitor",
@@ -305,8 +322,22 @@ def build_parser() -> argparse.ArgumentParser:
         "--level",
         metavar="LEVEL",
         default="TRACE",
-        choices=["TRACE", "DEBUG", "INFO", "WARN", "WARNING", "ERROR", "FATAL",
-                 "trace", "debug", "info", "warn", "warning", "error", "fatal"],
+        choices=[
+            "TRACE",
+            "DEBUG",
+            "INFO",
+            "WARN",
+            "WARNING",
+            "ERROR",
+            "FATAL",
+            "trace",
+            "debug",
+            "info",
+            "warn",
+            "warning",
+            "error",
+            "fatal",
+        ],
         help="Minimum log level to display (default: TRACE, show all).",
     )
     parser.add_argument(

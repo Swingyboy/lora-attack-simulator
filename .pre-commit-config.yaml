@@ -1,0 +1,20 @@
+# Run: pre-commit install   (once per clone)
+# The ruff hooks inherit all rules (line-length, select list, E501 ignore) from
+# pyproject.toml — keep `rev` below in lock-step with the ruff version in
+# [project.optional-dependencies].dev.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.18 # MUST match the ruff version used by the project
+    hooks:
+      - id: ruff-format # auto-formats; reads [tool.ruff] from pyproject
+      - id: ruff # lints; reads [tool.ruff.lint] from pyproject
+        args: [--fix]
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
