@@ -89,6 +89,10 @@ class TargetConfig:
     transport: str
     host: str
     port: int
+    # Optional descriptive metadata about the Network Server under test,
+    # captured into reproducibility provenance. Defaults to "unknown".
+    server_product: str = "unknown"
+    server_version: str = "unknown"
 
 
 @dataclass(frozen=True)
@@ -219,7 +223,7 @@ class UplinkReplayConfigV1:
         }
     """
 
-    uplink_interval_sec: float = 30.0
+    uplink_interval_sec: float = 5.0
     capture_fcnt: int = 5
     replay_attempt_interval_sec: float = 5.0
     replay_count: int = 3
@@ -312,7 +316,7 @@ class UplinkForgeryConfigV1:
             "wrong_devaddr": "26000000",
             "mac_command": "DeviceTimeReq",
             "fport": 1,
-            "verification_uplink_count": 3
+            "verification_uplink_count": 5
         }
 
     ``recalculate_mic`` and ``corrupt_mic`` are evaluated in order:
@@ -338,7 +342,7 @@ class UplinkForgeryConfigV1:
     wrong_devaddr: str = "26000000"
     mac_command: str = "DeviceTimeReq"
     fport: int = 1
-    verification_uplink_count: int = 3
+    verification_uplink_count: int = 5
 
 
 @dataclass(frozen=True)
@@ -401,7 +405,7 @@ def parse_replay_config(config: dict[str, Any]) -> "UplinkReplayConfigV1":
     """Parse uplink replay config from dict into :class:`UplinkReplayConfigV1`."""
     return UplinkReplayConfigV1(
         uplink_interval_sec=_expect_float(
-            "uplink_interval_sec", config.get("uplink_interval_sec", 30.0), min_value=0.0
+            "uplink_interval_sec", config.get("uplink_interval_sec", 5.0), min_value=0.0
         ),
         capture_fcnt=_expect_int("capture_fcnt", config.get("capture_fcnt", 5), min_value=0),
         replay_attempt_interval_sec=_expect_float(
@@ -539,7 +543,7 @@ def parse_uplink_forgery_config(config: dict[str, Any]) -> UplinkForgeryConfigV1
         mac_command=mac_cmd,
         fport=_expect_int("fport", config.get("fport", 1), min_value=1, max_value=223),
         verification_uplink_count=_expect_int(
-            "verification_uplink_count", config.get("verification_uplink_count", 3), min_value=0
+            "verification_uplink_count", config.get("verification_uplink_count", 5), min_value=0
         ),
     )
 
@@ -641,7 +645,14 @@ _ALLOWED_TOP_KEYS = {
     "version",
 }
 _ALLOWED_SCENARIO_KEYS = {"description", "timeout_sec"}
-_ALLOWED_TARGET_KEYS = {"name", "transport", "host", "port"}
+_ALLOWED_TARGET_KEYS = {
+    "name",
+    "transport",
+    "host",
+    "port",
+    "server_product",
+    "server_version",
+}
 _ALLOWED_GATEWAY_KEYS = {"gateway_eui", "pull_data_interval_sec", "radio"}
 _ALLOWED_RADIO_KEYS = {"region", "frequency_hz", "data_rate", "rssi", "snr"}
 _ALLOWED_DEVICE_KEYS = {
@@ -728,6 +739,12 @@ def _load_v1_format(raw: dict[str, Any]) -> AttackScenarioV1:
         transport=_expect_str("target.transport", target_data["transport"]),
         host=_expect_str("target.host", target_data["host"]),
         port=_expect_int("target.port", target_data["port"], 1),
+        server_product=_expect_str(
+            "target.server_product", target_data.get("server_product", "unknown")
+        ),
+        server_version=_expect_str(
+            "target.server_version", target_data.get("server_version", "unknown")
+        ),
     )
 
     gateway_eui = _expect_str("gateway.gateway_eui", gateway_data["gateway_eui"]).lower()

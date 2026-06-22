@@ -134,7 +134,7 @@ class TestParseUplinkForgeryConfig(unittest.TestCase):
         self.assertEqual(cfg.wrong_devaddr, "26000000")
         self.assertEqual(cfg.mac_command, "DeviceTimeReq")
         self.assertEqual(cfg.fport, 1)
-        self.assertEqual(cfg.verification_uplink_count, 3)
+        self.assertEqual(cfg.verification_uplink_count, 5)
 
     def test_all_forgery_modes_accepted(self) -> None:
         for mode in UPLINK_FORGERY_MODES:
