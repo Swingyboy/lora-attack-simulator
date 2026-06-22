@@ -33,16 +33,10 @@ KNOWN_LIMITATIONS: tuple[str, ...] = (
 
 
 def toolkit_version() -> str:
-    """Return the installed toolkit version, or ``"unknown"`` if unavailable."""
-    try:
-        from importlib.metadata import PackageNotFoundError, version
+    """Return the toolkit version (single source: package ``__version__``)."""
+    from lora_attack_toolkit import __version__
 
-        try:
-            return version("lora-attack-toolkit")
-        except PackageNotFoundError:
-            return UNKNOWN
-    except Exception:  # noqa: BLE001 - provenance must never crash a run
-        return UNKNOWN
+    return __version__
 
 
 def git_commit() -> str:
