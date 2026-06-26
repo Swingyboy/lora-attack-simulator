@@ -63,7 +63,7 @@ lorat "use join-devnonce-v1"
 ### Join DevNonce Validation
 
 Tests DevNonce replay protection. The bundled scenario (`join-devnonce-v1`) uses
-`final_check: "lower_than_last"` and ships with `target_lorawan_1_0_4: false`:
+`final_check: "lower_than_last"` and `device.lorawan_version: "1.0.3"` as the baseline.
 
 **LoRaWAN 1.0.3 baseline** (capability — INCONCLUSIVE if lower DevNonce accepted):
 ```
@@ -76,7 +76,7 @@ run
 ```
 use join-devnonce-v1
 set target.host 192.168.1.10
-set attack.config.target_lorawan_1_0_4 true
+set device.lorawan_version 1.0.4
 run
 ```
 
@@ -84,8 +84,10 @@ run
 - `same_as_last`: Replay the last accepted DevNonce
 - `lower_than_last`: Send a DevNonce lower than the last accepted one. Tests the
   monotonic-DevNonce behaviour introduced in LoRaWAN 1.0.4. Whether acceptance is
-  **VULNERABLE** or **INCONCLUSIVE** (capability only) is controlled by `device.lorawan_version`
-  (1.0.4 / 1.1 → VULNERABLE; 1.0.3 → INCONCLUSIVE).
+  **VULNERABLE** or **INCONCLUSIVE** (capability only) is controlled solely by
+  `device.lorawan_version` (1.0.4 / 1.1 → VULNERABLE; 1.0.3 → INCONCLUSIVE). The
+  internal `target_lorawan_1_0_4` flag is derived from the version at load time; any
+  value in the scenario JSON is overridden automatically.
 - `replay_first`: Replay the first accepted DevNonce after N valid joins
 - `custom`: Use an explicitly configured final DevNonce
 
@@ -253,7 +255,7 @@ AttackRegistry.register(
     "profile": "lorawan_1_0_3_devnonce_validation"
   },
   "logging": {
-    "level": "INFO",
+    "level": "info",
     "log_phy_payload": true,
     "log_semtech_udp": true
   }
@@ -276,8 +278,9 @@ AttackRegistry.register(
 
 ### Validation Profiles
 
-The `expected.profile` field selects a named security validation profile.
-Built-in profiles:
+The `expected` section (and its `profile` field) is **optional**. When omitted, the scenario
+loader derives a profile label from `device.lorawan_version` automatically. When present, the
+supplied profile is used for reporting and provenance. Built-in profiles:
 
 | Profile | Description |
 |---------|-------------|
@@ -380,7 +383,8 @@ LoRAT follows SOLID principles:
 
 - Python 3.12+
 - Virtual environment recommended
-- No external LoRaWAN server required for testing (uses built-in simulators)
+- No external LoRaWAN server required to run the unit test suite (uses built-in simulators);
+  running attacks targets a real Network Server via `target.host`.
 
 ## Known Limitations
 
@@ -390,7 +394,9 @@ LoRAT is a research prototype with a deliberately frozen scope:
 - **Region**: EU868 only.
 - **Device class**: Class A only.
 - **Activation**: OTAA only (ABP not supported).
-- **LoRaWAN version**: 1.0.3 only.
+- **LoRaWAN version**: `device.lorawan_version` accepts `1.0.3`, `1.0.4`, and `1.1`. For the
+  `join_devnonce` attack, the version selects how a lower-DevNonce acceptance is interpreted:
+  1.0.4 / 1.1 → compliance violation (VULNERABLE); 1.0.3 → capability detection only (INCONCLUSIVE).
 - **Duty cycle**: enforcement is **disabled by default** (`duty_cycle_enforcement` defaults to `false`). The simulator's role is to exercise the Network Server, not to self-limit to ETSI airtime, so production uplink/join paths do not block on duty cycle. The duty-cycle machinery remains available and unit-tested for callers that opt in (`duty_cycle_enforcement: true`); when enabled it uses a single monotonic clock and commits airtime once per transmission.
 - **Attacks**: `join_devnonce`, `uplink_replay`, `uplink_forgery`. The MAC-command abuse attack is designed but not shipped (kept under `lora_attack_toolkit.experimental`, unregistered).
 
