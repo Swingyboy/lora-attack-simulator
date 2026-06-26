@@ -87,11 +87,15 @@ jobs:
         # tests have been written yet). Treat that as "none configured" rather
         # than a failure so merge to main stays green. A real integration test
         # against ChirpStack would clear this automatically.
+        #
+        # GitHub Actions runs `run:` blocks with `bash -eo pipefail`, so a bare
+        # `pytest` call that returns non-zero aborts the script before the
+        # exit-code check. Use `|| exit_code=$?` to capture the code instead.
         run: |
-          python -m pytest -q --tb=short -m integration
-          exit_code=$?
-          if [ $exit_code -eq 5 ]; then
+          exit_code=0
+          python -m pytest -q --tb=short -m integration || exit_code=$?
+          if [ "$exit_code" -eq 5 ]; then
             echo "No integration tests configured yet (ok)"
             exit 0
           fi
-          exit $exit_code
+          exit "$exit_code"
