@@ -32,15 +32,18 @@ class JoinStepResult:
     timestamp: float
 
 
-#: Canonical ``final_check`` name for the LoRaWAN 1.0.4 monotonic-DevNonce
-#: behaviour test. ``lower_than_last`` is retained as a historical alias.
-MONOTONIC_DEVNONCE_CHECK = "lorawan_1_0_4_monotonic_devnonce"
-_MONOTONIC_DEVNONCE_ALIASES = frozenset({"lower_than_last", MONOTONIC_DEVNONCE_CHECK})
+#: Canonical ``final_check`` name for the lower-than-last probe.
+LOWER_THAN_LAST_CHECK = "lower_than_last"
+#: Deprecated alias kept only for backward-compat normalisation in the parser;
+#: by the time the attack runs, ``final_check`` has already been rewritten.
+_DEPRECATED_MONOTONIC_ALIAS = "lorawan_1_0_4_monotonic_devnonce"
+#: Human-readable label written to the ``behavior_under_test`` metric field.
+_MONOTONIC_BEHAVIOR_LABEL = "monotonic_devnonce"
 
 
 def _is_monotonic_devnonce_check(final_check: str) -> bool:
-    """True for the LoRaWAN 1.0.4 monotonic-DevNonce behaviour test (+alias)."""
-    return final_check in _MONOTONIC_DEVNONCE_ALIASES
+    """True for the lower-than-last probe (version-neutral name)."""
+    return final_check == LOWER_THAN_LAST_CHECK
 
 
 @dataclass
@@ -258,7 +261,7 @@ class JoinDevNonceAttack(BaseAttack):
             if not final_result.join_accepted and control_impossible_reason:
                 reason_msg = control_impossible_reason
                 inc_metrics = metrics.copy()
-                inc_metrics["behavior_under_test"] = MONOTONIC_DEVNONCE_CHECK
+                inc_metrics["behavior_under_test"] = _MONOTONIC_BEHAVIOR_LABEL
                 inc_metrics["rationale"] = reason_msg
                 ctx.capture.metadata["devnonce_validation"] = inc_metrics
                 inc_metrics["capture_stats"] = ctx.capture.get_stats()
@@ -282,7 +285,7 @@ class JoinDevNonceAttack(BaseAttack):
 
             monotonic_mode = _is_monotonic_devnonce_check(config.final_check)
             if monotonic_mode:
-                metrics["behavior_under_test"] = MONOTONIC_DEVNONCE_CHECK
+                metrics["behavior_under_test"] = _MONOTONIC_BEHAVIOR_LABEL
                 sv, protected, conf, message, behavior_supported = self._monotonic_devnonce_verdict(
                     config=config,
                     prefix=prefix,
@@ -365,7 +368,6 @@ class JoinDevNonceAttack(BaseAttack):
         if config.final_check not in {
             "same_as_last",
             "lower_than_last",
-            "lorawan_1_0_4_monotonic_devnonce",
             "replay_first",
             "custom",
         }:

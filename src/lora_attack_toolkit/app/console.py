@@ -942,6 +942,41 @@ class LoRaWANConsole(cmd2.Cmd):
             if meta.allowed_values:
                 print(f"  Allowed:       {', '.join(meta.allowed_values)}")
 
+    # ── results header helpers ───────────────────────────────────────────────
+
+    @staticmethod
+    def _format_execution(execution_status: str | None) -> str:
+        """Map an execution_status value to the 'Attack completed' display string."""
+        if execution_status == "completed":
+            return "✓ yes"
+        if execution_status == "failed":
+            return "✗ no — failed"
+        if execution_status == "error":
+            return "✗ no — error"
+        if execution_status == "cancelled":
+            return "■ no — cancelled"
+        return "? unknown"
+
+    @staticmethod
+    def _format_vulnerability(security_verdict: str | None, confidence: str | None) -> str:
+        """Map a security_verdict + confidence to the 'Vulnerability' display string."""
+        if security_verdict == "vulnerable":
+            label = "⚠ DETECTED"
+        elif security_verdict == "secure":
+            label = "✓ NOT DETECTED"
+        elif security_verdict == "inconclusive":
+            label = "? INCONCLUSIVE"
+        elif security_verdict == "error":
+            label = "✗ N/A"
+        elif security_verdict is None:
+            label = "? unknown"
+        else:
+            label = security_verdict
+
+        if confidence:
+            label = f"{label}  ({confidence} confidence)"
+        return label
+
     # ── metrics display ──────────────────────────────────────────────────────
 
     # Keys shown in summary mode per attack type
@@ -969,10 +1004,16 @@ class LoRaWANConsole(cmd2.Cmd):
         print("ATTACK RESULTS")
         print("=" * 60)
 
-        success = results.get("execution_status") == "completed"
-        status_symbol = "✓" if success else "✗"
-        print(f"\nStatus: {status_symbol} {'SUCCESS' if success else 'FAILED'}")
-        print(f"Message: {results.get('message', 'No message')}")
+        execution_status = results.get("execution_status")
+        security_verdict = results.get("security_verdict")
+        confidence = results.get("confidence")
+
+        exec_line = self._format_execution(execution_status)
+        vuln_line = self._format_vulnerability(security_verdict, confidence)
+
+        print(f"\n{'Attack completed:':<20} {exec_line}")
+        print(f"{'Vulnerability:':<20} {vuln_line}")
+        print(f"\nMessage: {results.get('message', 'No message')}")
 
         metrics = results.get("metrics", {})
         metrics_mode = self.session.output_metrics

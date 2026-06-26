@@ -82,10 +82,10 @@ run
 
 **Modes (`final_check`):**
 - `same_as_last`: Replay the last accepted DevNonce
-- `lower_than_last` (alias: `lorawan_1_0_4_monotonic_devnonce`): Send a lower DevNonce than
-  the last accepted one. Tests the monotonic-DevNonce behaviour introduced in LoRaWAN 1.0.4.
-  When `target_lorawan_1_0_4=true`, acceptance of a lower DevNonce is **VULNERABLE**;
-  when `false` (default, 1.0.3 profile) it is **INCONCLUSIVE** (capability detection only).
+- `lower_than_last`: Send a DevNonce lower than the last accepted one. Tests the
+  monotonic-DevNonce behaviour introduced in LoRaWAN 1.0.4. Whether acceptance is
+  **VULNERABLE** or **INCONCLUSIVE** (capability only) is controlled by `device.lorawan_version`
+  (1.0.4 / 1.1 → VULNERABLE; 1.0.3 → INCONCLUSIVE).
 - `replay_first`: Replay the first accepted DevNonce after N valid joins
 - `custom`: Use an explicitly configured final DevNonce
 

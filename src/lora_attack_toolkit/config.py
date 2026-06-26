@@ -251,16 +251,16 @@ class UplinkReplayConfigV1:
 #:
 #: ``same_as_last``  — duplicate DevNonce replay protection.
 #: ``replay_first``  — historical DevNonce reuse protection.
-#: ``lorawan_1_0_4_monotonic_devnonce`` (alias ``lower_than_last``) — detects
-#:   the monotonic-DevNonce behaviour introduced in LoRaWAN 1.0.4 / 1.1; it is a
-#:   capability/behaviour test, not a universal 1.0.3 vulnerability test.
+#: ``lower_than_last`` — send a DevNonce lower than the last accepted; detects
+#:   the monotonic-DevNonce behaviour introduced in LoRaWAN 1.0.4 / 1.1.
+#:   Whether a lower DevNonce being accepted is VULNERABLE or INCONCLUSIVE is
+#:   controlled by ``device.lorawan_version`` → ``target_lorawan_1_0_4``.
 #: ``custom``        — operator-supplied final DevNonce.
 JOIN_DEVNONCE_FINAL_CHECKS = frozenset(
     {
         "same_as_last",
         "replay_first",
         "lower_than_last",
-        "lorawan_1_0_4_monotonic_devnonce",
         "custom",
     }
 )
@@ -281,7 +281,7 @@ class JoinDevNonceConfigV1:
     # Always injected by the scenario loader from ``device.lorawan_version``
     # (True for 1.0.4 / 1.1, False for 1.0.3). ``device.lorawan_version`` is
     # the single source of truth and always wins over any value in the scenario JSON.
-    # When True, accepting a lower DevNonce (final_check="lorawan_1_0_4_monotonic_devnonce")
+    # When True, accepting a lower DevNonce (final_check="lower_than_last")
     # is a compliance violation (VULNERABLE). When False (1.0.3 profile), the same
     # observation is reported as capability detection only (INCONCLUSIVE).
     target_lorawan_1_0_4: bool = False
@@ -536,6 +536,13 @@ def parse_join_devnonce_config(config: dict[str, Any]) -> JoinDevNonceConfigV1:
     else:
         valid_devnonce_start = int(valid_devnonce_start_raw)
 
+    # Normalise the deprecated alias before validation.
+    raw_final_check = str(config.get("final_check", "same_as_last"))
+    if raw_final_check == "lorawan_1_0_4_monotonic_devnonce":
+        # Deprecated: use final_check="lower_than_last"; version evaluation is
+        # controlled by device.lorawan_version (→ target_lorawan_1_0_4).
+        raw_final_check = "lower_than_last"
+
     return JoinDevNonceConfigV1(
         valid_join_count=_expect_int(
             "valid_join_count", config.get("valid_join_count", 1), min_value=1
@@ -549,7 +556,7 @@ def parse_join_devnonce_config(config: dict[str, Any]) -> JoinDevNonceConfigV1:
         ),
         final_check=_expect_enum(
             "final_check",
-            str(config.get("final_check", "same_as_last")),
+            raw_final_check,
             JOIN_DEVNONCE_FINAL_CHECKS,
         ),
         result_cache_size=_expect_int(

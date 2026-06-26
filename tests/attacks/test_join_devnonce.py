@@ -89,6 +89,20 @@ class TestJoinDevNonceConfigParser(unittest.TestCase):
                 }
             )
 
+    def test_deprecated_lorawan_1_0_4_monotonic_alias_normalized(self) -> None:
+        """lorawan_1_0_4_monotonic_devnonce is normalized to lower_than_last (backward compat)."""
+        config = parse_join_devnonce_config({"final_check": "lorawan_1_0_4_monotonic_devnonce"})
+        self.assertEqual(config.final_check, "lower_than_last")
+
+    def test_deprecated_alias_not_in_allowed_values(self) -> None:
+        """lorawan_1_0_4_monotonic_devnonce must not appear in the final_check allowed_values."""
+        from lora_attack_toolkit.app.params import get_allowed_values
+
+        allowed = get_allowed_values("attack.config.final_check")
+        self.assertIsNotNone(allowed)
+        self.assertNotIn("lorawan_1_0_4_monotonic_devnonce", allowed)
+        self.assertIn("lower_than_last", allowed)
+
 
 class TestDevNonceResultCache(unittest.TestCase):
     def test_cache_is_bounded(self) -> None:
@@ -491,7 +505,7 @@ class TestJoinDevNonceAttack(unittest.TestCase):
             self.ctx,
             input=replace(
                 self.ctx.input,
-                typed_config=replace(self.config, final_check="lorawan_1_0_4_monotonic_devnonce"),
+                typed_config=replace(self.config, final_check="lower_than_last"),
             ),
         )
         result = attack.run(ctx)
@@ -499,7 +513,7 @@ class TestJoinDevNonceAttack(unittest.TestCase):
         self.assertEqual(result.security_verdict, SecurityVerdict.SECURE)
         self.assertTrue(result.target_protected)
         self.assertTrue(result.metrics["behavior_supported"])
-        self.assertEqual(result.metrics["behavior_under_test"], "lorawan_1_0_4_monotonic_devnonce")
+        self.assertEqual(result.metrics["behavior_under_test"], "monotonic_devnonce")
 
     def test_monotonic_lower_accepted_unknown_profile_is_capability_only(self) -> None:
         """1.0.4 mode under unknown/1.0.3 profile: accepted lower DevNonce is not a vuln."""
@@ -547,7 +561,7 @@ class TestJoinDevNonceAttack(unittest.TestCase):
                 self.ctx.input,
                 typed_config=replace(
                     self.config,
-                    final_check="lorawan_1_0_4_monotonic_devnonce",
+                    final_check="lower_than_last",
                     target_lorawan_1_0_4=True,
                 ),
             ),
@@ -578,7 +592,7 @@ class TestJoinDevNonceAttack(unittest.TestCase):
         cache.store(_step(b"\x0a\x00", accepted=True))  # last_accepted = 10
         final_devnonce = b"\x09\x00"  # tested lower value
         control, reason = attack._select_control_devnonce(
-            cache, final_devnonce, final_check="lorawan_1_0_4_monotonic_devnonce"
+            cache, final_devnonce, final_check="lower_than_last"
         )
         self.assertIsNotNone(control)
         self.assertGreater(int.from_bytes(control, "little"), 10)
@@ -591,7 +605,7 @@ class TestJoinDevNonceAttack(unittest.TestCase):
         cache.store(_step(b"\xff\xff", accepted=True))  # last_accepted = 65535
         final_devnonce = b"\xfe\xff"
         control, reason = attack._select_control_devnonce(
-            cache, final_devnonce, final_check="lorawan_1_0_4_monotonic_devnonce"
+            cache, final_devnonce, final_check="lower_than_last"
         )
         self.assertIsNone(control)
         self.assertIn("impossible", reason)
@@ -605,7 +619,7 @@ class TestJoinDevNonceAttack(unittest.TestCase):
             self.config,
             valid_join_count=1,
             valid_devnonce_start=0xFFFF,
-            final_check="lorawan_1_0_4_monotonic_devnonce",
+            final_check="lower_than_last",
         )
 
         def fake_generation(ctx, config, timing, cache):
@@ -1093,7 +1107,7 @@ class TestVersionDrivenConfig(unittest.TestCase):
             "type": "join_devnonce",
             "config": {
                 "valid_join_count": 1,
-                "final_check": "lorawan_1_0_4_monotonic_devnonce",
+                "final_check": "lower_than_last",
             },
         },
         "logging": {"level": "info", "log_phy_payload": False, "log_semtech_udp": False},

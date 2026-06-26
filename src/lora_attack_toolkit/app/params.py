@@ -20,13 +20,16 @@ REGISTRY: list[ParamMeta] = [
     ParamMeta(
         path="attack.config.final_check",
         type_str="enum",
-        description="How the final DevNonce validation request is generated.",
+        description=(
+            "Probe mechanism for the final DevNonce validation request (version-neutral). "
+            "Use 'lower_than_last' for the monotonic-DevNonce probe; whether a lower DevNonce "
+            "being accepted is a compliance violation is controlled by device.lorawan_version."
+        ),
         default="same_as_last",
         allowed_values=[
             "replay_first",
             "same_as_last",
             "lower_than_last",
-            "lorawan_1_0_4_monotonic_devnonce",
             "custom",
         ],
     ),
