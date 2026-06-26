@@ -1,6 +1,6 @@
 {
   "scenario": {
-    "description": "Validate DevNonce replay, lower-than-last, and retention behavior",
+    "description": "Validate DevNonce handling: replay, lower-than-last, retention, and 1.0.4 monotonic compliance (switch via attack.config)",
     "timeout_sec": 30.0
   },
   "target": {
@@ -38,7 +38,8 @@
       "valid_join_count": 50,
       "valid_devnonce_start": 0,
       "valid_devnonce_step": 1,
-      "final_check": "replay_first",
+      "final_check": "lower_than_last",
+      "target_lorawan_1_0_4": false,
       "result_cache_size": 10,
       "timing": {
         "join_accept_timeout_sec": 7.0

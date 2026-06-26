@@ -61,15 +61,42 @@ It controls the wait interval between consecutive messages (JoinRequest→JoinRe
 
 Attack metadata (id, title, category) is resolved internally from the registry — it does not belong in the scenario file.
 
+**`expected` is optional for `join_devnonce` scenarios.** When omitted, the profile is derived
+from `device.lorawan_version` (e.g. `lorawan_1_0_4_devnonce_validation` for version `1.0.4`).
+The `device.lorawan_version` field is the single knob that controls the interpretation:
+- `1.0.4` or `1.1` → accepting a lower DevNonce is **VULNERABLE** (monotonic-DevNonce compliance)
+- `1.0.3` → the same observation is **INCONCLUSIVE** (capability detection only)
+
 ---
 
 ## Available Examples
 
 ### join-devnonce-v1.json
 - **Attack type**: `join_devnonce`
+- **Default mode**: `target_lorawan_1_0_4: false`, `device.lorawan_version: 1.0.3` — accepting a lower DevNonce is reported as **INCONCLUSIVE** (capability detection only)
 - **Validation profile**: `lorawan_1_0_3_devnonce_validation`
-- **Description**: Validates DevNonce replay and rollback protection.
-  Sends N valid JoinRequests then attempts a disallowed final DevNonce.
+- **Description**: Validates DevNonce handling: replay, lower-than-last, retention, and 1.0.4
+  monotonic compliance. The verdict mode is selected at runtime via `attack.config`:
+
+  **LoRaWAN 1.0.3 baseline** (capability — INCONCLUSIVE if lower DevNonce accepted):
+  ```
+  use join-devnonce-v1
+  set target.host 192.168.1.10
+  run
+  ```
+
+  **LoRaWAN 1.0.4 monotonic compliance** (same probe — VULNERABLE if lower DevNonce accepted):
+  ```
+  use join-devnonce-v1
+  set target.host 192.168.1.10
+  set attack.config.target_lorawan_1_0_4 true
+  run
+  ```
+
+  **Replay variant** (check that NS rejects a previously-seen DevNonce):
+  ```
+  set attack.config.final_check replay_first
+  ```
 
 ### uplink-replay-v1.json
 - **Attack type**: `uplink_replay`
@@ -107,8 +134,9 @@ python -m lora_attack_toolkit.main
 
 | Profile | Description |
 |---------|-------------|
-| `lorawan_1_0_3_devnonce_validation` | NS must reject a reused DevNonce (LoRaWAN 1.0.3 replay protection) |
-| `lorawan_1_0_4_monotonic_devnonce` | NS must reject a DevNonce ≤ last accepted (LoRaWAN 1.0.4 monotonic rule — a capability/compliance test, not a universal 1.0.3 vulnerability test) |
+| `lorawan_1_0_3_devnonce_validation` | NS must reject a reused DevNonce (LoRaWAN 1.0.3 replay protection); lower DevNonce accepted → INCONCLUSIVE |
+| `lorawan_1_0_4_devnonce_validation` | NS must reject a DevNonce ≤ last accepted (LoRaWAN 1.0.4 monotonic rule); accepting a lower DevNonce → VULNERABLE |
+| `lorawan_1_1_devnonce_validation` | Same as 1.0.4 — monotonic-DevNonce compliance required; accepting a lower DevNonce → VULNERABLE |
 | `lorawan_uplink_replay_protection` | NS must reject replayed uplinks with same FCnt |
 
 > **MAC command validation** was designed but not shipped. A `lorawan_mac_command_validation`

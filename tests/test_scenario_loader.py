@@ -104,3 +104,90 @@ class BundledScenarioTests(unittest.TestCase):
                 scenario = load_attack_scenario(str(path))
                 self.assertEqual(scenario.device.region, "EU868")
                 self.assertEqual(scenario.target.transport, "semtech_udp")
+
+
+class OptionalExpectedSectionTests(unittest.TestCase):
+    """The expected section is optional; when absent the profile is derived from the version."""
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmpdir.cleanup)
+        # Minimal valid scenario without an expected section.
+        self._base = {
+            "target": {
+                "name": "test-ns",
+                "transport": "semtech_udp",
+                "host": "127.0.0.1",
+                "port": 1700,
+            },
+            "gateway": {
+                "gateway_eui": "0102030405060708",
+                "pull_data_interval_sec": 5,
+                "radio": {
+                    "region": "EU868",
+                    "frequency_hz": 868100000,
+                    "data_rate": "SF7BW125",
+                    "rssi": -60,
+                    "snr": 7.5,
+                },
+            },
+            "device": {
+                "name": "test-device",
+                "lorawan_version": "1.0.4",
+                "region": "EU868",
+                "class": "A",
+                "activation": {
+                    "mode": "OTAA",
+                    "dev_eui": "0011223344556677",
+                    "join_eui": "0011223344556677",
+                    "app_key": "00112233445566770011223344556677",
+                },
+            },
+            "attack": {
+                "type": "join_devnonce",
+                "config": {"valid_join_count": 1, "final_check": "same_as_last"},
+            },
+            "logging": {"level": "info", "log_phy_payload": False, "log_semtech_udp": False},
+        }
+
+    def _write_and_load(self, data: dict) -> object:
+        import json
+
+        tmp = Path(self._tmpdir.name) / "scenario.json"
+        tmp.write_text(json.dumps(data))
+        return load_attack_scenario(str(tmp))
+
+    def test_expected_absent_derives_profile_from_version_1_0_4(self) -> None:
+        scenario = self._write_and_load(self._base)
+        self.assertEqual(scenario.expected.profile, "lorawan_1_0_4_devnonce_validation")
+
+    def test_expected_absent_derives_profile_from_version_1_1(self) -> None:
+        import copy
+
+        data = copy.deepcopy(self._base)
+        data["device"]["lorawan_version"] = "1.1"
+        scenario = self._write_and_load(data)
+        self.assertEqual(scenario.expected.profile, "lorawan_1_1_devnonce_validation")
+
+    def test_expected_absent_derives_profile_from_version_1_0_3(self) -> None:
+        import copy
+
+        data = copy.deepcopy(self._base)
+        data["device"]["lorawan_version"] = "1.0.3"
+        scenario = self._write_and_load(data)
+        self.assertEqual(scenario.expected.profile, "lorawan_1_0_3_devnonce_validation")
+
+    def test_explicit_expected_profile_is_preserved(self) -> None:
+        """An explicit expected.profile always wins, regardless of version."""
+        import copy
+
+        data = copy.deepcopy(self._base)
+        data["expected"] = {"profile": "lorawan_1_0_3_devnonce_validation"}
+        scenario = self._write_and_load(data)
+        self.assertEqual(scenario.expected.profile, "lorawan_1_0_3_devnonce_validation")
+
+    def test_provenance_receives_derived_profile(self) -> None:
+        """scenario.expected.profile is a non-empty string in the derived case."""
+        scenario = self._write_and_load(self._base)
+        self.assertIsInstance(scenario.expected.profile, str)
+        self.assertTrue(scenario.expected.profile)

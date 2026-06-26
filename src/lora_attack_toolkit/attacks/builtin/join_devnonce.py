@@ -103,6 +103,7 @@ class JoinDevNonceAttack(BaseAttack):
                     resolved_devnonce_start=resolved_start,
                 )
                 ctx.capture.metadata["devnonce_validation"] = metrics
+                metrics["capture_stats"] = ctx.capture.get_stats()
                 return AttackResult(
                     attack_name=self.name,
                     attack_type=self.name,
@@ -138,6 +139,7 @@ class JoinDevNonceAttack(BaseAttack):
                     ctx.capture.uplinks,
                     ctx.capture.downlinks,
                 )
+                metrics["capture_stats"] = ctx.capture.get_stats()
                 return AttackResult(
                     attack_name=self.name,
                     attack_type=self.name,
@@ -182,6 +184,7 @@ class JoinDevNonceAttack(BaseAttack):
                     selection_meta=selection_meta,
                 )
                 ctx.capture.metadata["devnonce_validation"] = metrics
+                metrics["capture_stats"] = ctx.capture.get_stats()
                 return AttackResult(
                     attack_name=self.name,
                     attack_type=self.name,
@@ -258,6 +261,7 @@ class JoinDevNonceAttack(BaseAttack):
                 inc_metrics["behavior_under_test"] = MONOTONIC_DEVNONCE_CHECK
                 inc_metrics["rationale"] = reason_msg
                 ctx.capture.metadata["devnonce_validation"] = inc_metrics
+                inc_metrics["capture_stats"] = ctx.capture.get_stats()
                 return AttackResult(
                     attack_name=self.name,
                     attack_type=self.name,
@@ -318,6 +322,7 @@ class JoinDevNonceAttack(BaseAttack):
                     f"the target may be unreachable — result is inconclusive"
                 )
 
+            metrics["capture_stats"] = ctx.capture.get_stats()
             return AttackResult(
                 attack_name=self.name,
                 attack_type=self.name,
@@ -416,7 +421,7 @@ class JoinDevNonceAttack(BaseAttack):
                     f"{prefix}Network Server accepted a lower DevNonce {devnonce_int}; the "
                     f"LoRaWAN 1.0.4 monotonic-DevNonce behaviour is NOT implemented. Under an "
                     f"unknown / LoRaWAN 1.0.3 profile this is a capability result, not a "
-                    f"vulnerability (set target_lorawan_1_0_4=true to evaluate compliance)"
+                    f"vulnerability (set device.lorawan_version=1.0.4 or 1.1 to evaluate compliance)"
                 ),
                 behavior_supported,
             )

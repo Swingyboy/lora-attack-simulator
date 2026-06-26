@@ -22,7 +22,23 @@ SUPPORTED_TRANSPORTS = frozenset({"semtech_udp"})
 SUPPORTED_REGIONS = frozenset({"EU868"})
 SUPPORTED_DEVICE_CLASSES = frozenset({"A"})
 SUPPORTED_ACTIVATION_MODES = frozenset({"OTAA"})
-SUPPORTED_LORAWAN_VERSIONS = frozenset({"1.0.3"})
+SUPPORTED_LORAWAN_VERSIONS = frozenset({"1.0.3", "1.0.4", "1.1"})
+
+
+def lorawan_version_enforces_monotonic_devnonce(version: str) -> bool:
+    """True for versions that mandate a strictly-increasing DevNonce (>= 1.0.4)."""
+    return version in {"1.0.4", "1.1"}
+
+
+def default_devnonce_profile(version: str) -> str:
+    """Reporting-only profile label derived from the LoRaWAN version.
+
+    Used when the ``expected`` section is omitted from a scenario; the returned
+    label is written to provenance so results remain reproducible without requiring
+    the user to specify the profile explicitly.
+    """
+    return f"lorawan_{version.replace('.', '_')}_devnonce_validation"
+
 
 # ── Base types ────────────────────────────────────────────────────────────────
 
@@ -262,11 +278,12 @@ class JoinDevNonceConfigV1:
     result_cache_size: int = 10
     final_devnonce: int | None = None
     devnonce_seed: int | None = None
-    # When True, the target Network Server is explicitly evaluated as
-    # LoRaWAN 1.0.4-compatible, so accepting a lower DevNonce
-    # (final_check="lorawan_1_0_4_monotonic_devnonce") is a compliance
-    # violation. When False (unknown / 1.0.3 profile) the same observation is
-    # reported as capability detection only, never an automatic vulnerability.
+    # Always injected by the scenario loader from ``device.lorawan_version``
+    # (True for 1.0.4 / 1.1, False for 1.0.3). ``device.lorawan_version`` is
+    # the single source of truth and always wins over any value in the scenario JSON.
+    # When True, accepting a lower DevNonce (final_check="lorawan_1_0_4_monotonic_devnonce")
+    # is a compliance violation (VULNERABLE). When False (1.0.3 profile), the same
+    # observation is reported as capability detection only (INCONCLUSIVE).
     target_lorawan_1_0_4: bool = False
     timing: AttackTiming | None = None
 
@@ -506,12 +523,16 @@ def parse_join_devnonce_config(config: dict[str, Any]) -> JoinDevNonceConfigV1:
 
     valid_devnonce_start_raw = config.get("valid_devnonce_start", 1)
     if isinstance(valid_devnonce_start_raw, str):
-        if valid_devnonce_start_raw.lower() != "random":
-            raise ValueError(
-                f"valid_devnonce_start must be an integer or 'random', "
-                f"got: {valid_devnonce_start_raw!r}"
-            )
-        valid_devnonce_start: int | str = "random"
+        if valid_devnonce_start_raw.lower() == "random":
+            valid_devnonce_start: int | str = "random"
+        else:
+            try:
+                valid_devnonce_start = int(valid_devnonce_start_raw)
+            except ValueError:
+                raise ValueError(
+                    f"valid_devnonce_start must be an integer or 'random', "
+                    f"got: {valid_devnonce_start_raw!r}"
+                )
     else:
         valid_devnonce_start = int(valid_devnonce_start_raw)
 
@@ -769,10 +790,11 @@ def _load_v1_format(raw: dict[str, Any]) -> AttackScenarioV1:
         gateway_data = raw["gateway"]
         device_data = raw["device"]
         attack_data = raw["attack"]
-        expected_data = raw["expected"]
         logging_data = raw["logging"]
     except KeyError as exc:
         raise ValueError(f"missing required section: {exc.args[0]}") from exc
+
+    expected_data = raw.get("expected", {})
 
     scenario_data = raw.get("scenario", {})
     _reject_unknown_keys("scenario", scenario_data, _ALLOWED_SCENARIO_KEYS)
@@ -858,9 +880,19 @@ def _load_v1_format(raw: dict[str, Any]) -> AttackScenarioV1:
         ),
     )
 
+    attack_type = _expect_str("attack.type", attack_data["type"])
+    attack_config = dict(attack_data.get("config", {}))
+
+    # For join_devnonce: device.lorawan_version always drives target_lorawan_1_0_4.
+    # The version is the single source of truth and wins over any value in the scenario JSON.
+    if attack_type == "join_devnonce":
+        attack_config["target_lorawan_1_0_4"] = lorawan_version_enforces_monotonic_devnonce(
+            device.lorawan_version
+        )
+
     attack = AttackConfigV1(
-        type=_expect_str("attack.type", attack_data["type"]),
-        config=attack_data.get("config", {}),
+        type=attack_type,
+        config=attack_config,
     )
 
     if "profile" in expected_data:
@@ -879,8 +911,9 @@ def _load_v1_format(raw: dict[str, Any]) -> AttackScenarioV1:
             _inline_criteria=tuple(security_criteria),
         )
     else:
-        raise ValueError(
-            "expected section must contain 'profile' (e.g. \"lorawan_1_0_3_devnonce_validation\")"
+        # expected section is absent or empty: derive the profile from the version.
+        expected = ExpectedBehavior(
+            profile=default_devnonce_profile(device.lorawan_version),
         )
 
     logging_cfg = LoggingConfig(

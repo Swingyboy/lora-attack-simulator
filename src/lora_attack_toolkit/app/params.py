@@ -90,12 +90,16 @@ REGISTRY: list[ParamMeta] = [
         type_str="str",
         description=(
             "Validation profile name used to assess NS security posture. "
+            "Optional for join_devnonce scenarios — derived from device.lorawan_version when absent. "
             "Built-in profiles: lorawan_1_0_3_devnonce_validation, "
+            "lorawan_1_0_4_devnonce_validation, lorawan_1_1_devnonce_validation, "
             "lorawan_uplink_replay_protection, lorawan_uplink_forgery_protection."
         ),
         default=None,
         allowed_values=[
             "lorawan_1_0_3_devnonce_validation",
+            "lorawan_1_0_4_devnonce_validation",
+            "lorawan_1_1_devnonce_validation",
             "lorawan_uplink_replay_protection",
             "lorawan_uplink_forgery_protection",
         ],
@@ -129,9 +133,14 @@ REGISTRY: list[ParamMeta] = [
     ParamMeta(
         path="device.lorawan_version",
         type_str="enum",
-        description="LoRaWAN specification version.",
+        description=(
+            "Single knob driving version logic. "
+            "1.0.4 and 1.1 enable monotonic-DevNonce compliance evaluation "
+            "(accepting a lower DevNonce is VULNERABLE); "
+            "1.0.3 reports the same observation as capability detection only (INCONCLUSIVE)."
+        ),
         default="1.0.3",
-        allowed_values=["1.0.3", "1.1"],
+        allowed_values=["1.0.3", "1.0.4", "1.1"],
     ),
     ParamMeta(
         path="device.region",

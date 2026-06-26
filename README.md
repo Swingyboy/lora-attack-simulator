@@ -5,7 +5,7 @@
 LoRAT enables security researchers and network operators to validate LoRaWAN Network Server implementations against protocol-level attacks and abuse scenarios.
 
 > **Scope.** LoRAT is a focused research prototype for security testing of
-> LoRaWAN Network Servers using Class A, OTAA, EU868, LoRaWAN 1.0.3, and the
+> LoRaWAN Network Servers using Class A, OTAA, EU868, LoRaWAN 1.0.3/1.0.4/1.1, and the
 > Semtech UDP Packet Forwarder protocol.
 
 ## Features
@@ -62,36 +62,30 @@ lorat "use join-devnonce-v1"
 
 ### Join DevNonce Validation
 
-Tests DevNonce replay protection:
+Tests DevNonce replay protection. The bundled scenario (`join-devnonce-v1`) uses
+`final_check: "lower_than_last"` and ships with `target_lorawan_1_0_4: false`:
 
-```json
-{
-  "scenario": {
-    "timeout_sec": 30
-  },
-  "attack": {
-    "type": "join_devnonce",
-    "config": {
-      "valid_join_count": 50,
-      "valid_devnonce_start": 0,
-      "valid_devnonce_step": 1,
-      "final_check": "replay_first",
-      "result_cache_size": 10
-    }
-  },
-  "expected": {
-    "profile": "lorawan_1_0_3_devnonce_validation"
-  }
-}
+**LoRaWAN 1.0.3 baseline** (capability — INCONCLUSIVE if lower DevNonce accepted):
+```
+use join-devnonce-v1
+set target.host 192.168.1.10
+run
+```
+
+**LoRaWAN 1.0.4 monotonic compliance** (same probe — VULNERABLE if lower DevNonce accepted):
+```
+use join-devnonce-v1
+set target.host 192.168.1.10
+set attack.config.target_lorawan_1_0_4 true
+run
 ```
 
 **Modes (`final_check`):**
 - `same_as_last`: Replay the last accepted DevNonce
 - `lower_than_last` (alias: `lorawan_1_0_4_monotonic_devnonce`): Send a lower DevNonce than
-  the last accepted one. Tests support for the monotonic DevNonce behaviour introduced in
-  LoRaWAN 1.0.4. Acceptance of a lower DevNonce is a vulnerability / non-compliance result
-  **only** when `target_lorawan_1_0_4=true`; under a LoRaWAN 1.0.3 profile it is reported
-  as an `INCONCLUSIVE` capability result.
+  the last accepted one. Tests the monotonic-DevNonce behaviour introduced in LoRaWAN 1.0.4.
+  When `target_lorawan_1_0_4=true`, acceptance of a lower DevNonce is **VULNERABLE**;
+  when `false` (default, 1.0.3 profile) it is **INCONCLUSIVE** (capability detection only).
 - `replay_first`: Replay the first accepted DevNonce after N valid joins
 - `custom`: Use an explicitly configured final DevNonce
 

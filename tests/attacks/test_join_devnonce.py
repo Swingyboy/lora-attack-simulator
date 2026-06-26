@@ -738,6 +738,26 @@ class TestDevNonceGeneration(unittest.TestCase):
                 {"valid_devnonce_start": "auto", "final_check": "same_as_last"}
             )
 
+    def test_parse_numeric_string_start(self) -> None:
+        """A numeric string like '500' (produced by the set command) is accepted."""
+        cfg = parse_join_devnonce_config(
+            {"valid_devnonce_start": "500", "final_check": "same_as_last"}
+        )
+        self.assertEqual(cfg.valid_devnonce_start, 500)
+        self.assertIsInstance(cfg.valid_devnonce_start, int)
+
+    def test_parse_numeric_string_zero(self) -> None:
+        cfg = parse_join_devnonce_config(
+            {"valid_devnonce_start": "0", "final_check": "same_as_last"}
+        )
+        self.assertEqual(cfg.valid_devnonce_start, 0)
+
+    def test_parse_random_string_case_insensitive(self) -> None:
+        cfg = parse_join_devnonce_config(
+            {"valid_devnonce_start": "RANDOM", "final_check": "same_as_last"}
+        )
+        self.assertEqual(cfg.valid_devnonce_start, "random")
+
     def test_parse_devnonce_seed(self) -> None:
         cfg = parse_join_devnonce_config({"devnonce_seed": 42, "final_check": "same_as_last"})
         self.assertEqual(cfg.devnonce_seed, 42)
@@ -1034,6 +1054,143 @@ class TestLowerThanLastSelection(unittest.TestCase):
         self.assertFalse(result.metrics["final_devnonce_was_previously_used"])
         self.assertEqual(result.metrics["final_devnonce_relation"], "lower_than_last")
         self.assertIn("lower_than_last_candidate_search_attempts", result.metrics)
+
+
+class TestVersionDrivenConfig(unittest.TestCase):
+    """Integration tests for version-driven target_lorawan_1_0_4 derivation."""
+
+    _BASE_SCENARIO = {
+        "target": {
+            "name": "test-ns",
+            "transport": "semtech_udp",
+            "host": "127.0.0.1",
+            "port": 1700,
+        },
+        "gateway": {
+            "gateway_eui": "0102030405060708",
+            "pull_data_interval_sec": 5,
+            "radio": {
+                "region": "EU868",
+                "frequency_hz": 868100000,
+                "data_rate": "SF7BW125",
+                "rssi": -60,
+                "snr": 7.5,
+            },
+        },
+        "device": {
+            "name": "test-device",
+            "lorawan_version": "1.0.3",
+            "region": "EU868",
+            "class": "A",
+            "activation": {
+                "mode": "OTAA",
+                "dev_eui": "0011223344556677",
+                "join_eui": "0011223344556677",
+                "app_key": "00112233445566770011223344556677",
+            },
+        },
+        "attack": {
+            "type": "join_devnonce",
+            "config": {
+                "valid_join_count": 1,
+                "final_check": "lorawan_1_0_4_monotonic_devnonce",
+            },
+        },
+        "logging": {"level": "info", "log_phy_payload": False, "log_semtech_udp": False},
+    }
+
+    def _load_scenario(self, lorawan_version: str, extra_config: dict | None = None) -> object:
+        import copy
+        import json
+        import tempfile
+        from pathlib import Path
+
+        from lora_attack_toolkit.config import load_attack_scenario
+
+        data = copy.deepcopy(self._BASE_SCENARIO)
+        data["device"]["lorawan_version"] = lorawan_version
+        if extra_config:
+            data["attack"]["config"].update(extra_config)
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(data, f)
+            path = Path(f.name)
+        try:
+            return load_attack_scenario(str(path))
+        finally:
+            path.unlink(missing_ok=True)
+
+    def test_version_1_0_4_derives_target_lorawan_1_0_4_true(self) -> None:
+        """lorawan_version=1.0.4 → typed config has target_lorawan_1_0_4=True."""
+        from lora_attack_toolkit.config import parse_join_devnonce_config
+
+        scenario = self._load_scenario("1.0.4")
+        typed_config = parse_join_devnonce_config(scenario.attack.config)
+        self.assertTrue(typed_config.target_lorawan_1_0_4)
+
+    def test_version_1_1_derives_target_lorawan_1_0_4_true(self) -> None:
+        """lorawan_version=1.1 → typed config has target_lorawan_1_0_4=True."""
+        from lora_attack_toolkit.config import parse_join_devnonce_config
+
+        scenario = self._load_scenario("1.1")
+        typed_config = parse_join_devnonce_config(scenario.attack.config)
+        self.assertTrue(typed_config.target_lorawan_1_0_4)
+
+    def test_version_1_0_3_derives_target_lorawan_1_0_4_false(self) -> None:
+        """lorawan_version=1.0.3 → typed config has target_lorawan_1_0_4=False."""
+        from lora_attack_toolkit.config import parse_join_devnonce_config
+
+        scenario = self._load_scenario("1.0.3")
+        typed_config = parse_join_devnonce_config(scenario.attack.config)
+        self.assertFalse(typed_config.target_lorawan_1_0_4)
+
+    def test_version_wins_over_explicit_false_in_json(self) -> None:
+        """device.lorawan_version always wins — explicit false in JSON is overridden."""
+        from lora_attack_toolkit.config import parse_join_devnonce_config
+
+        scenario = self._load_scenario("1.0.4", extra_config={"target_lorawan_1_0_4": False})
+        typed_config = parse_join_devnonce_config(scenario.attack.config)
+        self.assertTrue(typed_config.target_lorawan_1_0_4)
+
+    def test_version_1_0_3_wins_over_explicit_true_in_json(self) -> None:
+        """device.lorawan_version=1.0.3 always wins — explicit true in JSON is overridden."""
+        from lora_attack_toolkit.config import parse_join_devnonce_config
+
+        scenario = self._load_scenario("1.0.3", extra_config={"target_lorawan_1_0_4": True})
+        typed_config = parse_join_devnonce_config(scenario.attack.config)
+        self.assertFalse(typed_config.target_lorawan_1_0_4)
+
+    def test_expected_section_absent_derives_profile_from_version(self) -> None:
+        """When expected is omitted the profile is derived from lorawan_version."""
+        scenario = self._load_scenario("1.0.4")
+        self.assertEqual(scenario.expected.profile, "lorawan_1_0_4_devnonce_validation")
+
+    def test_expected_section_absent_1_0_3_derives_profile(self) -> None:
+        scenario = self._load_scenario("1.0.3")
+        self.assertEqual(scenario.expected.profile, "lorawan_1_0_3_devnonce_validation")
+
+    def test_explicit_profile_wins_over_derived(self) -> None:
+        """An explicit expected.profile is preserved even when version would derive another."""
+        import copy
+        import json
+        import tempfile
+        from pathlib import Path
+
+        from lora_attack_toolkit.config import load_attack_scenario
+
+        data = copy.deepcopy(self._BASE_SCENARIO)
+        data["device"]["lorawan_version"] = "1.0.4"
+        data["expected"] = {"profile": "lorawan_1_0_3_devnonce_validation"}
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(data, f)
+            path = Path(f.name)
+        try:
+            scenario = load_attack_scenario(str(path))
+        finally:
+            path.unlink(missing_ok=True)
+
+        self.assertEqual(scenario.expected.profile, "lorawan_1_0_3_devnonce_validation")
 
 
 if __name__ == "__main__":

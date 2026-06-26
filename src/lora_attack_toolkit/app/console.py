@@ -532,14 +532,80 @@ class LoRaWANConsole(cmd2.Cmd):
             raise KeyError(f"'{final_key}' in path '{path}'")
 
         original_value = current[final_key]
-        converted_value = self._convert_value(value_str, original_value)
+        converted_value = self._convert_value(value_str, original_value, path)
         current[final_key] = converted_value
 
-    def _convert_value(self, value_str: str, original_value: Any) -> Any:
-        """Convert string value to appropriate type based on original value."""
+    # ── value conversion ─────────────────────────────────────────────────────
+
+    def _convert_value(self, value_str: str, original_value: Any, path: str | None = None) -> Any:
+        """Convert a string from the CLI to the correct Python type.
+
+        Conversion is driven by the parameter's declared ``type_str`` from the
+        registry when the path is known.  Falls back to inference from the
+        currently stored value for unregistered paths (backwards compatibility).
+        """
         if value_str.lower() in ("none", "null"):
             return None
 
+        from lora_attack_toolkit.app import params as _params
+
+        if path is not None:
+            meta = _params.get_param(path)
+            if meta is not None:
+                return self._convert_by_type(value_str, meta)
+
+        return self._convert_by_inference(value_str, original_value)
+
+    @staticmethod
+    def _convert_by_type(value_str: str, meta: Any) -> Any:
+        """Convert ``value_str`` strictly according to the declared ``meta.type_str``."""
+        type_str = meta.type_str
+
+        if type_str == "bool":
+            if value_str.lower() in ("true", "yes", "1"):
+                return True
+            if value_str.lower() in ("false", "no", "0"):
+                return False
+            raise ValueError(
+                f"Cannot convert {value_str!r} to bool; expected true/false/yes/no/1/0"
+            )
+
+        if type_str == "int":
+            try:
+                return int(value_str, 0)
+            except ValueError:
+                raise ValueError(f"Cannot convert {value_str!r} to int")
+
+        if type_str == "int|random":
+            if value_str.lower() == "random":
+                return "random"
+            try:
+                return int(value_str, 0)
+            except ValueError:
+                raise ValueError(f"Cannot convert {value_str!r}: expected an integer or 'random'")
+
+        if type_str == "float":
+            try:
+                return float(value_str)
+            except ValueError:
+                raise ValueError(f"Cannot convert {value_str!r} to float")
+
+        if type_str == "enum":
+            if meta.allowed_values and value_str not in meta.allowed_values:
+                raise ValueError(
+                    f"{value_str!r} is not a valid value; allowed: {', '.join(meta.allowed_values)}"
+                )
+            return value_str
+
+        # str / hex / anything else — pass through unchanged
+        return value_str
+
+    @staticmethod
+    def _convert_by_inference(value_str: str, original_value: Any) -> Any:
+        """Fallback: infer the target type from the currently stored value.
+
+        Used only for paths not found in the parameter registry.
+        """
         if isinstance(original_value, bool):
             if value_str.lower() in ("true", "yes", "1"):
                 return True
@@ -939,9 +1005,13 @@ class LoRaWANConsole(cmd2.Cmd):
             for criterion in success_criteria:
                 print(f"  • {criterion}")
 
-        captured = results.get("captured_packets", {})
-        if captured:
-            if isinstance(captured, dict):
+        captured = results.get("captured_packets", 0)
+        capture_stats = metrics.get("capture_stats") if metrics else None
+        if capture_stats or captured:
+            if capture_stats:
+                uplinks = capture_stats.get("total_uplinks", 0)
+                downlinks = capture_stats.get("total_downlinks", 0)
+            elif isinstance(captured, dict):
                 uplinks = len(captured.get("uplinks", []))
                 downlinks = len(captured.get("downlinks", []))
             else:
@@ -950,6 +1020,15 @@ class LoRaWANConsole(cmd2.Cmd):
             print(f"\n{'Captured Packets':-^60}")
             print(f"  Uplinks: {uplinks}")
             print(f"  Downlinks: {downlinks}")
+            if capture_stats:
+                uplink_types = capture_stats.get("uplink_types", {})
+                downlink_types = capture_stats.get("downlink_types", {})
+                if uplink_types:
+                    for ptype, count in sorted(uplink_types.items()):
+                        print(f"    {ptype}: {count}")
+                if downlink_types:
+                    for ptype, count in sorted(downlink_types.items()):
+                        print(f"    {ptype}: {count}")
 
         print("\n" + "=" * 60)
 
